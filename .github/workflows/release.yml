@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        shell: pwsh
+        run: ./tests/run.ps1
+
+      - name: Verify release binary
+        id: verify
+        shell: pwsh
+        run: |
+          $manifest = Get-Content update.json -Raw | ConvertFrom-Json
+          $actualHash = (Get-FileHash dist/UsagePeek.exe -Algorithm SHA256).Hash
+          $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+
+          if ($manifest.version -ne $tagVersion) {
+            throw "Tag version $tagVersion does not match update.json version $($manifest.version)."
+          }
+
+          if ($actualHash -ne $manifest.sha256) {
+            throw "dist/UsagePeek.exe does not match update.json SHA-256."
+          }
+
+          "sha256=$actualHash" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA256: ${{ steps.verify.outputs.sha256 }}
+        run: |
+          $notes = @"
+          UsagePeek 的第一个公开 Windows 版本。
+
+          ## 主要功能
+
+          - 查看 Codex 5 小时 Session 与 7 天 Weekly 用量、重置倒计时和节奏预测。
+          - 统计今天、昨天、近 30 天及本机累计 Token，并估算 API 等价费用。
+          - 支持美元与人民币换算、开机自启、在线更新和 Codex CLI 一键修复。
+          - 单文件运行，无需安装 UsagePeek 本体。
+
+          ## 来源与许可
+
+          UsagePeek 从 [OpenUsage](https://github.com/robinebers/openusage) 的界面、用量统计、节奏预测和 Provider 思路改造而来，是独立的 Windows/C# 社区实现，并非 OpenUsage 官方 Windows 客户端。完整署名见 [THIRD_PARTY_NOTICES.md](https://github.com/Supaio/UsagePeek/blob/main/THIRD_PARTY_NOTICES.md)。
+
+          **SHA-256:** ``$env:RELEASE_SHA256``
+          "@
+
+          $notesPath = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          Set-Content -Path $notesPath -Value $notes -Encoding utf8
+
+          gh release create $env:GITHUB_REF_NAME "dist/UsagePeek.exe#UsagePeek.exe" `
+            --repo $env:GITHUB_REPOSITORY `
+            --title "UsagePeek $env:GITHUB_REF_NAME" `
+            --notes-file $notesPath `
+            --verify-tag

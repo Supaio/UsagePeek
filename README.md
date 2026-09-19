@@ -15,9 +15,10 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 
 ## 下载
 
-下载单文件版：[UsagePeek.exe](dist/UsagePeek.exe)。无需安装；放在个人目录后
-直接运行。如果只检测到受保护的 Codex 桌面版，点击“修复连接”即可获取官方
-Codex CLI 运行组件。
+推荐从 [GitHub Releases](https://github.com/Supaio/UsagePeek/releases/latest)
+下载单文件版，也可以[直接下载最新版 UsagePeek.exe](https://github.com/Supaio/UsagePeek/releases/latest/download/UsagePeek.exe)。
+无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
+点击“修复连接”即可获取官方 Codex CLI 运行组件。
 
 ## 当前功能
 
