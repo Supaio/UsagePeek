@@ -44,8 +44,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA256: ${{ steps.verify.outputs.sha256 }}
         run: |
+          $manifest = Get-Content update.json -Raw | ConvertFrom-Json
           $notes = @"
-          UsagePeek 的第一个公开 Windows 版本。
+          UsagePeek $($manifest.version) Windows 版本。
+
+          ## 本版说明
+
+          $($manifest.notes)
 
           ## 主要功能
 
