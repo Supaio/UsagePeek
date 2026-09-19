@@ -1,0 +1,27 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build portable executable
+        shell: cmd
+        run: build.cmd
+      - name: Run parser and local-usage tests
+        shell: pwsh
+        run: ./tests/run.ps1
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: UsagePeek-windows
+          path: bin/UsagePeek.exe

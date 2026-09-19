@@ -1,0 +1,18 @@
+# Build and local QA outputs
+bin/
+obj/
+preview*.png
+*.zip
+*.result.json
+
+# IDE and user-local files
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Local configuration and secrets
+.env
+.env.*
+update-url.txt
+auth.json

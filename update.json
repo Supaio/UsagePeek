@@ -1,0 +1,6 @@
+{
+  "version": "0.3.1",
+  "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
+  "sha256": "F95A6F62F07D5E40C49E1E2F89521714FD38B148C1605761BF52C15CF6AA6B87",
+  "notes": "首次公开版本：Codex 用量、累计 Token 与估值、人民币换算、开机自启、在线更新及一键修复连接。"
+}
