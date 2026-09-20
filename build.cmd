@@ -15,10 +15,16 @@ if not exist "%CSC%" (
 
 if not exist "bin" mkdir "bin"
 
+if not exist "assets\usagepeek.ico" (
+  echo [ERROR] Application icon was not found: assets\usagepeek.ico
+  exit /b 1
+)
+
 set "OUTPUT=bin\UsagePeek.exe"
 if not "%~1"=="" set "OUTPUT=%~1"
 
 "%CSC%" /nologo /utf8output /target:winexe /optimize+ /debug- /platform:anycpu ^
+  /win32icon:"assets\usagepeek.ico" ^
   /win32manifest:app.manifest ^
   /reference:System.dll ^
   /reference:System.Core.dll ^

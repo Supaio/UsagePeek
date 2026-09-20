@@ -28,7 +28,7 @@ namespace UsagePeek
             using (WebClient client = new WebClient())
             {
                 client.Encoding = Encoding.UTF8;
-                client.Headers[HttpRequestHeader.UserAgent] = "UsagePeek/0.3.1";
+                client.Headers[HttpRequestHeader.UserAgent] = "UsagePeek/0.3.2";
                 script = await client.DownloadStringTaskAsync(
                     new Uri(InstallerUrl));
             }
