@@ -25,6 +25,8 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 - 5 小时 Session 与 7 天 Weekly 用量、剩余量和重置倒计时。
 - 按当前消耗速度显示相对匀速的快慢，并预测额度耗尽时间或重置时余量。
 - 可用 Rate Limit Reset 次数、最近一张重置额度的到期时间。
+- 仅在确认检测到新的重置卡发放时显示托盘通知；首次读取只建立基线，
+  卡被使用、过期、刷新失败或旧详情补回时不会误报。
 - Credits / Extra Usage 余额。
 - 今天、昨天、近 30 天的本机 Token 与 API 等价费用估算。
 - 默认以美元显示费用；点击顶部 `$ USD` 会联网取得最新工作日 USD/CNY
@@ -78,6 +80,7 @@ Luna、`codex-auto-review` 按 Sol 的公开等价价格估算；其他无法识
 
 - 复用已登录的 Codex，本程序不读取、复制或保存 `auth.json` 中的令牌。
 - 不发送遥测，不上传本机会话数据。
+- 重置卡通知只在本地保存可用数量和发放/观察时间，用于去重。
 - “修复连接”仅下载并运行 `https://chatgpt.com/codex/install.ps1` 官方安装器；
   UsagePeek 本身仍不打开、复制或输出登录令牌。
 - `%LOCALAPPDATA%\UsagePeek\cache.json` 只保存聚合后的套餐、百分比、时间、
@@ -148,7 +151,7 @@ cd usagepeek
 
 ```json
 {
-  "version": "0.3.2",
+  "version": "0.3.3",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"

@@ -11,6 +11,7 @@ namespace UsagePeek
 
         private readonly IUsageProvider provider;
         private readonly UsageCache cache;
+        private readonly ResetCreditNotificationTracker resetCreditNotificationTracker;
         private readonly ExchangeRateService exchangeRateService;
         private readonly CurrencyDisplayState currencyState;
         private readonly StartupManager startupManager;
@@ -31,6 +32,7 @@ namespace UsagePeek
         {
             provider = new CodexUsageProvider();
             cache = new UsageCache();
+            resetCreditNotificationTracker = new ResetCreditNotificationTracker();
             exchangeRateService = new ExchangeRateService();
             currencyState = new CurrencyDisplayState();
             startupManager = new StartupManager();
@@ -142,10 +144,13 @@ namespace UsagePeek
             {
                 UsageSnapshot snapshot = await provider.FetchAsync();
                 snapshot.IsStale = false;
+                ResetCreditGrantNotification resetCreditGrant =
+                    resetCreditNotificationTracker.Observe(snapshot);
                 lastSnapshot = snapshot;
                 cache.Save(snapshot);
                 form.ShowSnapshot(snapshot, null);
                 UpdateTrayText(snapshot, false);
+                ShowResetCreditGrant(resetCreditGrant);
             }
             catch (Exception ex)
             {
@@ -328,6 +333,32 @@ namespace UsagePeek
             string suffix = stale ? " · 缓存" : string.Empty;
             string text = "UsagePeek · 5h " + primary + " · 7d " + secondary + suffix;
             trayIcon.Text = text.Length > 63 ? text.Substring(0, 63) : text;
+        }
+
+        private void ShowResetCreditGrant(
+            ResetCreditGrantNotification notification)
+        {
+            if (notification == null || notification.NewCreditCount <= 0)
+            {
+                return;
+            }
+
+            string message = notification.NewCreditCount == 1
+                ? "检测到 1 张新的重置卡。"
+                : "检测到 " + notification.NewCreditCount + " 张新的重置卡。";
+            if (notification.AvailableCount.HasValue)
+            {
+                message += "\n当前可用 " + notification.AvailableCount.Value + " 张。";
+            }
+            if (notification.EarliestExpiryUtc.HasValue)
+            {
+                message += "\n最近到期：" +
+                    notification.EarliestExpiryUtc.Value.ToLocalTime()
+                        .ToString("M月d日 HH:mm");
+            }
+
+            trayIcon.ShowBalloonTip(8000, "UsagePeek · 收到重置卡",
+                message, ToolTipIcon.Info);
         }
 
         private void ExitApplication()

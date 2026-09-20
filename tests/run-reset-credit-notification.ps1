@@ -12,7 +12,7 @@ if (-not (Test-Path -LiteralPath $compiler)) {
 
 $outputDirectory = Join-Path $root 'bin'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-$output = Join-Path $outputDirectory 'ParserQa.exe'
+$output = Join-Path $outputDirectory 'ResetCreditNotificationQa.exe'
 
 & $compiler /nologo /utf8output /target:exe /optimize+ `
     /reference:System.dll `
@@ -20,22 +20,12 @@ $output = Join-Path $outputDirectory 'ParserQa.exe'
     /reference:System.Web.Extensions.dll `
     "/out:$output" `
     (Join-Path $root 'UsageModels.cs') `
-    (Join-Path $root 'CodexResponseParser.cs') `
-    (Join-Path $PSScriptRoot 'ParserQa.cs')
+    (Join-Path $root 'ResetCreditNotificationTracker.cs') `
+    (Join-Path $PSScriptRoot 'ResetCreditNotificationQa.cs')
 
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
 & $output
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-local-usage.ps1')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-reset-credit-notification.ps1')
 exit $LASTEXITCODE

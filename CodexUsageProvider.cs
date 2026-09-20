@@ -41,7 +41,7 @@ namespace UsagePeek
                 {
                     WriteMessage(process,
                         "{\"id\":1,\"method\":\"initialize\",\"params\":{" +
-                        "\"clientInfo\":{\"name\":\"usagepeek\",\"version\":\"0.3.2\"}," +
+                        "\"clientInfo\":{\"name\":\"usagepeek\",\"version\":\"0.3.3\"}," +
                         "\"capabilities\":{\"experimentalApi\":true}}}");
 
                     IDictionary<string, object> initializeReply = ReadReply(process, 1);
