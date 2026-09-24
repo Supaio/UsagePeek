@@ -111,6 +111,15 @@ internal static class ParserQa
                 {
                     HasData = true,
                     TotalTokens = 42
+                },
+                ModelUsage = new List<ModelTokenUsageSnapshot>
+                {
+                    new ModelTokenUsageSnapshot
+                    {
+                        Model = "gpt-6-sol",
+                        TotalTokens = 42,
+                        Percentage = 100d
+                    }
                 }
             },
             AccountTokenUsage = new AccountTokenUsageSnapshot
@@ -128,6 +137,8 @@ internal static class ParserQa
             serializer.Serialize(source));
         Check(restored != null && restored.ResetCredits.Count == 1 &&
             restored.LocalTokenUsage.Today.TotalTokens == 42 &&
+            restored.LocalTokenUsage.ModelUsage.Count == 1 &&
+            restored.LocalTokenUsage.ModelUsage[0].Model == "gpt-6-sol" &&
             restored.AccountTokenUsage.DailyTokens["2026-09-19"] == 42,
             "aggregate snapshot survives cache serialization");
     }

@@ -51,7 +51,7 @@ internal static class LocalUsageQa
 
         File.WriteAllLines(Path.Combine(sessions, "a-parent.jsonl"), new[]
         {
-            Context("gpt-5.6-sol"),
+            Context("gpt-6-sol"),
             Token(firstTime, 100, 20, 10, 110),
             Token(Stamp(now.AddMinutes(-15)), 100, 20, 10, 110),
             Token(secondTime, 150, 30, 20, 170)
@@ -59,7 +59,7 @@ internal static class LocalUsageQa
 
         File.WriteAllLines(Path.Combine(sessions, "b-fork.jsonl"), new[]
         {
-            Context("gpt-5.6-sol"),
+            Context("gpt-6-sol"),
             Token(firstTime, 100, 20, 10, 110),
             Token(secondTime, 150, 30, 20, 170),
             Token(thirdTime, 200, 40, 30, 230)
@@ -67,21 +67,21 @@ internal static class LocalUsageQa
 
         File.WriteAllLines(Path.Combine(sessions, "c-yesterday.jsonl"), new[]
         {
-            Context("gpt-5.6-luna"),
+            Context("gpt-6-luna"),
             Token(Stamp(yesterday), 45, 10, 5, 50)
         });
 
         File.WriteAllLines(Path.Combine(sessions, "d-subagent.jsonl"), new[]
         {
             SessionMeta(20),
-            Context("gpt-5.6-sol"),
+            Context("gpt-6-sol"),
             TokenWithOrdinal(10, Stamp(now.AddMinutes(-2)), 900, 100, 100, 1000),
             TokenWithOrdinal(21, Stamp(now.AddMinutes(-1)), 940, 105, 110, 1050)
         });
 
         File.WriteAllLines(Path.Combine(sessions, "e-regression.jsonl"), new[]
         {
-            Context("gpt-5.6-luna"),
+            Context("gpt-6-luna"),
             Token(Stamp(now.AddMinutes(-4)), 90, 20, 10, 100),
             Token(Stamp(now.AddMinutes(-3)), 35, 5, 5, 40),
             Token(Stamp(now.AddMinutes(-2)), 108, 22, 12, 120)
@@ -99,7 +99,19 @@ internal static class LocalUsageQa
             "forked and subagent replay history is counted once");
         Check(result.Today.HasCompleteCostEstimate &&
             result.Today.EstimatedCostUsd > 0m,
-            "known models receive an API-equivalent cost estimate");
+            "new GPT-6 models receive an API-equivalent cost estimate");
+        Check(result.Today.EstimatedCostUsd == 0.00081382m,
+            "GPT-6 Sol and Luna use the published standard token rates");
+        ModelTokenUsageSnapshot sol = FindModel(result, "gpt-6-sol");
+        ModelTokenUsageSnapshot luna = FindModel(result, "gpt-6-luna");
+        Check(result.ModelUsage != null && result.ModelUsage.Count == 2,
+            "model usage includes every observed model");
+        Check(sol != null && sol.TotalTokens == 280 &&
+            Math.Abs(sol.Percentage - (280d * 100d / 450d)) < 0.001d,
+            "model usage groups Sol tokens and calculates its share");
+        Check(luna != null && luna.TotalTokens == 170 &&
+            Math.Abs(luna.Percentage - (170d * 100d / 450d)) < 0.001d,
+            "model usage groups Luna tokens and calculates its share");
         Check(result.FilesScanned == 5, "all rollout files are scanned");
         Check(result.FirstSeenAtUtc.HasValue, "first usage timestamp is retained");
     }
@@ -154,6 +166,26 @@ internal static class LocalUsageQa
     {
         return value.ToUniversalTime().ToString(
             "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
+    }
+
+    private static ModelTokenUsageSnapshot FindModel(
+        LocalTokenUsageSnapshot snapshot,
+        string model)
+    {
+        if (snapshot == null || snapshot.ModelUsage == null)
+        {
+            return null;
+        }
+
+        foreach (ModelTokenUsageSnapshot item in snapshot.ModelUsage)
+        {
+            if (string.Equals(item.Model, model,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return item;
+            }
+        }
+        return null;
     }
 
     private static void Check(bool condition, string name)

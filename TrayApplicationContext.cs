@@ -42,6 +42,7 @@ namespace UsagePeek
             form.RefreshRequested += async delegate { await RefreshAsync(); };
             form.CurrencyToggleRequested += async delegate { await ToggleCurrencyAsync(); };
             form.RepairRequested += async delegate { await RepairCodexAsync(); };
+            form.ModelUsageRequested += delegate { ShowModelUsage(); };
             form.SetCurrencyState(currencyState);
             form.FormClosed += delegate { ExitApplication(); };
 
@@ -50,6 +51,9 @@ namespace UsagePeek
             openItem.Click += delegate { form.ShowNearTray(); };
             ToolStripMenuItem refreshItem = new ToolStripMenuItem("立即刷新");
             refreshItem.Click += async delegate { await RefreshAsync(); };
+            ToolStripMenuItem modelUsageItem =
+                new ToolStripMenuItem("查看模型用量占比");
+            modelUsageItem.Click += delegate { ShowModelUsage(); };
             ToolStripMenuItem startupItem = new ToolStripMenuItem("开机自启");
             startupItem.Checked = startupManager.IsEnabled();
             startupItem.CheckOnClick = false;
@@ -79,6 +83,7 @@ namespace UsagePeek
             exitItem.Click += delegate { ExitApplication(); };
             menu.Items.Add(openItem);
             menu.Items.Add(refreshItem);
+            menu.Items.Add(modelUsageItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(startupItem);
             menu.Items.Add(updateItem);
@@ -359,6 +364,25 @@ namespace UsagePeek
 
             trayIcon.ShowBalloonTip(8000, "UsagePeek · 收到重置卡",
                 message, ToolTipIcon.Info);
+        }
+
+        private void ShowModelUsage()
+        {
+            if (lastSnapshot == null || lastSnapshot.LocalTokenUsage == null ||
+                lastSnapshot.LocalTokenUsage.ModelUsage == null ||
+                lastSnapshot.LocalTokenUsage.ModelUsage.Count == 0)
+            {
+                form.ShowNearTray();
+                form.ShowTransientStatus("暂无模型分组数据，请先刷新。", true);
+                return;
+            }
+
+            form.Hide();
+            using (ModelUsageForm dialog = new ModelUsageForm(lastSnapshot))
+            {
+                dialog.PlaceNearTray();
+                dialog.ShowDialog();
+            }
         }
 
         private void ExitApplication()

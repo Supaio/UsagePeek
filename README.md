@@ -34,6 +34,8 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 - **本机累计估值**：按仍保存在本机的 Codex 会话计算累计 API 等价费用。
 - **累计 Token**：优先显示 Codex 官方返回的账号历史累计；若当前版本或
   账号不支持，则回退为这台电脑现存本地记录的累计值。
+- **模型用量占比**：按本机仍保存的会话统计每个模型的累计 Token、数量和
+  百分比；可从主面板底部或托盘菜单打开。
 - 一键打开 OpenAI 系统状态页和 ChatGPT Codex 官方用量面板。
 - 启动缓存、后台刷新、托盘左键展开、右键刷新或退出。
 - 托盘菜单可开关“开机自启”；自启时只驻留托盘，不主动弹窗。
@@ -55,22 +57,25 @@ UsagePeek 通过 Codex app-server 调用：
 账号累计可能包含其他设备或不完全出现在本机日志里的后台用量，因此它与
 本机累计不一定相同。官方接口不支持时，界面会自动显示本机记录口径。
 
-### 本机日用量
+### 本机用量与模型占比
 
 今天、昨天和近 30 天来自 `CODEX_HOME`（默认 `%USERPROFILE%\.codex`）下的
 `sessions` 与 `archived_sessions`。扫描器只解析 `turn_context` 和
 `token_count` 元数据，不保存提示词、回复或工具输出。
 
 统计按累计计数的增量计算，并忽略累计值未变化的重复事件；复制到分叉或
-子代理会话中的相同历史也只计一次。日期按 Windows 当前本地时区分组。
+子代理会话中的相同历史也只计一次。日期按 Windows 当前本地时区分组；模型
+占比则按所有现存本机记录的 `total_tokens` 分组，因此不包含已删除的会话或
+只存在于其他设备上的记录。
 
 ### 费用估算
 
 费用前的 `≈` 表示它是按 OpenAI 公开 API 标准价格计算的等价估算，**不是
 ChatGPT 订阅账单，也不会从账号扣款**。估算区分普通输入、缓存输入、缓存
-写入、输出及长上下文价格（价格表基准：2026-09-19）。`gpt-reserve` 按
-Luna、`codex-auto-review` 按 Sol 的公开等价价格估算；其他无法识别的模型
-显示 `$--`，不会猜测金额。
+写入、输出及长上下文价格（[OpenAI 官方价格表](https://developers.openai.com/api/docs/pricing)，
+基准：2026-09-24）。当前已覆盖 GPT-6 Astra / Sol / Luna、GPT-5.6、GPT-5.5
+及常见历史 Codex 模型；`gpt-reserve` 按 Luna、`codex-auto-review` 按 Sol 的
+公开等价价格估算。其他无法识别的模型显示 `$--`，不会猜测金额。
 
 人民币金额同样只是显示换算。汇率由 Frankfurter 的免密钥 HTTPS 接口提供，
 按最新工作日参考数据更新，不是盘中交易报价；切换到 CNY 时才发出请求，
@@ -84,7 +89,7 @@ Luna、`codex-auto-review` 按 Sol 的公开等价价格估算；其他无法识
 - “修复连接”仅下载并运行 `https://chatgpt.com/codex/install.ps1` 官方安装器；
   UsagePeek 本身仍不打开、复制或输出登录令牌。
 - `%LOCALAPPDATA%\UsagePeek\cache.json` 只保存聚合后的套餐、百分比、时间、
-  Token 和估算金额，不包含账号 ID、Cookie、访问令牌或对话正文。
+  模型名、Token 和估算金额，不包含账号 ID、Cookie、访问令牌或对话正文。
 
 > 当前显示的是 ChatGPT 登录下的 **Codex 使用额度与 Token 活动**，不是普通
 > ChatGPT 对话消息数。个人 ChatGPT Windows 客户端没有稳定、公开的通用
@@ -151,7 +156,7 @@ cd usagepeek
 
 ```json
 {
-  "version": "0.3.3",
+  "version": "0.3.4",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"

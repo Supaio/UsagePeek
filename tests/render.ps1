@@ -23,6 +23,7 @@ $preview = Join-Path $root 'preview.png'
     (Join-Path $root 'UsageCardControl.cs') `
     (Join-Path $root 'UsageDetailsControl.cs') `
     (Join-Path $root 'MainForm.cs') `
+    (Join-Path $root 'ModelUsageForm.cs') `
     (Join-Path $PSScriptRoot 'RenderQa.cs')
 
 if ($LASTEXITCODE -ne 0) {

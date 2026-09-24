@@ -1,6 +1,6 @@
 {
-  "version": "0.3.3",
+  "version": "0.3.4",
   "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
-  "sha256": "D7F07E64D6B7A0CB4D55F00BC418A227D0CA8FCDE1F70864FE0CA93C51293CD4",
-  "notes": "新增重置卡发放通知：首次读取只建立基线，仅在检测到可用数量增加或新的发放记录时提醒，并持久化去重避免重复通知。"
+  "sha256": "981897F54C7615530C56A6A1F9143121DD0FDADA1465EF5C945A837DF75B2FA2",
+  "notes": "补齐 GPT-6 Sol/Luna、GPT-5.5 及常见历史 Codex 模型价格；新增本机累计模型 Token 数量与百分比面板。"
 }

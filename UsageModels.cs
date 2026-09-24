@@ -42,12 +42,20 @@ namespace UsagePeek
         public bool HasCompleteCostEstimate { get; set; }
     }
 
+    internal sealed class ModelTokenUsageSnapshot
+    {
+        public string Model { get; set; }
+        public long TotalTokens { get; set; }
+        public double Percentage { get; set; }
+    }
+
     internal sealed class LocalTokenUsageSnapshot
     {
         public TokenPeriodSnapshot Today { get; set; }
         public TokenPeriodSnapshot Yesterday { get; set; }
         public TokenPeriodSnapshot Last30Days { get; set; }
         public TokenPeriodSnapshot Lifetime { get; set; }
+        public List<ModelTokenUsageSnapshot> ModelUsage { get; set; }
         public DateTime? FirstSeenAtUtc { get; set; }
         public int FilesScanned { get; set; }
     }

@@ -27,6 +27,8 @@ namespace UsagePeek
             UsageAccumulator yesterday = new UsageAccumulator();
             UsageAccumulator last30Days = new UsageAccumulator();
             UsageAccumulator lifetime = new UsageAccumulator();
+            Dictionary<string, long> modelTokens =
+                new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             HashSet<string> seenEvents = new HashSet<string>(StringComparer.Ordinal);
             DateTime localToday = DateTime.Now.Date;
             DateTime last30Start = localToday.AddDays(-29);
@@ -36,7 +38,8 @@ namespace UsagePeek
             foreach (string path in FindRolloutFiles())
             {
                 if (ScanFile(path, seenEvents, localToday, last30Start,
-                    today, yesterday, last30Days, lifetime, ref firstSeen))
+                    today, yesterday, last30Days, lifetime, modelTokens,
+                    ref firstSeen))
                 {
                     filesScanned++;
                 }
@@ -47,6 +50,7 @@ namespace UsagePeek
             snapshot.Yesterday = yesterday.ToSnapshot();
             snapshot.Last30Days = last30Days.ToSnapshot();
             snapshot.Lifetime = lifetime.ToSnapshot();
+            snapshot.ModelUsage = BuildModelUsage(modelTokens);
             snapshot.FirstSeenAtUtc = firstSeen;
             snapshot.FilesScanned = filesScanned;
             return snapshot;
@@ -61,6 +65,7 @@ namespace UsagePeek
             UsageAccumulator yesterday,
             UsageAccumulator last30Days,
             UsageAccumulator lifetime,
+            IDictionary<string, long> modelTokens,
             ref DateTime? firstSeen)
         {
             try
@@ -166,6 +171,7 @@ namespace UsagePeek
                         decimal? cost = PricingCatalog.Estimate(model, delta);
                         DateTime localDate = eventUtc.ToLocalTime().Date;
                         lifetime.Add(delta.TotalTokens, cost);
+                        AddModelTokens(modelTokens, model, delta.TotalTokens);
                         if (localDate >= last30Start && localDate <= localToday)
                         {
                             last30Days.Add(delta.TotalTokens, cost);
@@ -423,6 +429,71 @@ namespace UsagePeek
                 total.TotalTokens);
         }
 
+        private static void AddModelTokens(
+            IDictionary<string, long> totals,
+            string model,
+            long tokens)
+        {
+            if (totals == null || tokens <= 0)
+            {
+                return;
+            }
+
+            string name = string.IsNullOrWhiteSpace(model)
+                ? "未知模型"
+                : model.Trim();
+            long current;
+            totals.TryGetValue(name, out current);
+            totals[name] = current + tokens;
+        }
+
+        private static List<ModelTokenUsageSnapshot> BuildModelUsage(
+            IDictionary<string, long> totals)
+        {
+            List<KeyValuePair<string, long>> entries =
+                new List<KeyValuePair<string, long>>();
+            long allTokens = 0L;
+            if (totals != null)
+            {
+                foreach (KeyValuePair<string, long> entry in totals)
+                {
+                    if (entry.Value <= 0)
+                    {
+                        continue;
+                    }
+
+                    entries.Add(entry);
+                    allTokens += entry.Value;
+                }
+            }
+
+            entries.Sort(delegate(
+                KeyValuePair<string, long> left,
+                KeyValuePair<string, long> right)
+            {
+                int byTokens = right.Value.CompareTo(left.Value);
+                return byTokens != 0
+                    ? byTokens
+                    : string.Compare(left.Key, right.Key,
+                        StringComparison.OrdinalIgnoreCase);
+            });
+
+            List<ModelTokenUsageSnapshot> result =
+                new List<ModelTokenUsageSnapshot>();
+            foreach (KeyValuePair<string, long> entry in entries)
+            {
+                result.Add(new ModelTokenUsageSnapshot
+                {
+                    Model = entry.Key,
+                    TotalTokens = entry.Value,
+                    Percentage = allTokens > 0
+                        ? entry.Value * 100d / allTokens
+                        : 0d
+                });
+            }
+            return result;
+        }
+
         private static string ResolveCodexHome()
         {
             string configured = Environment.GetEnvironmentVariable("CODEX_HOME");
@@ -575,12 +646,22 @@ namespace UsagePeek
                 {
                     normalized = "gpt-5.6-sol";
                 }
+                else if (normalized == "gpt-5.6")
+                {
+                    normalized = "gpt-5.6-sol";
+                }
 
                 switch (normalized)
                 {
                     case "gpt-6-astra":
                         return new Price(10m, 1m, 12.5m, 50m,
                             20m, 2m, 25m, 75m);
+                    case "gpt-6-sol":
+                        return new Price(2m, 0.2m, 2.5m, 10m,
+                            4m, 0.4m, 5m, 15m);
+                    case "gpt-6-luna":
+                        return new Price(0.1m, 0.01m, 0.125m, 0.5m,
+                            0.2m, 0.02m, 0.25m, 0.75m);
                     case "gpt-5.6-sol":
                         return new Price(4m, 0.4m, 5m, 20m,
                             8m, 0.8m, 10m, 30m);
@@ -590,6 +671,25 @@ namespace UsagePeek
                     case "gpt-5.6-luna":
                         return new Price(0.2m, 0.02m, 0.25m, 1.2m,
                             0.4m, 0.04m, 0.5m, 1.8m);
+                    case "gpt-5.5":
+                    case "gpt-5.5-2026-04-23":
+                        return new Price(5m, 0.5m, 5m, 30m,
+                            10m, 1m, 10m, 45m);
+                    case "gpt-5.3-codex":
+                    case "gpt-5.2-codex":
+                        return new Price(1.75m, 0.175m, 1.75m, 14m,
+                            1.75m, 0.175m, 1.75m, 14m);
+                    case "gpt-5.1-codex":
+                    case "gpt-5.1-codex-max":
+                    case "gpt-5-codex":
+                        return new Price(1.25m, 0.125m, 1.25m, 10m,
+                            1.25m, 0.125m, 1.25m, 10m);
+                    case "gpt-5.1-codex-mini":
+                        return new Price(0.25m, 0.025m, 0.25m, 2m,
+                            0.25m, 0.025m, 0.25m, 2m);
+                    case "codex-mini-latest":
+                        return new Price(1.5m, 0.375m, 1.5m, 6m,
+                            1.5m, 0.375m, 1.5m, 6m);
                     default:
                         return null;
                 }

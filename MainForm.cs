@@ -19,6 +19,7 @@ namespace UsagePeek
         private readonly GlyphButtonControl refreshButton;
         private readonly GlyphButtonControl currencyButton;
         private readonly GlyphButtonControl repairButton;
+        private readonly GlyphButtonControl modelUsageButton;
         private readonly UsageCardControl primaryCard;
         private readonly UsageCardControl secondaryCard;
         private readonly Timer countdownTimer;
@@ -27,6 +28,7 @@ namespace UsagePeek
         public event EventHandler RefreshRequested;
         public event EventHandler CurrencyToggleRequested;
         public event EventHandler RepairRequested;
+        public event EventHandler ModelUsageRequested;
 
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
@@ -132,7 +134,7 @@ namespace UsagePeek
             statusLabel = new Label();
             statusLabel.AutoSize = false;
             statusLabel.BackColor = Color.Transparent;
-            statusLabel.Size = new Size(292, 36);
+            statusLabel.Size = new Size(188, 36);
             statusLabel.Location = new Point(21, 657);
             statusLabel.Font = new Font("Microsoft YaHei UI", 7.8f, FontStyle.Regular);
             statusLabel.ForeColor = Color.FromArgb(116, 134, 157);
@@ -145,6 +147,19 @@ namespace UsagePeek
             refreshButton.Click += delegate
             {
                 EventHandler handler = RefreshRequested;
+                if (handler != null)
+                {
+                    handler(this, EventArgs.Empty);
+                }
+            };
+
+            modelUsageButton = new GlyphButtonControl("模型占比", false);
+            modelUsageButton.Size = new Size(96, 34);
+            modelUsageButton.Location = new Point(218, 658);
+            modelUsageButton.Enabled = false;
+            modelUsageButton.Click += delegate
+            {
+                EventHandler handler = ModelUsageRequested;
                 if (handler != null)
                 {
                     handler(this, EventArgs.Empty);
@@ -178,6 +193,7 @@ namespace UsagePeek
             Controls.Add(detailsPanel);
             Controls.Add(divider);
             Controls.Add(statusLabel);
+            Controls.Add(modelUsageButton);
             Controls.Add(repairButton);
             Controls.Add(refreshButton);
 
@@ -359,6 +375,7 @@ namespace UsagePeek
             int highest = HighestUsage(snapshot);
             planPill.SetValue(snapshot.PlanType, UiDrawing.UsageColor(highest));
             detailsPanel.SetSnapshot(snapshot);
+            modelUsageButton.Enabled = HasModelUsage(snapshot);
 
             bool stale = !string.IsNullOrWhiteSpace(refreshError);
             SetRepairVisibility(NeedsRepair(refreshError));
@@ -390,6 +407,7 @@ namespace UsagePeek
                 primaryCard.SetWindow(null);
                 secondaryCard.SetWindow(null);
                 detailsPanel.SetSnapshot(null);
+                modelUsageButton.Enabled = false;
             }
         }
 
@@ -445,7 +463,16 @@ namespace UsagePeek
             repairButton.Visible = visible;
             repairButton.Enabled = visible;
             repairButton.DisplayText = "修复连接";
-            statusLabel.Size = new Size(visible ? 188 : 292, 36);
+            modelUsageButton.Visible = !visible;
+            statusLabel.Size = new Size(188, 36);
+        }
+
+        private static bool HasModelUsage(UsageSnapshot snapshot)
+        {
+            return snapshot != null &&
+                snapshot.LocalTokenUsage != null &&
+                snapshot.LocalTokenUsage.ModelUsage != null &&
+                snapshot.LocalTokenUsage.ModelUsage.Count > 0;
         }
 
         private void DragWindow(object sender, MouseEventArgs e)
