@@ -16,6 +16,7 @@ namespace UsagePeek
         private readonly Label summaryLabel;
         private readonly FlowLayoutPanel rowsPanel;
         private readonly Label privacyLabel;
+        private readonly GlyphButtonControl returnButton;
 
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
@@ -99,6 +100,15 @@ namespace UsagePeek
             privacyLabel.TextAlign = ContentAlignment.MiddleLeft;
             privacyLabel.Text = "仅解析模型名与 token_count 元数据，不读取对话正文";
 
+            returnButton = new GlyphButtonControl("←  返回主界面", true);
+            returnButton.Size = new Size(130, 34);
+            returnButton.Location = new Point(278, 462);
+            returnButton.Click += delegate
+            {
+                DialogResult = DialogResult.OK;
+                Close();
+            };
+
             Controls.Add(brandMark);
             Controls.Add(titleLabel);
             Controls.Add(subtitleLabel);
@@ -106,6 +116,7 @@ namespace UsagePeek
             Controls.Add(summaryLabel);
             Controls.Add(rowsPanel);
             Controls.Add(privacyLabel);
+            Controls.Add(returnButton);
 
             MouseDown += DragWindow;
             brandMark.MouseDown += DragWindow;
@@ -251,7 +262,8 @@ namespace UsagePeek
                 ? 100
                 : visibleRows * 70 + 2;
             privacyLabel.Location = new Point(20, rowsPanel.Bottom + 12);
-            ClientSize = new Size(428, privacyLabel.Bottom + 18);
+            returnButton.Location = new Point(278, privacyLabel.Bottom + 8);
+            ClientSize = new Size(428, returnButton.Bottom + 16);
             UpdateRoundedRegion();
         }
 

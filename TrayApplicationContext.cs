@@ -383,6 +383,10 @@ namespace UsagePeek
                 dialog.PlaceNearTray();
                 dialog.ShowDialog();
             }
+            if (!exiting)
+            {
+                form.ShowNearTray();
+            }
         }
 
         private void ExitApplication()

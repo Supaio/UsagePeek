@@ -1,6 +1,6 @@
 {
-  "version": "0.3.4",
+  "version": "0.3.5",
   "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
-  "sha256": "981897F54C7615530C56A6A1F9143121DD0FDADA1465EF5C945A837DF75B2FA2",
-  "notes": "补齐 GPT-6 Sol/Luna、GPT-5.5 及常见历史 Codex 模型价格；新增本机累计模型 Token 数量与百分比面板。"
+  "sha256": "4BD113D5405E8DDB2CF01444375CEC7F82FB65D1976B51465A6E51A8CF4447A2",
+  "notes": "为模型用量占比窗口新增“返回主界面”按钮；关闭该窗口时也会自动恢复主面板。"
 }

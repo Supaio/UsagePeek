@@ -156,7 +156,7 @@ cd usagepeek
 
 ```json
 {
-  "version": "0.3.4",
+  "version": "0.3.5",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"
