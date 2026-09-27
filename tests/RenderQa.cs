@@ -117,6 +117,12 @@ internal static class RenderQa
         Application.DoEvents();
         form.PerformLayout();
 
+        DpiAwareForm dpiForm = form as DpiAwareForm;
+        Console.WriteLine("DPI={0}; Size={1}x{2}; Client={3}x{4}",
+            dpiForm == null ? 96 : dpiForm.CurrentDpi,
+            form.Width, form.Height,
+            form.ClientSize.Width, form.ClientSize.Height);
+
         using (Bitmap bitmap = new Bitmap(form.Width, form.Height))
         {
             form.DrawToBitmap(bitmap,

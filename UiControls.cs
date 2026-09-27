@@ -7,6 +7,54 @@ namespace UsagePeek
 {
     internal static class UiDrawing
     {
+        public static float BeginLogicalPaint(Control control, Graphics graphics)
+        {
+            float scale = GetScale(control);
+            using (Matrix transform = graphics.Transform)
+            {
+                float currentScale = Math.Max(0.001f,
+                    (float)Math.Sqrt(
+                        transform.Elements[0] * transform.Elements[0] +
+                        transform.Elements[1] * transform.Elements[1]));
+                float relativeScale = scale / currentScale;
+                if (Math.Abs(relativeScale - 1f) > 0.001f)
+                {
+                    graphics.ScaleTransform(relativeScale, relativeScale,
+                        MatrixOrder.Append);
+                }
+            }
+            return scale;
+        }
+
+        public static int LogicalWidth(Control control)
+        {
+            return LogicalDimension(control.ClientSize.Width, GetScale(control));
+        }
+
+        public static int LogicalHeight(Control control)
+        {
+            return LogicalDimension(control.ClientSize.Height, GetScale(control));
+        }
+
+        public static Font LogicalFont(
+            Control control,
+            string family,
+            float pointSize,
+            FontStyle style)
+        {
+            return new Font(family,
+                Math.Max(1f, pointSize / GetScale(control)),
+                style, GraphicsUnit.Point);
+        }
+
+        public static Font LogicalFont(Control control, Font source)
+        {
+            return new Font(source.FontFamily,
+                Math.Max(1f, source.SizeInPoints / GetScale(control)),
+                source.Style, GraphicsUnit.Point,
+                source.GdiCharSet, source.GdiVerticalFont);
+        }
+
         public static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
         {
             int safeRadius = Math.Max(1, Math.Min(radius,
@@ -42,6 +90,24 @@ namespace UsagePeek
         {
             return Color.FromArgb(alpha, color.R, color.G, color.B);
         }
+
+        private static float GetScale(Control control)
+        {
+            DpiAwareForm dpiForm = control as DpiAwareForm;
+            if (dpiForm == null && control != null)
+            {
+                dpiForm = control.FindForm() as DpiAwareForm;
+            }
+            return dpiForm == null
+                ? 1f
+                : Math.Max(1f, dpiForm.DpiScaleFactor);
+        }
+
+        private static int LogicalDimension(int value, float scale)
+        {
+            return (int)Math.Round(value / Math.Max(1f, scale),
+                MidpointRounding.AwayFromZero);
+        }
     }
 
     internal sealed class BrandMarkControl : Control
@@ -59,8 +125,12 @@ namespace UsagePeek
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = new Rectangle(1, 1, Width - 3, Height - 3);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle bounds = new Rectangle(
+                1, 1, logicalWidth - 3, logicalHeight - 3);
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 12))
             using (LinearGradientBrush gradient = new LinearGradientBrush(
@@ -72,7 +142,8 @@ namespace UsagePeek
                 e.Graphics.FillPath(gradient, path);
             }
 
-            Rectangle inner = new Rectangle(9, 9, Width - 18, Height - 18);
+            Rectangle inner = new Rectangle(
+                9, 9, logicalWidth - 18, logicalHeight - 18);
             using (Pen ring = new Pen(Color.FromArgb(235, 255, 255, 255), 2.2f))
             using (Pen tail = new Pen(Color.FromArgb(120, 255, 255, 255), 2.2f))
             using (SolidBrush center = new SolidBrush(Color.FromArgb(230, 8, 18, 27)))
@@ -83,7 +154,8 @@ namespace UsagePeek
                 tail.EndCap = LineCap.Round;
                 e.Graphics.DrawArc(ring, inner, -86, 225);
                 e.Graphics.DrawArc(tail, inner, 154, 78);
-                e.Graphics.FillEllipse(center, Width / 2 - 3, Height / 2 - 3, 6, 6);
+                e.Graphics.FillEllipse(center,
+                    logicalWidth / 2 - 3, logicalHeight / 2 - 3, 6, 6);
             }
         }
     }
@@ -121,10 +193,15 @@ namespace UsagePeek
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle bounds = new Rectangle(
+                0, 0, logicalWidth - 1, logicalHeight - 1);
 
-            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, Height / 2))
+            using (GraphicsPath path = UiDrawing.RoundedRectangle(
+                bounds, logicalHeight / 2))
             using (SolidBrush background = new SolidBrush(UiDrawing.WithAlpha(accent, 32)))
             using (Pen border = new Pen(UiDrawing.WithAlpha(accent, 82)))
             {
@@ -134,11 +211,13 @@ namespace UsagePeek
 
             using (SolidBrush dot = new SolidBrush(accent))
             using (SolidBrush textBrush = new SolidBrush(ForeColor))
+            using (Font logicalFont = UiDrawing.LogicalFont(this, Font))
             {
-                e.Graphics.FillEllipse(dot, 11, Height / 2 - 3, 6, 6);
-                SizeF textSize = e.Graphics.MeasureString(Text, Font);
-                e.Graphics.DrawString(Text, Font, textBrush,
-                    24, (Height - textSize.Height) / 2f - 0.5f);
+                e.Graphics.FillEllipse(dot,
+                    11, logicalHeight / 2 - 3, 6, 6);
+                SizeF textSize = e.Graphics.MeasureString(Text, logicalFont);
+                e.Graphics.DrawString(Text, logicalFont, textBrush,
+                    24, (logicalHeight - textSize.Height) / 2f - 0.5f);
             }
         }
     }
@@ -217,8 +296,12 @@ namespace UsagePeek
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle bounds = new Rectangle(
+                0, 0, logicalWidth - 1, logicalHeight - 1);
 
             Color background;
             Color border;
@@ -249,7 +332,7 @@ namespace UsagePeek
             }
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds,
-                Math.Min(10, Height / 2)))
+                Math.Min(10, logicalHeight / 2)))
             using (SolidBrush backgroundBrush = new SolidBrush(background))
             using (Pen borderPen = new Pen(border))
             {
@@ -261,11 +344,13 @@ namespace UsagePeek
                 ? ForeColor
                 : Color.FromArgb(94, 108, 126);
             using (SolidBrush textBrush = new SolidBrush(textColor))
+            using (Font logicalFont = UiDrawing.LogicalFont(this, Font))
             {
-                SizeF textSize = e.Graphics.MeasureString(displayText, Font);
-                e.Graphics.DrawString(displayText, Font, textBrush,
-                    (Width - textSize.Width) / 2f,
-                    (Height - textSize.Height) / 2f - 0.5f);
+                SizeF textSize = e.Graphics.MeasureString(
+                    displayText, logicalFont);
+                e.Graphics.DrawString(displayText, logicalFont, textBrush,
+                    (logicalWidth - textSize.Width) / 2f,
+                    (logicalHeight - textSize.Height) / 2f - 0.5f);
             }
         }
     }
@@ -374,8 +459,12 @@ namespace UsagePeek
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle bounds = new Rectangle(
+                0, 0, logicalWidth - 1, logicalHeight - 1);
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 14))
             using (LinearGradientBrush background = new LinearGradientBrush(
@@ -396,9 +485,12 @@ namespace UsagePeek
                 e.Graphics.FillEllipse(dot, 24, 28, 8, 8);
             }
 
-            using (Font titleFont = new Font("Microsoft YaHei UI", 10f, FontStyle.Bold))
-            using (Font detailFont = new Font("Microsoft YaHei UI", 8f, FontStyle.Regular))
-            using (Font badgeFont = new Font("Segoe UI", 7f, FontStyle.Bold))
+            using (Font titleFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 10f, FontStyle.Bold))
+            using (Font detailFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
+            using (Font badgeFont = UiDrawing.LogicalFont(
+                this, "Segoe UI", 7f, FontStyle.Bold))
             using (SolidBrush titleBrush = new SolidBrush(Color.FromArgb(235, 241, 248)))
             using (SolidBrush detailBrush = new SolidBrush(Color.FromArgb(139, 155, 176)))
             using (SolidBrush badgeBrush = new SolidBrush(accent))
@@ -408,7 +500,7 @@ namespace UsagePeek
 
                 SizeF badgeSize = e.Graphics.MeasureString(badge, badgeFont);
                 e.Graphics.DrawString(badge, badgeFont, badgeBrush,
-                    Width - badgeSize.Width - 17, 24);
+                    logicalWidth - badgeSize.Width - 17, 24);
             }
         }
     }
@@ -436,8 +528,12 @@ namespace UsagePeek
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle bounds = new Rectangle(
+                0, 0, logicalWidth - 1, logicalHeight - 1);
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 11))
             using (SolidBrush background = new SolidBrush(Color.FromArgb(16, 23, 33)))
@@ -455,15 +551,17 @@ namespace UsagePeek
                 e.Graphics.DrawLine(iconPen, 24, 17, 24, 23);
             }
 
-            using (Font labelFont = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Regular))
-            using (Font valueFont = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Bold))
+            using (Font labelFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 8.5f, FontStyle.Regular))
+            using (Font valueFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 8.5f, FontStyle.Bold))
             using (SolidBrush labelBrush = new SolidBrush(Color.FromArgb(138, 154, 175)))
             using (SolidBrush valueBrush = new SolidBrush(Color.FromArgb(209, 220, 233)))
             {
                 e.Graphics.DrawString("额外额度", labelFont, labelBrush, 46, 12);
                 SizeF valueSize = e.Graphics.MeasureString(valueText, valueFont);
                 e.Graphics.DrawString(valueText, valueFont, valueBrush,
-                    Width - valueSize.Width - 15, 12);
+                    logicalWidth - valueSize.Width - 15, 12);
             }
         }
     }

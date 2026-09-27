@@ -8,7 +8,7 @@ using System.Windows.Forms;
 
 namespace UsagePeek
 {
-    internal sealed class ModelUsageForm : Form
+    internal sealed class ModelUsageForm : DpiAwareForm
     {
         private const int WmNclButtonDown = 0xA1;
         private const int HtCaption = 0x2;
@@ -40,7 +40,7 @@ namespace UsagePeek
             BackColor = Color.FromArgb(9, 14, 22);
             ForeColor = Color.FromArgb(233, 239, 247);
             TopMost = true;
-            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleMode = AutoScaleMode.None;
 
             BrandMarkControl brandMark = new BrandMarkControl();
             brandMark.Location = new Point(20, 15);
@@ -126,11 +126,13 @@ namespace UsagePeek
             Resize += delegate { UpdateRoundedRegion(); };
             UpdateRoundedRegion();
             SetSnapshot(snapshot);
+            InitializeDpiLayout();
         }
 
         public void PlaceNearTray()
         {
             Screen screen = Screen.FromPoint(Cursor.Position);
+            PrepareForScreen(screen);
             Rectangle workArea = screen.WorkingArea;
             Location = new Point(
                 Math.Max(workArea.Left + 8, workArea.Right - Width - 12),
@@ -150,8 +152,11 @@ namespace UsagePeek
 
         protected override void OnPaintBackground(PaintEventArgs e)
         {
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = ClientRectangle;
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle bounds = new Rectangle(0, 0, logicalWidth, logicalHeight);
             using (LinearGradientBrush background = new LinearGradientBrush(
                 bounds,
                 Color.FromArgb(12, 19, 29),
@@ -167,26 +172,32 @@ namespace UsagePeek
                 Color.FromArgb(10, 56, 189, 248)))
             {
                 e.Graphics.FillEllipse(tealGlow, -80, -110, 300, 230);
-                e.Graphics.FillEllipse(blueGlow, Width - 170, -95, 230, 190);
+                e.Graphics.FillEllipse(blueGlow,
+                    logicalWidth - 170, -95, 230, 190);
             }
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle borderBounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle borderBounds = new Rectangle(
+                0, 0, logicalWidth - 1, logicalHeight - 1);
             using (GraphicsPath borderPath = UiDrawing.RoundedRectangle(
                 borderBounds, 19))
             using (Pen border = new Pen(Color.FromArgb(49, 62, 80)))
             using (LinearGradientBrush accentLine = new LinearGradientBrush(
-                new Rectangle(22, 65, Width - 44, 1),
+                new Rectangle(22, 65, logicalWidth - 44, 1),
                 Color.FromArgb(0, 45, 212, 191),
                 Color.FromArgb(80, 45, 212, 191),
                 0f))
             {
                 e.Graphics.DrawPath(border, borderPath);
-                e.Graphics.FillRectangle(accentLine, 22, 65, Width - 44, 1);
+                e.Graphics.FillRectangle(accentLine,
+                    22, 65, logicalWidth - 44, 1);
             }
         }
 
@@ -286,7 +297,7 @@ namespace UsagePeek
             }
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(
-                new Rectangle(0, 0, Width, Height), 20))
+                new Rectangle(0, 0, Width, Height), ScaleLogical(20)))
             {
                 Region oldRegion = Region;
                 Region = new Region(path);
@@ -295,6 +306,12 @@ namespace UsagePeek
                     oldRegion.Dispose();
                 }
             }
+        }
+
+        protected override void OnDpiScaleChanged()
+        {
+            UpdateRoundedRegion();
+            base.OnDpiScaleChanged();
         }
     }
 
@@ -317,9 +334,11 @@ namespace UsagePeek
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-            Rectangle card = new Rectangle(0, 0, Width - 1, 56);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            Rectangle card = new Rectangle(0, 0, logicalWidth - 1, 56);
             using (GraphicsPath path = UiDrawing.RoundedRectangle(card, 11))
             using (LinearGradientBrush background = new LinearGradientBrush(
                 card,
@@ -327,10 +346,12 @@ namespace UsagePeek
                 Color.FromArgb(15, 23, 34),
                 90f))
             using (Pen border = new Pen(Color.FromArgb(40, 53, 70)))
-            using (Font modelFont = new Font("Segoe UI", 9.2f, FontStyle.Bold))
-            using (Font percentFont = new Font("Segoe UI", 9.4f, FontStyle.Bold))
-            using (Font tokensFont = new Font("Microsoft YaHei UI", 7.4f,
-                FontStyle.Regular))
+            using (Font modelFont = UiDrawing.LogicalFont(
+                this, "Segoe UI", 9.2f, FontStyle.Bold))
+            using (Font percentFont = UiDrawing.LogicalFont(
+                this, "Segoe UI", 9.4f, FontStyle.Bold))
+            using (Font tokensFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 7.4f, FontStyle.Regular))
             using (SolidBrush modelBrush = new SolidBrush(
                 Color.FromArgb(219, 230, 242)))
             using (SolidBrush percentBrush = new SolidBrush(
@@ -352,7 +373,8 @@ namespace UsagePeek
                     ? "未知模型"
                     : usage.Model;
                 e.Graphics.DrawString(model, modelFont, modelBrush,
-                    new RectangleF(14, 7, Math.Max(80, Width - 112), 20),
+                    new RectangleF(14, 7,
+                        Math.Max(80, logicalWidth - 112), 20),
                     modelFormat);
 
                 string percentage = Math.Max(0d, usage.Percentage)
@@ -360,14 +382,14 @@ namespace UsagePeek
                 SizeF percentSize = e.Graphics.MeasureString(
                     percentage, percentFont);
                 e.Graphics.DrawString(percentage, percentFont, percentBrush,
-                    Width - percentSize.Width - 14, 6);
+                    logicalWidth - percentSize.Width - 14, 6);
 
                 string tokens = DisplayFormatting.FormatTokens(
                     Math.Max(0L, usage.TotalTokens)) + " tokens";
                 e.Graphics.DrawString(tokens, tokensFont, mutedBrush, 14, 27);
 
                 Rectangle track = new Rectangle(14, 47,
-                    Math.Max(1, Width - 28), 4);
+                    Math.Max(1, logicalWidth - 28), 4);
                 e.Graphics.FillRectangle(trackBrush, track);
                 int fillWidth = (int)Math.Round(track.Width *
                     Math.Min(100d, Math.Max(0d, usage.Percentage)) / 100d);

@@ -7,7 +7,7 @@ using System.Windows.Forms;
 
 namespace UsagePeek
 {
-    internal sealed class MainForm : Form
+    internal sealed class MainForm : DpiAwareForm
     {
         private const int WmNclButtonDown = 0xA1;
         private const int HtCaption = 0x2;
@@ -52,7 +52,7 @@ namespace UsagePeek
             BackColor = Color.FromArgb(9, 14, 22);
             ForeColor = Color.FromArgb(233, 239, 247);
             TopMost = true;
-            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleMode = AutoScaleMode.None;
             Padding = new Padding(0);
 
             BrandMarkControl brandMark = new BrandMarkControl();
@@ -221,6 +221,7 @@ namespace UsagePeek
                 }
             };
             UpdateRoundedRegion();
+            InitializeDpiLayout();
         }
 
         protected override CreateParams CreateParams
@@ -236,8 +237,11 @@ namespace UsagePeek
 
         protected override void OnPaintBackground(PaintEventArgs e)
         {
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = ClientRectangle;
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle bounds = new Rectangle(0, 0, logicalWidth, logicalHeight);
             using (LinearGradientBrush background = new LinearGradientBrush(
                 bounds,
                 Color.FromArgb(12, 19, 29),
@@ -251,15 +255,19 @@ namespace UsagePeek
             using (SolidBrush blueGlow = new SolidBrush(Color.FromArgb(12, 56, 189, 248)))
             {
                 e.Graphics.FillEllipse(tealGlow, -80, -110, 300, 230);
-                e.Graphics.FillEllipse(blueGlow, Width - 170, -95, 230, 190);
+                e.Graphics.FillEllipse(blueGlow, logicalWidth - 170, -95, 230, 190);
             }
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle borderBounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle borderBounds = new Rectangle(
+                0, 0, logicalWidth - 1, logicalHeight - 1);
             using (GraphicsPath borderPath = UiDrawing.RoundedRectangle(borderBounds, 19))
             using (Pen border = new Pen(Color.FromArgb(49, 62, 80)))
             {
@@ -267,18 +275,20 @@ namespace UsagePeek
             }
 
             using (LinearGradientBrush accentLine = new LinearGradientBrush(
-                new Rectangle(22, 65, Width - 44, 1),
+                new Rectangle(22, 65, logicalWidth - 44, 1),
                 Color.FromArgb(0, 45, 212, 191),
                 Color.FromArgb(80, 45, 212, 191),
                 0f))
             {
-                e.Graphics.FillRectangle(accentLine, 22, 65, Width - 44, 1);
+                e.Graphics.FillRectangle(accentLine,
+                    22, 65, logicalWidth - 44, 1);
             }
         }
 
         public void ShowNearTray()
         {
             Screen screen = Screen.FromPoint(Cursor.Position);
+            PrepareForScreen(screen);
             Rectangle workArea = screen.WorkingArea;
             Location = new Point(
                 Math.Max(workArea.Left + 8, workArea.Right - Width - 12),
@@ -327,7 +337,8 @@ namespace UsagePeek
             if (repairing)
             {
                 repairButton.Visible = true;
-                statusLabel.Size = new Size(188, 36);
+                statusLabel.Size = new Size(
+                    ScaleLogical(188), ScaleLogical(36));
             }
             repairButton.Enabled = !repairing;
             repairButton.DisplayText = repairing ? "安装中…" : "修复连接";
@@ -464,7 +475,8 @@ namespace UsagePeek
             repairButton.Enabled = visible;
             repairButton.DisplayText = "修复连接";
             modelUsageButton.Visible = !visible;
-            statusLabel.Size = new Size(188, 36);
+            statusLabel.Size = new Size(
+                ScaleLogical(188), ScaleLogical(36));
         }
 
         private static bool HasModelUsage(UsageSnapshot snapshot)
@@ -510,7 +522,7 @@ namespace UsagePeek
             }
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(
-                new Rectangle(0, 0, Width, Height), 20))
+                new Rectangle(0, 0, Width, Height), ScaleLogical(20)))
             {
                 Region oldRegion = Region;
                 Region = new Region(path);
@@ -519,6 +531,12 @@ namespace UsagePeek
                     oldRegion.Dispose();
                 }
             }
+        }
+
+        protected override void OnDpiScaleChanged()
+        {
+            UpdateRoundedRegion();
+            base.OnDpiScaleChanged();
         }
     }
 }

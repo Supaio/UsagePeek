@@ -36,7 +36,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
   CodexExecutableLocator.cs CodexUsageProvider.cs LocalUsageScanner.cs UsageCache.cs DisplayFormatting.cs ^
   ExchangeRateService.cs StartupManager.cs UpdateService.cs CodexBootstrapService.cs ^
   ResetCreditNotificationTracker.cs ^
-  UiControls.cs UsageCardControl.cs UsageDetailsControl.cs ^
+  DpiAwareForm.cs UiControls.cs UsageCardControl.cs UsageDetailsControl.cs ^
   MainForm.cs ModelUsageForm.cs IconFactory.cs TrayApplicationContext.cs
 
 if errorlevel 1 (

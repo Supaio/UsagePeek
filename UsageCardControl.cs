@@ -29,9 +29,13 @@ namespace UsagePeek
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-            Rectangle bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle bounds = new Rectangle(
+                0, 0, logicalWidth - 1, logicalHeight - 1);
             UsageProjectionSnapshot projection = window == null
                 ? null
                 : DisplayFormatting.ProjectUsage(window, DateTime.UtcNow);
@@ -52,12 +56,13 @@ namespace UsagePeek
                 {
                     e.Graphics.SetClip(path);
                     using (LinearGradientBrush glow = new LinearGradientBrush(
-                        new Rectangle(0, 0, 145, Height),
+                        new Rectangle(0, 0, 145, logicalHeight),
                         UiDrawing.WithAlpha(accent, 30),
                         Color.FromArgb(0, accent),
                         0f))
                     {
-                        e.Graphics.FillRectangle(glow, 0, 0, 145, Height);
+                        e.Graphics.FillRectangle(
+                            glow, 0, 0, 145, logicalHeight);
                     }
                     e.Graphics.SetClip(previousClip, CombineMode.Replace);
                 }
@@ -99,10 +104,14 @@ namespace UsagePeek
 
         private void DrawHeader(Graphics graphics, Color accent)
         {
-            using (Font titleFont = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold))
-            using (Font captionFont = new Font("Segoe UI", 7.2f, FontStyle.Bold))
-            using (Font numberFont = new Font("Segoe UI", 19f, FontStyle.Bold))
-            using (Font signFont = new Font("Segoe UI", 9f, FontStyle.Bold))
+            using (Font titleFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 10.5f, FontStyle.Bold))
+            using (Font captionFont = UiDrawing.LogicalFont(
+                this, "Segoe UI", 7.2f, FontStyle.Bold))
+            using (Font numberFont = UiDrawing.LogicalFont(
+                this, "Segoe UI", 19f, FontStyle.Bold))
+            using (Font signFont = UiDrawing.LogicalFont(
+                this, "Segoe UI", 9f, FontStyle.Bold))
             using (SolidBrush titleBrush = new SolidBrush(Color.FromArgb(236, 242, 249)))
             using (SolidBrush accentBrush = new SolidBrush(accent))
             {
@@ -115,7 +124,7 @@ namespace UsagePeek
                 string number = window.UsedPercent.ToString();
                 SizeF numberSize = graphics.MeasureString(number, numberFont);
                 SizeF signSize = graphics.MeasureString("%", signFont);
-                float right = Width - 18;
+                float right = UiDrawing.LogicalWidth(this) - 18;
                 float signX = right - signSize.Width;
                 float numberX = signX - numberSize.Width + 2;
                 graphics.DrawString(number, numberFont, titleBrush, numberX, 5);
@@ -128,7 +137,8 @@ namespace UsagePeek
             Color accent,
             UsageProjectionSnapshot projection)
         {
-            Rectangle track = new Rectangle(18, 49, Math.Max(1, Width - 36), 9);
+            Rectangle track = new Rectangle(18, 49,
+                Math.Max(1, UiDrawing.LogicalWidth(this) - 36), 9);
             using (GraphicsPath trackPath = UiDrawing.RoundedRectangle(track, 5))
             using (SolidBrush trackBrush = new SolidBrush(Color.FromArgb(37, 48, 63)))
             {
@@ -170,8 +180,10 @@ namespace UsagePeek
 
         private void DrawDetails(Graphics graphics, Color accent)
         {
-            using (Font primaryFont = new Font("Microsoft YaHei UI", 8f, FontStyle.Regular))
-            using (Font secondaryFont = new Font("Microsoft YaHei UI", 7.7f, FontStyle.Regular))
+            using (Font primaryFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
+            using (Font secondaryFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 7.7f, FontStyle.Regular))
             using (SolidBrush valueBrush = new SolidBrush(Color.FromArgb(170, 185, 204)))
             using (SolidBrush mutedBrush = new SolidBrush(Color.FromArgb(116, 133, 155)))
             using (SolidBrush accentBrush = new SolidBrush(accent))
@@ -200,13 +212,16 @@ namespace UsagePeek
             float y)
         {
             SizeF size = graphics.MeasureString(text, font);
-            graphics.DrawString(text, font, brush, Width - size.Width - 18, y);
+            graphics.DrawString(text, font, brush,
+                UiDrawing.LogicalWidth(this) - size.Width - 18, y);
         }
 
         private void DrawEmpty(Graphics graphics)
         {
-            using (Font titleFont = new Font("Microsoft YaHei UI", 10f, FontStyle.Bold))
-            using (Font detailFont = new Font("Microsoft YaHei UI", 8f, FontStyle.Regular))
+            using (Font titleFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 10f, FontStyle.Bold))
+            using (Font detailFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
             using (SolidBrush titleBrush = new SolidBrush(Color.FromArgb(175, 187, 203)))
             using (SolidBrush detailBrush = new SolidBrush(Color.FromArgb(103, 119, 140)))
             {

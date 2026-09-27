@@ -37,9 +37,13 @@ namespace UsagePeek
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-            Rectangle bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            Rectangle bounds = new Rectangle(
+                0, 0, logicalWidth - 1, logicalHeight - 1);
             using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 14))
             using (LinearGradientBrush background = new LinearGradientBrush(
                 bounds,
@@ -57,10 +61,14 @@ namespace UsagePeek
 
         private void DrawRows(Graphics graphics)
         {
-            using (Font labelFont = new Font("Microsoft YaHei UI", 8.2f, FontStyle.Regular))
-            using (Font valueFont = new Font("Microsoft YaHei UI", 8.2f, FontStyle.Bold))
-            using (Font smallFont = new Font("Microsoft YaHei UI", 7.1f, FontStyle.Regular))
-            using (Font lifetimeFont = new Font("Segoe UI", 10.5f, FontStyle.Bold))
+            using (Font labelFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 8.2f, FontStyle.Regular))
+            using (Font valueFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 8.2f, FontStyle.Bold))
+            using (Font smallFont = UiDrawing.LogicalFont(
+                this, "Microsoft YaHei UI", 7.1f, FontStyle.Regular))
+            using (Font lifetimeFont = UiDrawing.LogicalFont(
+                this, "Segoe UI", 10.5f, FontStyle.Bold))
             using (SolidBrush labelBrush = new SolidBrush(Color.FromArgb(129, 146, 168)))
             using (SolidBrush valueBrush = new SolidBrush(Color.FromArgb(207, 219, 233)))
             using (SolidBrush mutedBrush = new SolidBrush(Color.FromArgb(100, 118, 141)))
@@ -77,7 +85,8 @@ namespace UsagePeek
                 DrawRight(graphics, expiryValue, valueFont, valueBrush, 27);
                 DrawRight(graphics, expiryDetail, smallFont, mutedBrush, 43);
 
-                graphics.DrawLine(divider, 15, 61, Width - 15, 61);
+                graphics.DrawLine(divider, 15, 61,
+                    UiDrawing.LogicalWidth(this) - 15, 61);
 
                 DrawStandardRow(graphics, "Credits", FormatCredits(), 67,
                     labelFont, valueFont, labelBrush, valueBrush);
@@ -90,7 +99,8 @@ namespace UsagePeek
                 DrawStandardRow(graphics, "本机累计估值", FormatLifetimeCost(), 159,
                     labelFont, valueFont, labelBrush, tealBrush);
 
-                graphics.DrawLine(divider, 15, 183, Width - 15, 183);
+                graphics.DrawLine(divider, 15, 183,
+                    UiDrawing.LogicalWidth(this) - 15, 183);
 
                 DrawLabel(graphics, "累计 Token", labelFont, labelBrush, 16, 191);
                 DrawRight(graphics, DisplayFormatting.FormatLifetimeTokens(snapshot),
@@ -116,7 +126,7 @@ namespace UsagePeek
                 ? tealBrush
                 : valueBrush;
             SizeF size = graphics.MeasureString(value, font);
-            float x = Width - size.Width - 16;
+            float x = UiDrawing.LogicalWidth(this) - size.Width - 16;
             if (snapshot != null &&
                 snapshot.RateLimitResetCreditsAvailable.GetValueOrDefault() > 0)
             {
@@ -210,7 +220,7 @@ namespace UsagePeek
                 lifetime.EstimatedCostUsd, currency);
         }
 
-        private static void DrawStandardRow(
+        private void DrawStandardRow(
             Graphics graphics,
             string label,
             string value,
@@ -235,7 +245,7 @@ namespace UsagePeek
             graphics.DrawString(text, font, brush, x, y);
         }
 
-        private static void DrawRight(
+        private void DrawRight(
             Graphics graphics,
             string text,
             Font font,
@@ -248,7 +258,7 @@ namespace UsagePeek
             }
             SizeF size = graphics.MeasureString(text, font);
             graphics.DrawString(text, font, brush,
-                graphics.VisibleClipBounds.Right - size.Width - 16, y);
+                UiDrawing.LogicalWidth(this) - size.Width - 16, y);
         }
     }
 }

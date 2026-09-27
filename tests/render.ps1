@@ -12,6 +12,7 @@ $renderer = Join-Path $outputDirectory 'RenderQa.exe'
 $preview = Join-Path $root 'preview.png'
 
 & $compiler /nologo /utf8output /target:exe /optimize+ `
+    "/win32manifest:$(Join-Path $root 'app.manifest')" `
     /reference:System.dll `
     /reference:System.Core.dll `
     /reference:System.Drawing.dll `
@@ -19,6 +20,7 @@ $preview = Join-Path $root 'preview.png'
     "/out:$renderer" `
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `
+    (Join-Path $root 'DpiAwareForm.cs') `
     (Join-Path $root 'UiControls.cs') `
     (Join-Path $root 'UsageCardControl.cs') `
     (Join-Path $root 'UsageDetailsControl.cs') `
