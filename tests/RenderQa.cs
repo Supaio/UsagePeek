@@ -35,6 +35,17 @@ internal static class RenderQa
             return;
         }
 
+        bool about = args.Length > 1 && string.Equals(args[1], "about",
+            StringComparison.OrdinalIgnoreCase);
+        if (about)
+        {
+            using (AboutForm aboutForm = new AboutForm())
+            {
+                Render(aboutForm, output);
+            }
+            return;
+        }
+
         UsageSnapshot snapshot = new UsageSnapshot();
         snapshot.ProviderId = "chatgpt-codex";
         snapshot.ProviderName = "ChatGPT / Codex";

@@ -39,7 +39,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
   DisplayModeSettings.cs PetForm.cs ^
   ResetCreditNotificationTracker.cs ^
   DpiAwareForm.cs UiControls.cs UsageCardControl.cs UsageDetailsControl.cs ^
-  MainForm.cs ModelUsageForm.cs IconFactory.cs TrayApplicationContext.cs
+  MainForm.cs ModelUsageForm.cs AboutForm.cs IconFactory.cs TrayApplicationContext.cs
 
 if errorlevel 1 (
   echo.

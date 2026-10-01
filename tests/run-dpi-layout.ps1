@@ -25,6 +25,7 @@ $output = Join-Path $outputDirectory 'DpiLayoutQa.exe'
     (Join-Path $root 'UsageDetailsControl.cs') `
     (Join-Path $root 'MainForm.cs') `
     (Join-Path $root 'ModelUsageForm.cs') `
+    (Join-Path $root 'AboutForm.cs') `
     (Join-Path $root 'PetForm.cs') `
     (Join-Path $PSScriptRoot 'DpiLayoutQa.cs')
 

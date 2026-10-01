@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
   "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
-  "sha256": "60E38C9A799291F73884E422292CDBA1B07D08605091833CEAA9E39481AC30A1",
-  "notes": "正式版 v1.0.0：默认启用蓝发鲨鱼女仆桌宠；数字气泡实时显示 5h 与 7d 用量；右键可切换经典一页面板，桌宠支持透明悬浮、拖动记忆位置、屏幕边缘限位与点击查看详情。"
+  "sha256": "9D045E492DECD04A10D6D163B30AFF2BAD618E9E2F91A728573C9E1C35006F8B",
+  "notes": "正式版 v1.0.0：默认启用鲸鱼娘桌宠；数字气泡实时显示 5h 与 7d 用量；右键可切换经典一页面板，桌宠支持透明悬浮、拖动记忆位置、屏幕边缘限位与点击查看详情；新增关于页面并鸣谢 OpenUsage 与 ZipZipPipe。"
 }

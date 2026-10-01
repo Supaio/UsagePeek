@@ -113,6 +113,8 @@ namespace UsagePeek
             };
             ToolStripMenuItem updateItem = new ToolStripMenuItem("联网检查更新");
             updateItem.Click += async delegate { await CheckForUpdatesAsync(false); };
+            ToolStripMenuItem aboutItem = new ToolStripMenuItem("关于 UsagePeek");
+            aboutItem.Click += delegate { ShowAbout(); };
             ToolStripMenuItem exitItem = new ToolStripMenuItem("退出");
             exitItem.Click += delegate { ExitApplication(); };
             menu.Items.Add(openItem);
@@ -123,6 +125,7 @@ namespace UsagePeek
             menu.Items.Add(startupItem);
             menu.Items.Add(updateItem);
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(aboutItem);
             menu.Items.Add(exitItem);
 
             icon = IconFactory.Create();
@@ -484,6 +487,15 @@ namespace UsagePeek
             UsageDisplayMode mode = displayPreference.GetDisplayMode();
             classicModeItem.Checked = mode == UsageDisplayMode.Classic;
             petModeItem.Checked = mode == UsageDisplayMode.Pet;
+        }
+
+        private static void ShowAbout()
+        {
+            using (AboutForm dialog = new AboutForm())
+            {
+                dialog.PlaceNearCursor();
+                dialog.ShowDialog();
+            }
         }
 
         private static void AttachContextMenu(

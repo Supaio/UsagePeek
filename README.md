@@ -12,7 +12,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 <p align="center">
   <img src="assets/screenshot.png" alt="UsagePeek Windows Codex usage dashboard" width="428">
   <br>
-  <img src="assets/pet-shark-maid.png" alt="UsagePeek shark maid desktop pet" height="390">
+  <img src="assets/pet-shark-maid.png" alt="UsagePeek whale girl desktop pet" height="390">
 </p>
 
 ## 下载
@@ -39,7 +39,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 - **模型用量占比**：按本机仍保存的会话统计每个模型的累计 Token、数量和
   百分比；可从主面板底部或托盘菜单打开。
 - **双显示模式**：右键托盘、经典面板或桌宠，可在“一页看完”的经典面板与
-  蓝发鲨鱼女仆桌宠之间切换；桌宠支持拖动并记住位置，左键点击后在旁边打开
+  蓝发鲸鱼娘桌宠之间切换；桌宠支持拖动并记住位置，左键点击后在旁边打开
   完整用量详情。新安装默认使用桌宠模式。
 - 桌宠上方的数字气泡会实时显示 `5h` 与 `7d` 两个窗口的已用百分比，后台
   刷新成功后同步更新，无需打开完整面板。
@@ -53,6 +53,8 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
   上次保存的桌宠位置，不主动弹出详情面板。
 - 托盘菜单支持联网检查更新，下载后先校验 SHA-256，再由独立更新进程
   替换并重启程序。
+- 托盘菜单的“关于 UsagePeek”会显示版本信息与项目鸣谢：感谢 OpenUsage
+  提供产品构思、用量展示与交互思路，鲸鱼娘形象鸣谢 **ZipZipPipe**。
 - 如果只检测到受 Windows 保护的桌面版组件，离线界面会显示“修复连接”。
   用户确认后，程序从 OpenAI 官方地址获取 Windows Codex CLI 安装器，安装到
   当前用户目录并自动重试，不要求 Node.js、PATH 配置或管理员权限。

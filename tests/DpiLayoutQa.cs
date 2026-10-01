@@ -16,6 +16,7 @@ internal static class DpiLayoutQa
 
         VerifyMainForm();
         VerifyModelForm();
+        VerifyAboutForm();
         VerifyPetForm();
 
         if (failures > 0)
@@ -103,6 +104,30 @@ internal static class DpiLayoutQa
             form.ApplyDpiForTesting(96);
             AssertEqual(designSize, form.ClientSize,
                 "pet form returns exactly to 100 percent");
+        }
+    }
+
+    private static void VerifyAboutForm()
+    {
+        using (AboutForm form = new AboutForm())
+        {
+            Size designSize = form.ClientSize;
+            AssertEqual(new Size(390, 348), designSize,
+                "about form uses the expected design size");
+            AssertEqual("产品构思、用量展示与交互思路",
+                AboutForm.OpenUsageCredit,
+                "about form credits OpenUsage ideas");
+            AssertEqual("鲸鱼娘形象 · ZipZipPipe",
+                AboutForm.CharacterCredit,
+                "about form credits the character artist");
+
+            form.ApplyDpiForTesting(144);
+            AssertEqual(new Size(585, 522), form.ClientSize,
+                "about form scales to 150 percent");
+
+            form.ApplyDpiForTesting(96);
+            AssertEqual(designSize, form.ClientSize,
+                "about form returns exactly to 100 percent");
         }
     }
 
