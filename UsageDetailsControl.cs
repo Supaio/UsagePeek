@@ -213,7 +213,15 @@ namespace UsagePeek
             }
             if (!lifetime.HasCompleteCostEstimate)
             {
-                return "$-- · 部分模型无公开价格";
+                if (lifetime.PricedTokens > 0 ||
+                    lifetime.EstimatedCostUsd > 0m)
+                {
+                    return DisplayFormatting.FormatPartialEstimatedMoney(
+                        lifetime.EstimatedCostUsd, currency) +
+                        " · 部分模型待补价";
+                }
+
+                return "价格待补充 · 未识别模型";
             }
 
             return DisplayFormatting.FormatEstimatedMoney(

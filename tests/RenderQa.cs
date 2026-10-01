@@ -51,17 +51,17 @@ internal static class RenderQa
         snapshot.LocalTokenUsage = new LocalTokenUsageSnapshot
         {
             FirstSeenAtUtc = DateTime.UtcNow.AddMonths(-4),
-            Today = Period(13200000, 8.59m),
+            Today = PartialPeriod(13200000, 10900000, 8.59m),
             Yesterday = Period(6100000, 4.65m),
             Last30Days = Period(142400000, 83.03m),
-            Lifetime = Period(684200000, 392.41m),
+            Lifetime = PartialPeriod(684200000, 659568800, 392.41m),
             ModelUsage = new List<ModelTokenUsageSnapshot>
             {
                 Model("gpt-5.6-sol", 372204800, 54.4d),
                 Model("gpt-6-astra", 171050000, 25.0d),
                 Model("codex-auto-review", 68420000, 10.0d),
                 Model("gpt-5.6-luna", 47894000, 7.0d),
-                Model("gpt-reserve", 24631200, 3.6d)
+                Model("future-model-without-price", 24631200, 3.6d, false)
             }
         };
         snapshot.AccountTokenUsage = new AccountTokenUsageSnapshot
@@ -136,13 +136,15 @@ internal static class RenderQa
     private static ModelTokenUsageSnapshot Model(
         string model,
         long tokens,
-        double percentage)
+        double percentage,
+        bool hasPriceEstimate = true)
     {
         return new ModelTokenUsageSnapshot
         {
             Model = model,
             TotalTokens = tokens,
-            Percentage = percentage
+            Percentage = percentage,
+            HasPriceEstimate = hasPriceEstimate
         };
     }
 
@@ -154,6 +156,21 @@ internal static class RenderQa
             EstimatedCostUsd = cost,
             HasData = true,
             HasCompleteCostEstimate = true
+        };
+    }
+
+    private static TokenPeriodSnapshot PartialPeriod(
+        long tokens,
+        long pricedTokens,
+        decimal cost)
+    {
+        return new TokenPeriodSnapshot
+        {
+            TotalTokens = tokens,
+            PricedTokens = pricedTokens,
+            EstimatedCostUsd = cost,
+            HasData = true,
+            HasCompleteCostEstimate = false
         };
     }
 }

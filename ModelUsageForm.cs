@@ -358,6 +358,8 @@ namespace UsagePeek
                 Color.FromArgb(94, 234, 212)))
             using (SolidBrush mutedBrush = new SolidBrush(
                 Color.FromArgb(112, 132, 157)))
+            using (SolidBrush warningBrush = new SolidBrush(
+                Color.FromArgb(251, 191, 36)))
             using (SolidBrush trackBrush = new SolidBrush(
                 Color.FromArgb(34, 47, 63)))
             using (SolidBrush fillBrush = new SolidBrush(
@@ -385,8 +387,11 @@ namespace UsagePeek
                     logicalWidth - percentSize.Width - 14, 6);
 
                 string tokens = DisplayFormatting.FormatTokens(
-                    Math.Max(0L, usage.TotalTokens)) + " tokens";
-                e.Graphics.DrawString(tokens, tokensFont, mutedBrush, 14, 27);
+                    Math.Max(0L, usage.TotalTokens)) + " tokens" +
+                    (usage.HasPriceEstimate == false ? " · 价格待补充" : string.Empty);
+                e.Graphics.DrawString(tokens, tokensFont,
+                    usage.HasPriceEstimate == false ? warningBrush : mutedBrush,
+                    14, 27);
 
                 Rectangle track = new Rectangle(14, 47,
                     Math.Max(1, logicalWidth - 28), 4);

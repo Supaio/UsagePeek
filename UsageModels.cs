@@ -37,6 +37,7 @@ namespace UsagePeek
     internal sealed class TokenPeriodSnapshot
     {
         public long TotalTokens { get; set; }
+        public long PricedTokens { get; set; }
         public decimal EstimatedCostUsd { get; set; }
         public bool HasData { get; set; }
         public bool HasCompleteCostEstimate { get; set; }
@@ -47,6 +48,7 @@ namespace UsagePeek
         public string Model { get; set; }
         public long TotalTokens { get; set; }
         public double Percentage { get; set; }
+        public bool? HasPriceEstimate { get; set; }
     }
 
     internal sealed class LocalTokenUsageSnapshot

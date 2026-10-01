@@ -488,7 +488,8 @@ namespace UsagePeek
                     TotalTokens = entry.Value,
                     Percentage = allTokens > 0
                         ? entry.Value * 100d / allTokens
-                        : 0d
+                        : 0d,
+                    HasPriceEstimate = PricingCatalog.HasPrice(entry.Key)
                 });
             }
             return result;
@@ -517,6 +518,7 @@ namespace UsagePeek
         {
             private bool completeCost = true;
             private decimal cost;
+            private long pricedTokens;
             private long tokens;
 
             public void Add(long value, decimal? estimatedCost)
@@ -530,6 +532,7 @@ namespace UsagePeek
                 if (estimatedCost.HasValue)
                 {
                     cost += estimatedCost.Value;
+                    pricedTokens += value;
                 }
                 else
                 {
@@ -542,6 +545,7 @@ namespace UsagePeek
                 return new TokenPeriodSnapshot
                 {
                     TotalTokens = tokens,
+                    PricedTokens = pricedTokens,
                     EstimatedCostUsd = cost,
                     HasData = tokens > 0,
                     HasCompleteCostEstimate = tokens > 0 && completeCost
@@ -601,6 +605,11 @@ namespace UsagePeek
 
         private static class PricingCatalog
         {
+            public static bool HasPrice(string model)
+            {
+                return Find(model) != null;
+            }
+
             public static decimal? Estimate(string model, TokenVector usage)
             {
                 Price price = Find(model);
@@ -659,6 +668,9 @@ namespace UsagePeek
                     case "gpt-6-sol":
                         return new Price(2m, 0.2m, 2.5m, 10m,
                             4m, 0.4m, 5m, 15m);
+                    case "gpt-6.1-sol":
+                        return new Price(2m, 0.1m, 2.5m, 10m,
+                            4m, 0.2m, 5m, 15m);
                     case "gpt-6-luna":
                         return new Price(0.1m, 0.01m, 0.125m, 0.5m,
                             0.2m, 0.02m, 0.25m, 0.75m);

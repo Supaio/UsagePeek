@@ -75,9 +75,10 @@ UsagePeek 通过 Codex app-server 调用：
 费用前的 `≈` 表示它是按 OpenAI 公开 API 标准价格计算的等价估算，**不是
 ChatGPT 订阅账单，也不会从账号扣款**。估算区分普通输入、缓存输入、缓存
 写入、输出及长上下文价格（[OpenAI 官方价格表](https://developers.openai.com/api/docs/pricing)，
-基准：2026-09-24）。当前已覆盖 GPT-6 Astra / Sol / Luna、GPT-5.6、GPT-5.5
-及常见历史 Codex 模型；`gpt-reserve` 按 Luna、`codex-auto-review` 按 Sol 的
-公开等价价格估算。其他无法识别的模型显示 `$--`，不会猜测金额。
+基准：2026-10-01）。当前已覆盖 GPT-6 Astra / 6.1 Sol / Sol / Luna、GPT-5.6、
+GPT-5.5 及常见历史 Codex 模型；`gpt-reserve` 按 Luna、`codex-auto-review` 按
+Sol 的公开等价价格估算。若记录混有未知价格的模型，已识别部分仍会以 `≥` 显示
+金额下限，并在模型占比页标记“价格待补充”；不会猜测未知部分的金额。
 
 人民币金额同样只是显示换算。汇率由 Frankfurter 的免密钥 HTTPS 接口提供，
 按最新工作日参考数据更新，不是盘中交易报价；切换到 CNY 时才发出请求，
@@ -158,7 +159,7 @@ cd usagepeek
 
 ```json
 {
-  "version": "0.3.6",
+  "version": "0.3.7",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"

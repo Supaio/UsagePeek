@@ -1,6 +1,6 @@
 {
-  "version": "0.3.6",
+  "version": "0.3.7",
   "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
-  "sha256": "32B4492283989527A8F9506A7DED83C8074A6429C605024C23E73CABE8A63DD0",
-  "notes": "新增多显示器 DPI 自适应；在 100%、125%、150%、200% 等不同缩放比例的屏幕之间切换时，窗口、文字、按钮和自绘图形会同步缩放。"
+  "sha256": "AD72D71E6C7F446D1B259DCE921BE395B4A537432DAADD08C6BC782C635C456C",
+  "notes": "修复 GPT-6.1 Sol 无法估算金额的问题；混有未知模型时保留已识别部分的金额下限，并在模型占比页标记待补价格的模型。"
 }

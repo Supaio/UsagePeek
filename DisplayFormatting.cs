@@ -166,10 +166,36 @@ namespace UsagePeek
                 return "暂无数据";
             }
 
-            string cost = period.HasCompleteCostEstimate
-                ? FormatEstimatedMoney(period.EstimatedCostUsd, currency)
-                : "$--";
+            string cost;
+            if (period.HasCompleteCostEstimate)
+            {
+                cost = FormatEstimatedMoney(period.EstimatedCostUsd, currency);
+            }
+            else if (period.PricedTokens > 0 || period.EstimatedCostUsd > 0m)
+            {
+                cost = FormatPartialEstimatedMoney(
+                    period.EstimatedCostUsd, currency);
+            }
+            else
+            {
+                cost = "价格待补充";
+            }
             return cost + " · " + FormatTokens(period.TotalTokens) + " tokens";
+        }
+
+        public static string FormatPartialEstimatedMoney(
+            decimal amountUsd,
+            CurrencyDisplayState currency)
+        {
+            if (currency != null && currency.ShowCny &&
+                currency.UsdToCnyRate.HasValue)
+            {
+                decimal cny = amountUsd * currency.UsdToCnyRate.Value;
+                return "≥¥" + cny.ToString("0.00", CultureInfo.InvariantCulture);
+            }
+
+            return "≥$" + amountUsd.ToString("0.00",
+                CultureInfo.InvariantCulture);
         }
 
         public static string FormatEstimatedMoney(

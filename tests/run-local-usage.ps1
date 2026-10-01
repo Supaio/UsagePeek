@@ -22,6 +22,7 @@ $output = Join-Path $outputDirectory 'LocalUsageQa.exe'
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'CodexResponseParser.cs') `
     (Join-Path $root 'LocalUsageScanner.cs') `
+    (Join-Path $root 'DisplayFormatting.cs') `
     (Join-Path $PSScriptRoot 'LocalUsageQa.cs')
 
 if ($LASTEXITCODE -ne 0) {
