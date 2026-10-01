@@ -12,40 +12,25 @@ if (-not (Test-Path -LiteralPath $compiler)) {
 
 $outputDirectory = Join-Path $root 'bin'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-$output = Join-Path $outputDirectory 'ParserQa.exe'
+$output = Join-Path $outputDirectory 'PetModeQa.exe'
 
 & $compiler /nologo /utf8output /target:exe /optimize+ `
     /reference:System.dll `
     /reference:System.Core.dll `
+    /reference:System.Drawing.dll `
+    /reference:System.Windows.Forms.dll `
     /reference:System.Web.Extensions.dll `
+    "/resource:$(Join-Path $root 'assets\pet-shark-maid.png'),UsagePeek.Assets.PetSharkMaid.png" `
     "/out:$output" `
+    (Join-Path $root 'DpiAwareForm.cs') `
+    (Join-Path $root 'DisplayModeSettings.cs') `
     (Join-Path $root 'UsageModels.cs') `
-    (Join-Path $root 'CodexResponseParser.cs') `
-    (Join-Path $PSScriptRoot 'ParserQa.cs')
+    (Join-Path $root 'PetForm.cs') `
+    (Join-Path $PSScriptRoot 'PetModeQa.cs')
 
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
 & $output
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-local-usage.ps1')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-reset-credit-notification.ps1')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-pet-mode.ps1')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-dpi-layout.ps1')
 exit $LASTEXITCODE

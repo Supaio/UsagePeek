@@ -14,6 +14,27 @@ internal static class RenderQa
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
+        bool pet = args.Length > 1 && string.Equals(args[1], "pet",
+            StringComparison.OrdinalIgnoreCase);
+        if (pet)
+        {
+            using (PetForm petForm = new PetForm())
+            {
+                petForm.SetUsage(new UsageSnapshot
+                {
+                    Primary = new UsageWindowSnapshot { UsedPercent = 45 },
+                    Secondary = new UsageWindowSnapshot { UsedPercent = 34 }
+                });
+                using (Bitmap petImage = petForm.RenderImageForTesting())
+                {
+                    petImage.Save(output, ImageFormat.Png);
+                    Console.WriteLine("Pet preview: {0}x{1}",
+                        petImage.Width, petImage.Height);
+                }
+            }
+            return;
+        }
+
         UsageSnapshot snapshot = new UsageSnapshot();
         snapshot.ProviderId = "chatgpt-codex";
         snapshot.ProviderName = "ChatGPT / Codex";

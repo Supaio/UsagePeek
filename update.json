@@ -1,6 +1,6 @@
 {
-  "version": "0.3.7",
+  "version": "1.0.0",
   "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
-  "sha256": "AD72D71E6C7F446D1B259DCE921BE395B4A537432DAADD08C6BC782C635C456C",
-  "notes": "修复 GPT-6.1 Sol 无法估算金额的问题；混有未知模型时保留已识别部分的金额下限，并在模型占比页标记待补价格的模型。"
+  "sha256": "60E38C9A799291F73884E422292CDBA1B07D08605091833CEAA9E39481AC30A1",
+  "notes": "正式版 v1.0.0：默认启用蓝发鲨鱼女仆桌宠；数字气泡实时显示 5h 与 7d 用量；右键可切换经典一页面板，桌宠支持透明悬浮、拖动记忆位置、屏幕边缘限位与点击查看详情。"
 }

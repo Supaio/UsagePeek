@@ -17,7 +17,13 @@ namespace UsagePeek
         private readonly StartupManager startupManager;
         private readonly UpdateService updateService;
         private readonly CodexBootstrapService bootstrapService;
+        private readonly DisplayModeSettings displayModeSettings;
+        private readonly DisplayModePreference displayPreference;
         private readonly MainForm form;
+        private readonly PetForm petForm;
+        private readonly ContextMenuStrip menu;
+        private readonly ToolStripMenuItem classicModeItem;
+        private readonly ToolStripMenuItem petModeItem;
         private readonly NotifyIcon trayIcon;
         private readonly Timer refreshTimer;
         private readonly Timer initialRefreshTimer;
@@ -38,22 +44,47 @@ namespace UsagePeek
             startupManager = new StartupManager();
             updateService = new UpdateService();
             bootstrapService = new CodexBootstrapService();
+            displayModeSettings = new DisplayModeSettings();
+            displayPreference = displayModeSettings.Load();
             form = new MainForm();
+            petForm = new PetForm();
             form.RefreshRequested += async delegate { await RefreshAsync(); };
             form.CurrencyToggleRequested += async delegate { await ToggleCurrencyAsync(); };
             form.RepairRequested += async delegate { await RepairCodexAsync(); };
             form.ModelUsageRequested += delegate { ShowModelUsage(); };
             form.SetCurrencyState(currencyState);
             form.FormClosed += delegate { ExitApplication(); };
+            petForm.DetailsRequested += delegate { ShowDetails(); };
+            petForm.LocationCommitted += delegate
+            {
+                displayPreference.SetPetLocation(petForm.Location);
+                displayModeSettings.Save(displayPreference);
+            };
 
-            ContextMenuStrip menu = new ContextMenuStrip();
-            ToolStripMenuItem openItem = new ToolStripMenuItem("打开 UsagePeek");
-            openItem.Click += delegate { form.ShowNearTray(); };
+            menu = new ContextMenuStrip();
+            ToolStripMenuItem openItem = new ToolStripMenuItem("打开用量详情");
+            openItem.Click += delegate { ShowDetails(); };
             ToolStripMenuItem refreshItem = new ToolStripMenuItem("立即刷新");
             refreshItem.Click += async delegate { await RefreshAsync(); };
             ToolStripMenuItem modelUsageItem =
                 new ToolStripMenuItem("查看模型用量占比");
             modelUsageItem.Click += delegate { ShowModelUsage(); };
+            ToolStripMenuItem displayModeItem =
+                new ToolStripMenuItem("显示模式");
+            classicModeItem = new ToolStripMenuItem("经典面板（一页看完）");
+            classicModeItem.CheckOnClick = false;
+            classicModeItem.Click += delegate
+            {
+                SetDisplayMode(UsageDisplayMode.Classic);
+            };
+            petModeItem = new ToolStripMenuItem("桌宠模式（点击看详情）");
+            petModeItem.CheckOnClick = false;
+            petModeItem.Click += delegate
+            {
+                SetDisplayMode(UsageDisplayMode.Pet);
+            };
+            displayModeItem.DropDownItems.Add(classicModeItem);
+            displayModeItem.DropDownItems.Add(petModeItem);
             ToolStripMenuItem startupItem = new ToolStripMenuItem("开机自启");
             startupItem.Checked = startupManager.IsEnabled();
             startupItem.CheckOnClick = false;
@@ -66,7 +97,10 @@ namespace UsagePeek
                     startupItem.Checked = startupManager.IsEnabled();
                     trayIcon.ShowBalloonTip(2500, "UsagePeek",
                         startupItem.Checked
-                            ? "已开启开机自启；启动时只驻留托盘。"
+                            ? displayPreference.GetDisplayMode() ==
+                                UsageDisplayMode.Pet
+                                ? "已开启开机自启；启动时会恢复桌宠。"
+                                : "已开启开机自启；启动时只驻留托盘。"
                             : "已关闭开机自启。",
                         ToolTipIcon.Info);
                 }
@@ -85,6 +119,7 @@ namespace UsagePeek
             menu.Items.Add(refreshItem);
             menu.Items.Add(modelUsageItem);
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(displayModeItem);
             menu.Items.Add(startupItem);
             menu.Items.Add(updateItem);
             menu.Items.Add(new ToolStripSeparator());
@@ -96,11 +131,22 @@ namespace UsagePeek
             trayIcon.Text = "UsagePeek · 等待读取";
             trayIcon.Visible = true;
             trayIcon.ContextMenuStrip = menu;
+            AttachContextMenu(form, menu);
+            petForm.ContextMenuStrip = menu;
+            UpdateDisplayModeMenu();
             trayIcon.MouseUp += delegate(object sender, MouseEventArgs args)
             {
                 if (args.Button == MouseButtons.Left)
                 {
-                    form.ToggleNearTray();
+                    if (displayPreference.GetDisplayMode() ==
+                        UsageDisplayMode.Pet)
+                    {
+                        ShowDetails();
+                    }
+                    else
+                    {
+                        form.ToggleNearTray();
+                    }
                 }
             };
 
@@ -126,10 +172,16 @@ namespace UsagePeek
             if (lastSnapshot != null)
             {
                 form.ShowSnapshot(lastSnapshot, null);
+                petForm.SetUsage(lastSnapshot);
                 UpdateTrayText(lastSnapshot, true);
             }
 
-            if (!startHidden)
+            if (displayPreference.GetDisplayMode() == UsageDisplayMode.Pet)
+            {
+                petForm.ShowAtPreferredLocation(
+                    displayPreference.GetPetLocation());
+            }
+            else if (!startHidden)
             {
                 form.ShowNearTray();
             }
@@ -154,6 +206,7 @@ namespace UsagePeek
                 lastSnapshot = snapshot;
                 cache.Save(snapshot);
                 form.ShowSnapshot(snapshot, null);
+                petForm.SetUsage(snapshot);
                 UpdateTrayText(snapshot, false);
                 ShowResetCreditGrant(resetCreditGrant);
             }
@@ -163,6 +216,7 @@ namespace UsagePeek
                 {
                     lastSnapshot.IsStale = true;
                     form.ShowSnapshot(lastSnapshot, ex.Message);
+                    petForm.SetUsage(lastSnapshot);
                     UpdateTrayText(lastSnapshot, true);
                 }
                 else
@@ -372,7 +426,7 @@ namespace UsagePeek
                 lastSnapshot.LocalTokenUsage.ModelUsage == null ||
                 lastSnapshot.LocalTokenUsage.ModelUsage.Count == 0)
             {
-                form.ShowNearTray();
+                ShowDetails();
                 form.ShowTransientStatus("暂无模型分组数据，请先刷新。", true);
                 return;
             }
@@ -383,9 +437,63 @@ namespace UsagePeek
                 dialog.PlaceNearTray();
                 dialog.ShowDialog();
             }
-            if (!exiting)
+            if (!exiting && displayPreference.GetDisplayMode() ==
+                UsageDisplayMode.Classic)
             {
                 form.ShowNearTray();
+            }
+        }
+
+        private void ShowDetails()
+        {
+            if (displayPreference.GetDisplayMode() == UsageDisplayMode.Pet)
+            {
+                if (!petForm.Visible)
+                {
+                    petForm.ShowAtPreferredLocation(
+                        displayPreference.GetPetLocation());
+                }
+                form.ShowNearAnchor(petForm.Bounds);
+                return;
+            }
+
+            form.ShowNearTray();
+        }
+
+        private void SetDisplayMode(UsageDisplayMode mode)
+        {
+            displayPreference.SetDisplayMode(mode);
+            displayModeSettings.Save(displayPreference);
+            UpdateDisplayModeMenu();
+
+            if (mode == UsageDisplayMode.Pet)
+            {
+                form.Hide();
+                petForm.ShowAtPreferredLocation(
+                    displayPreference.GetPetLocation());
+            }
+            else
+            {
+                petForm.Hide();
+                form.ShowNearTray();
+            }
+        }
+
+        private void UpdateDisplayModeMenu()
+        {
+            UsageDisplayMode mode = displayPreference.GetDisplayMode();
+            classicModeItem.Checked = mode == UsageDisplayMode.Classic;
+            petModeItem.Checked = mode == UsageDisplayMode.Pet;
+        }
+
+        private static void AttachContextMenu(
+            Control root,
+            ContextMenuStrip contextMenu)
+        {
+            root.ContextMenuStrip = contextMenu;
+            foreach (Control child in root.Controls)
+            {
+                AttachContextMenu(child, contextMenu);
             }
         }
 
@@ -403,7 +511,9 @@ namespace UsagePeek
             trayIcon.Visible = false;
             trayIcon.Dispose();
             icon.Dispose();
+            petForm.Dispose();
             form.Dispose();
+            menu.Dispose();
             ExitThread();
         }
     }

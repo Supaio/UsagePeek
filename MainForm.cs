@@ -304,6 +304,33 @@ namespace UsagePeek
             Activate();
         }
 
+        public void ShowNearAnchor(Rectangle anchor)
+        {
+            Screen screen = Screen.FromRectangle(anchor);
+            PrepareForScreen(screen);
+            Rectangle workArea = screen.WorkingArea;
+            int left = anchor.Left - Width - 14;
+            if (left < workArea.Left + 8)
+            {
+                left = anchor.Right + 14;
+            }
+            left = Math.Max(workArea.Left + 8,
+                Math.Min(left, workArea.Right - Width - 8));
+            int top = Math.Max(workArea.Top + 8,
+                Math.Min(anchor.Bottom - Height,
+                    workArea.Bottom - Height - 8));
+            Location = new Point(left, top);
+
+            if (!Visible)
+            {
+                Show();
+            }
+
+            WindowState = FormWindowState.Normal;
+            BringToFront();
+            Activate();
+        }
+
         public void ToggleNearTray()
         {
             if (Visible)

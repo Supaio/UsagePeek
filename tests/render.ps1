@@ -17,6 +17,7 @@ $preview = Join-Path $root 'preview.png'
     /reference:System.Core.dll `
     /reference:System.Drawing.dll `
     /reference:System.Windows.Forms.dll `
+    "/resource:$(Join-Path $root 'assets\pet-shark-maid.png'),UsagePeek.Assets.PetSharkMaid.png" `
     "/out:$renderer" `
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `
@@ -26,6 +27,7 @@ $preview = Join-Path $root 'preview.png'
     (Join-Path $root 'UsageDetailsControl.cs') `
     (Join-Path $root 'MainForm.cs') `
     (Join-Path $root 'ModelUsageForm.cs') `
+    (Join-Path $root 'PetForm.cs') `
     (Join-Path $PSScriptRoot 'RenderQa.cs')
 
 if ($LASTEXITCODE -ne 0) {

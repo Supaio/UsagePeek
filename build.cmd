@@ -26,6 +26,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
 "%CSC%" /nologo /utf8output /target:winexe /optimize+ /debug- /platform:anycpu ^
   /win32icon:"assets\usagepeek.ico" ^
   /win32manifest:app.manifest ^
+  /resource:"assets\pet-shark-maid.png",UsagePeek.Assets.PetSharkMaid.png ^
   /reference:System.dll ^
   /reference:System.Core.dll ^
   /reference:System.Drawing.dll ^
@@ -35,6 +36,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
   Program.cs UsageModels.cs IUsageProvider.cs CodexResponseParser.cs ^
   CodexExecutableLocator.cs CodexUsageProvider.cs LocalUsageScanner.cs UsageCache.cs DisplayFormatting.cs ^
   ExchangeRateService.cs StartupManager.cs UpdateService.cs CodexBootstrapService.cs ^
+  DisplayModeSettings.cs PetForm.cs ^
   ResetCreditNotificationTracker.cs ^
   DpiAwareForm.cs UiControls.cs UsageCardControl.cs UsageDetailsControl.cs ^
   MainForm.cs ModelUsageForm.cs IconFactory.cs TrayApplicationContext.cs

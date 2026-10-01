@@ -16,6 +16,7 @@ internal static class DpiLayoutQa
 
         VerifyMainForm();
         VerifyModelForm();
+        VerifyPetForm();
 
         if (failures > 0)
         {
@@ -84,6 +85,24 @@ internal static class DpiLayoutQa
             form.ApplyDpiForTesting(96);
             AssertEqual(designSize, form.ClientSize,
                 "model form returns exactly to 100 percent");
+        }
+    }
+
+    private static void VerifyPetForm()
+    {
+        using (PetForm form = new PetForm())
+        {
+            Size designSize = form.ClientSize;
+            AssertEqual(new Size(250, 458), designSize,
+                "pet form reserves space for the numeric usage bubble");
+
+            form.ApplyDpiForTesting(144);
+            AssertEqual(new Size(375, 687), form.ClientSize,
+                "pet form scales to 150 percent");
+
+            form.ApplyDpiForTesting(96);
+            AssertEqual(designSize, form.ClientSize,
+                "pet form returns exactly to 100 percent");
         }
     }
 
