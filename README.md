@@ -1,5 +1,7 @@
 # UsagePeek
 
+如果您喜欢，请点个star！
+
 一个轻量的 Windows 系统托盘用量查看器，当前专注于 ChatGPT 账号下的
 Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元数据获取。
 
