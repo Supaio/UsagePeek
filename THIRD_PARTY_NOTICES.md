@@ -39,8 +39,13 @@ The upstream license is available at
 
 ## Desktop pet artwork
 
-The desktop pet artwork embedded as `assets/pet-whale-maid-curled.png` was supplied
-for use in UsagePeek. Artwork credit: **ZipZipPipe**. The artwork is separate
-from the MIT-licensed source code and is not relicensed under the repository's
-MIT License. Copyright and other artwork rights remain with their respective
-rights holder.
+The whale-maid desktop pet artwork embedded as
+`assets/pet-whale-maid-curled.png` was supplied for use in UsagePeek. Artwork
+credit: **ZipZipPipe**.
+
+The Phoebe Chibi desktop pet artwork embedded as
+`assets/pet-phoebe-chibi.png` was supplied by a tester for use in UsagePeek.
+
+Both artworks are separate from the MIT-licensed source code and are not
+relicensed under the repository's MIT License. Copyright and other artwork
+rights remain with their respective rights holders.

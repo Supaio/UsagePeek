@@ -27,6 +27,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
   /win32icon:"assets\usagepeek.ico" ^
   /win32manifest:app.manifest ^
   /resource:"assets\pet-whale-maid-curled.png",UsagePeek.Assets.PetWhaleMaidCurled.png ^
+  /resource:"assets\pet-phoebe-chibi.png",UsagePeek.Assets.PetPhoebeChibi.png ^
   /reference:System.dll ^
   /reference:System.Core.dll ^
   /reference:System.Drawing.dll ^
@@ -36,7 +37,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
   Program.cs UsageModels.cs IUsageProvider.cs CodexResponseParser.cs ^
   CodexExecutableLocator.cs CodexUsageProvider.cs LocalUsageScanner.cs UsageCache.cs DisplayFormatting.cs ^
   ExchangeRateService.cs StartupManager.cs UpdateService.cs CodexBootstrapService.cs ^
-  DisplayModeSettings.cs PetForm.cs ^
+  DisplayModeSettings.cs PetForm.cs PetSizeDialog.cs ^
   ResetCreditNotificationTracker.cs ^
   DpiAwareForm.cs UiControls.cs UsageCardControl.cs UsageDetailsControl.cs ^
   MainForm.cs ModelUsageForm.cs AboutForm.cs IconFactory.cs TrayApplicationContext.cs

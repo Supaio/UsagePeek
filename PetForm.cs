@@ -10,8 +10,10 @@ namespace UsagePeek
 {
     internal sealed class PetForm : DpiAwareForm
     {
-        private const string PetResourceName =
+        private const string WhalePetResourceName =
             "UsagePeek.Assets.PetWhaleMaidCurled.png";
+        private const string PhoebePetResourceName =
+            "UsagePeek.Assets.PetPhoebeChibi.png";
         private const int WmNcHitTest = 0x0084;
         private const int HtClient = 1;
         private const int HtTransparent = -1;
@@ -23,8 +25,15 @@ namespace UsagePeek
         private const int PetDesignHeight = 210;
         private const int WindowDesignWidth = 220;
         private const int WindowDesignHeight = 272;
+        private static readonly Rectangle WhaleContentBounds =
+            new Rectangle(26, 31, 1223, 1197);
+        private static readonly Rectangle PhoebeContentBounds =
+            new Rectangle(34, 120, 366, 380);
 
-        private readonly Bitmap sourceImage;
+        private readonly Bitmap whaleImage;
+        private readonly Bitmap phoebeImage;
+        private Bitmap sourceImage;
+        private Rectangle sourceContentBounds;
         private Bitmap renderedImage;
         private Point dragStartCursor;
         private Point dragStartWindow;
@@ -32,6 +41,9 @@ namespace UsagePeek
         private bool moved;
         private int? primaryUsedPercent;
         private int? secondaryUsedPercent;
+        private PetAppearance petAppearance;
+        private PetUsageDisplayMode usageDisplayMode;
+        private int petScalePercent;
 
         internal bool LayeredImageApplied { get; private set; }
 
@@ -72,7 +84,13 @@ namespace UsagePeek
 
         public PetForm()
         {
-            sourceImage = LoadPetImage();
+            whaleImage = LoadPetImage(PetAppearance.WhaleMaid);
+            phoebeImage = LoadPetImage(PetAppearance.PhoebeChibi);
+            sourceImage = whaleImage;
+            sourceContentBounds = WhaleContentBounds;
+            petAppearance = PetAppearance.WhaleMaid;
+            usageDisplayMode = PetUsageDisplayMode.Used;
+            petScalePercent = 100;
             Text = "UsagePeek 桌宠";
             ClientSize = new Size(WindowDesignWidth, WindowDesignHeight);
             FormBorderStyle = FormBorderStyle.None;
@@ -94,6 +112,45 @@ namespace UsagePeek
                 snapshot == null ? null : snapshot.Primary);
             secondaryUsedPercent = ReadUsedPercent(
                 snapshot == null ? null : snapshot.Secondary);
+            ApplyLayeredImage();
+        }
+
+        public void SetAppearance(PetAppearance value)
+        {
+            petAppearance = value;
+            sourceImage = value == PetAppearance.PhoebeChibi
+                ? phoebeImage
+                : whaleImage;
+            sourceContentBounds = value == PetAppearance.PhoebeChibi
+                ? PhoebeContentBounds
+                : WhaleContentBounds;
+            ApplyLayeredImage();
+        }
+
+        public void SetUsageDisplayMode(PetUsageDisplayMode value)
+        {
+            usageDisplayMode = value;
+            ApplyLayeredImage();
+        }
+
+        public void SetScalePercent(int value)
+        {
+            int clamped = Math.Max(
+                DisplayModePreference.MinimumPetScalePercent,
+                Math.Min(DisplayModePreference.MaximumPetScalePercent,
+                    value));
+            Rectangle oldBounds = Bounds;
+            petScalePercent = clamped;
+            ApplyScaledClientSize();
+
+            if (Visible && oldBounds.Width > 0 && oldBounds.Height > 0)
+            {
+                Point centered = new Point(
+                    oldBounds.Left + (oldBounds.Width - Width) / 2,
+                    oldBounds.Top + (oldBounds.Height - Height) / 2);
+                Rectangle area = Screen.FromRectangle(oldBounds).WorkingArea;
+                Location = ClampToWorkArea(centered, area);
+            }
             ApplyLayeredImage();
         }
 
@@ -131,7 +188,13 @@ namespace UsagePeek
 
         internal static Bitmap LoadPetImageForTesting()
         {
-            return LoadPetImage();
+            return LoadPetImage(PetAppearance.WhaleMaid);
+        }
+
+        internal static Bitmap LoadPetImageForTesting(
+            PetAppearance appearance)
+        {
+            return LoadPetImage(appearance);
         }
 
         internal Bitmap RenderImageForTesting()
@@ -143,9 +206,23 @@ namespace UsagePeek
         {
             get
             {
-                return "5h " + FormatPercent(primaryUsedPercent) +
-                    " · 7d " + FormatPercent(secondaryUsedPercent);
+                string qualifier = usageDisplayMode ==
+                    PetUsageDisplayMode.Remaining ? "剩余" : "已用";
+                return "5h " + qualifier + " " +
+                    FormatPercent(GetDisplayedPercent(primaryUsedPercent)) +
+                    " · 7d " + qualifier + " " +
+                    FormatPercent(GetDisplayedPercent(secondaryUsedPercent));
             }
+        }
+
+        internal PetAppearance AppearanceForTesting
+        {
+            get { return petAppearance; }
+        }
+
+        internal int ScalePercentForTesting
+        {
+            get { return petScalePercent; }
         }
 
         internal Point ClampLocationForTesting(Point value, Rectangle area)
@@ -168,6 +245,12 @@ namespace UsagePeek
         protected override void OnDpiScaleChanged()
         {
             base.OnDpiScaleChanged();
+            ApplyScaledClientSize();
+            if (Visible)
+            {
+                Screen screen = Screen.FromRectangle(Bounds);
+                Location = ClampToWorkArea(Location, screen.WorkingArea);
+            }
             ApplyLayeredImage();
         }
 
@@ -202,16 +285,20 @@ namespace UsagePeek
                     renderedImage.Dispose();
                     renderedImage = null;
                 }
-                sourceImage.Dispose();
+                whaleImage.Dispose();
+                phoebeImage.Dispose();
             }
             base.Dispose(disposing);
         }
 
-        private static Bitmap LoadPetImage()
+        private static Bitmap LoadPetImage(PetAppearance appearance)
         {
+            string resourceName = appearance == PetAppearance.PhoebeChibi
+                ? PhoebePetResourceName
+                : WhalePetResourceName;
             Assembly assembly = Assembly.GetExecutingAssembly();
             using (System.IO.Stream stream =
-                assembly.GetManifestResourceStream(PetResourceName))
+                assembly.GetManifestResourceStream(resourceName))
             {
                 if (stream == null)
                 {
@@ -299,18 +386,33 @@ namespace UsagePeek
                 graphics.Clear(Color.Transparent);
 
                 float scale = height / (float)WindowDesignHeight;
-                int petHeight = Math.Max(1,
+                int petBoxSize = Math.Max(1,
                     (int)Math.Round(PetDesignHeight * scale,
                         MidpointRounding.AwayFromZero));
-                int petWidth = Math.Max(1,
-                    (int)Math.Round(petHeight * sourceImage.Width /
-                        (double)sourceImage.Height,
+                double aspect = sourceContentBounds.Width /
+                    (double)sourceContentBounds.Height;
+                int petWidth;
+                int petHeight;
+                if (aspect >= 1d)
+                {
+                    petWidth = petBoxSize;
+                    petHeight = Math.Max(1, (int)Math.Round(
+                        petBoxSize / aspect,
                         MidpointRounding.AwayFromZero));
+                }
+                else
+                {
+                    petHeight = petBoxSize;
+                    petWidth = Math.Max(1, (int)Math.Round(
+                        petBoxSize * aspect,
+                        MidpointRounding.AwayFromZero));
+                }
                 int petLeft = (width - petWidth) / 2;
                 int petTop = height - petHeight;
                 graphics.DrawImage(sourceImage,
                     new Rectangle(petLeft, petTop, petWidth, petHeight),
-                    0, 0, sourceImage.Width, sourceImage.Height,
+                    sourceContentBounds.X, sourceContentBounds.Y,
+                    sourceContentBounds.Width, sourceContentBounds.Height,
                     GraphicsUnit.Pixel);
 
                 graphics.CompositingMode = CompositingMode.SourceOver;
@@ -374,12 +476,18 @@ namespace UsagePeek
             DrawUsageColumn(graphics,
                 new Rectangle(bubble.Left, bubble.Top,
                     bubble.Width / 2, bubble.Height),
-                "5h", FormatPercent(primaryUsedPercent),
+                usageDisplayMode == PetUsageDisplayMode.Remaining
+                    ? "5h 剩余"
+                    : "5h 已用",
+                FormatPercent(GetDisplayedPercent(primaryUsedPercent)),
                 Color.FromArgb(251, 113, 133), scale);
             DrawUsageColumn(graphics,
                 new Rectangle(bubble.Left + bubble.Width / 2, bubble.Top,
                     bubble.Width - bubble.Width / 2, bubble.Height),
-                "7d", FormatPercent(secondaryUsedPercent),
+                usageDisplayMode == PetUsageDisplayMode.Remaining
+                    ? "7d 剩余"
+                    : "7d 已用",
+                FormatPercent(GetDisplayedPercent(secondaryUsedPercent)),
                 Color.FromArgb(45, 212, 191), scale);
         }
 
@@ -440,6 +548,17 @@ namespace UsagePeek
             return Math.Max(0, Math.Min(100, window.UsedPercent));
         }
 
+        private int? GetDisplayedPercent(int? usedPercent)
+        {
+            if (!usedPercent.HasValue)
+            {
+                return null;
+            }
+            return usageDisplayMode == PetUsageDisplayMode.Remaining
+                ? 100 - usedPercent.Value
+                : usedPercent.Value;
+        }
+
         private static string FormatPercent(int? value)
         {
             return value.HasValue ? value.Value + "%" : "--";
@@ -449,6 +568,14 @@ namespace UsagePeek
         {
             return (int)Math.Round(value * scale,
                 MidpointRounding.AwayFromZero);
+        }
+
+        private void ApplyScaledClientSize()
+        {
+            float scale = DpiScaleFactor * petScalePercent / 100f;
+            ClientSize = new Size(
+                Math.Max(1, ScaleDesign(WindowDesignWidth, scale)),
+                Math.Max(1, ScaleDesign(WindowDesignHeight, scale)));
         }
 
         private bool IsTransparentPoint(IntPtr packedScreenPoint)

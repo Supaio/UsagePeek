@@ -17,6 +17,7 @@ internal static class DpiLayoutQa
         VerifyMainForm();
         VerifyModelForm();
         VerifyAboutForm();
+        VerifyPetSizeDialog();
         VerifyPetForm();
 
         if (failures > 0)
@@ -104,6 +105,31 @@ internal static class DpiLayoutQa
             form.ApplyDpiForTesting(96);
             AssertEqual(designSize, form.ClientSize,
                 "pet form returns exactly to 100 percent");
+
+            form.SetScalePercent(75);
+            AssertEqual(new Size(165, 204), form.ClientSize,
+                "pet form supports a 75 percent custom size");
+            form.ApplyDpiForTesting(144);
+            AssertEqual(new Size(248, 306), form.ClientSize,
+                "custom pet size combines with 150 percent display DPI");
+            form.SetScalePercent(137);
+            AssertEqual(new Size(452, 559), form.ClientSize,
+                "arbitrary pet size remains correct at 150 percent DPI");
+            form.ApplyDpiForTesting(96);
+            AssertEqual(new Size(301, 373), form.ClientSize,
+                "arbitrary pet size returns correctly to 100 percent DPI");
+        }
+    }
+
+    private static void VerifyPetSizeDialog()
+    {
+        using (PetSizeDialog form = new PetSizeDialog(137))
+        {
+            AssertEqual(137, form.SelectedPercent,
+                "custom size dialog keeps the requested percentage");
+            form.ApplyDpiForTesting(144);
+            AssertEqual(new Size(480, 264), form.ClientSize,
+                "custom size dialog scales to 150 percent");
         }
     }
 

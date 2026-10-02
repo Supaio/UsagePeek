@@ -14,12 +14,31 @@ internal static class RenderQa
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        bool pet = args.Length > 1 && string.Equals(args[1], "pet",
-            StringComparison.OrdinalIgnoreCase);
+        string mode = args.Length > 1 ? args[1] : string.Empty;
+        bool pet = string.Equals(mode, "pet", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "pet-phoebe", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "pet-remaining", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "pet-small", StringComparison.OrdinalIgnoreCase);
         if (pet)
         {
             using (PetForm petForm = new PetForm())
             {
+                if (string.Equals(mode, "pet-phoebe",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    petForm.SetAppearance(PetAppearance.PhoebeChibi);
+                }
+                if (string.Equals(mode, "pet-remaining",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    petForm.SetUsageDisplayMode(
+                        PetUsageDisplayMode.Remaining);
+                }
+                if (string.Equals(mode, "pet-small",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    petForm.SetScalePercent(50);
+                }
                 petForm.SetUsage(new UsageSnapshot
                 {
                     Primary = new UsageWindowSnapshot { UsedPercent = 45 },
@@ -42,6 +61,17 @@ internal static class RenderQa
             using (AboutForm aboutForm = new AboutForm())
             {
                 Render(aboutForm, output);
+            }
+            return;
+        }
+
+        bool petSize = args.Length > 1 && string.Equals(args[1], "pet-size",
+            StringComparison.OrdinalIgnoreCase);
+        if (petSize)
+        {
+            using (PetSizeDialog sizeForm = new PetSizeDialog(137))
+            {
+                Render(sizeForm, output);
             }
             return;
         }

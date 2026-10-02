@@ -16,8 +16,10 @@ $output = Join-Path $outputDirectory 'DpiLayoutQa.exe'
     /reference:System.Drawing.dll `
     /reference:System.Windows.Forms.dll `
     "/resource:$(Join-Path $root 'assets\pet-whale-maid-curled.png'),UsagePeek.Assets.PetWhaleMaidCurled.png" `
+    "/resource:$(Join-Path $root 'assets\pet-phoebe-chibi.png'),UsagePeek.Assets.PetPhoebeChibi.png" `
     "/out:$output" `
     (Join-Path $root 'UsageModels.cs') `
+    (Join-Path $root 'DisplayModeSettings.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `
     (Join-Path $root 'DpiAwareForm.cs') `
     (Join-Path $root 'UiControls.cs') `
@@ -26,6 +28,7 @@ $output = Join-Path $outputDirectory 'DpiLayoutQa.exe'
     (Join-Path $root 'MainForm.cs') `
     (Join-Path $root 'ModelUsageForm.cs') `
     (Join-Path $root 'AboutForm.cs') `
+    (Join-Path $root 'PetSizeDialog.cs') `
     (Join-Path $root 'PetForm.cs') `
     (Join-Path $PSScriptRoot 'DpiLayoutQa.cs')
 

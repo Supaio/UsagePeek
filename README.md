@@ -15,6 +15,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
   <img src="assets/screenshot.png" alt="UsagePeek Windows Codex usage dashboard" width="428">
   <br>
   <img src="assets/pet-whale-maid-curled.png" alt="UsagePeek curled whale girl desktop pet" height="260">
+  <img src="assets/pet-phoebe-chibi.png" alt="UsagePeek Phoebe Chibi desktop pet" height="260">
 </p>
 
 ## 下载
@@ -44,8 +45,10 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
   蓝发鲸鱼娘趴趴桌宠之间切换；圆形紧凑轮廓减少屏幕占用，桌宠支持拖动并
   记住位置，左键点击后在旁边打开
   完整用量详情。新安装默认使用桌宠模式。
-- 桌宠上方的数字气泡会实时显示 `5h` 与 `7d` 两个窗口的已用百分比，后台
-  刷新成功后同步更新，无需打开完整面板。
+- **桌宠自定义**：右键“桌宠设置”可在鲸鱼娘趴趴与菲比啾比之间切换，选择
+  显示 `5h` / `7d` 的已用或剩余百分比，并使用 75% / 100% / 125% 快捷尺寸
+  或 50%–200% 自定义缩放；外形、口径和大小都会在重启后保留。
+- 桌宠上方的数字气泡会随后台刷新同步更新，无需打开完整面板。
 - 桌宠拖到当前显示器边缘时会自动停住，完整形象不会被拖出可见区域；鼠标进入
   另一块显示器后仍可继续跨屏移动。
 - 支持 Windows 多显示器 DPI 缩放；在不同缩放比例的显示器之间切换时，
@@ -154,8 +157,9 @@ cd usagepeek
 
 程序启动后会出现在系统托盘。经典模式下，左键单击托盘图标可显示或隐藏面板；
 桌宠模式下，单击桌宠或托盘图标会在桌宠旁打开详情。右键托盘、面板或桌宠均可
-切换显示模式，也可刷新、设置开机自启或退出。如果 Codex 不在自动探测的位置，
-可将完整路径放入 `USAGEPEEK_CODEX_PATH`，支持 `codex.exe` 或 `codex.cmd`。
+切换显示模式；“桌宠设置”可修改外形、用量口径和大小，也可刷新、设置开机自启
+或退出。如果 Codex 不在自动探测的位置，可将完整路径放入
+`USAGEPEEK_CODEX_PATH`，支持 `codex.exe` 或 `codex.cmd`。
 
 给其他人测试时，技术上只需要发送 `UsagePeek.exe`。建议让对方把它放在桌面或
 个人文件夹后运行；如果出现桌面组件受保护提示，点击“修复连接”即可。首次修复
@@ -175,7 +179,7 @@ cd usagepeek
 
 ```json
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"

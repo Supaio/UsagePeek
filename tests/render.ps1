@@ -18,8 +18,10 @@ $preview = Join-Path $root 'preview.png'
     /reference:System.Drawing.dll `
     /reference:System.Windows.Forms.dll `
     "/resource:$(Join-Path $root 'assets\pet-whale-maid-curled.png'),UsagePeek.Assets.PetWhaleMaidCurled.png" `
+    "/resource:$(Join-Path $root 'assets\pet-phoebe-chibi.png'),UsagePeek.Assets.PetPhoebeChibi.png" `
     "/out:$renderer" `
     (Join-Path $root 'UsageModels.cs') `
+    (Join-Path $root 'DisplayModeSettings.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `
     (Join-Path $root 'DpiAwareForm.cs') `
     (Join-Path $root 'UiControls.cs') `
@@ -28,6 +30,7 @@ $preview = Join-Path $root 'preview.png'
     (Join-Path $root 'MainForm.cs') `
     (Join-Path $root 'ModelUsageForm.cs') `
     (Join-Path $root 'AboutForm.cs') `
+    (Join-Path $root 'PetSizeDialog.cs') `
     (Join-Path $root 'PetForm.cs') `
     (Join-Path $PSScriptRoot 'RenderQa.cs')
 

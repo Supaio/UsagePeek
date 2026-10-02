@@ -51,9 +51,18 @@ internal static class PetModeQa
             "pet mode is the default for new installs");
         Check(!initial.GetPetLocation().HasValue,
             "new installs have no stale pet position");
+        Check(initial.GetPetAppearance() == PetAppearance.WhaleMaid,
+            "new installs use the whale maid appearance");
+        Check(initial.GetPetUsageDisplayMode() == PetUsageDisplayMode.Used,
+            "new installs display used percentages");
+        Check(initial.GetPetScalePercent() == 100,
+            "new installs use the standard pet size");
 
         initial.SetDisplayMode(UsageDisplayMode.Pet);
         initial.SetPetLocation(new Point(321, 654));
+        initial.SetPetAppearance(PetAppearance.PhoebeChibi);
+        initial.SetPetUsageDisplayMode(PetUsageDisplayMode.Remaining);
+        initial.SetPetScalePercent(137);
         settings.Save(initial);
 
         DisplayModePreference restored = settings.Load();
@@ -61,6 +70,20 @@ internal static class PetModeQa
             "pet mode preference survives restart");
         Check(restored.GetPetLocation() == new Point(321, 654),
             "dragged pet position survives restart");
+        Check(restored.GetPetAppearance() == PetAppearance.PhoebeChibi,
+            "selected pet appearance survives restart");
+        Check(restored.GetPetUsageDisplayMode() ==
+                PetUsageDisplayMode.Remaining,
+            "remaining usage display survives restart");
+        Check(restored.GetPetScalePercent() == 137,
+            "custom pet size survives restart");
+
+        restored.SetPetScalePercent(10);
+        Check(restored.GetPetScalePercent() == 50,
+            "custom pet size is clamped to the minimum");
+        restored.SetPetScalePercent(500);
+        Check(restored.GetPetScalePercent() == 200,
+            "custom pet size is clamped to the maximum");
     }
 
     private static void VerifyEmbeddedArtwork()
@@ -77,6 +100,20 @@ internal static class PetModeQa
             Check(image.GetPixel(image.Width / 2, image.Height / 2).A > 200,
                 "round curled maid artwork contains an opaque character body");
         }
+
+        using (Bitmap image = PetForm.LoadPetImageForTesting(
+            PetAppearance.PhoebeChibi))
+        {
+            Check(image.Width == 500 && image.Height == 500,
+                "Phoebe Chibi artwork is embedded at the expected resolution");
+            Check(image.GetPixel(0, 0).A == 0 &&
+                image.GetPixel(image.Width - 1, 0).A == 0 &&
+                image.GetPixel(0, image.Height - 1).A == 0 &&
+                image.GetPixel(image.Width - 1, image.Height - 1).A == 0,
+                "Phoebe Chibi artwork retains transparent corners");
+            Check(image.GetPixel(image.Width / 2, image.Height / 2).A > 200,
+                "Phoebe Chibi artwork contains an opaque character body");
+        }
     }
 
     private static void VerifyLayeredWindowRendering()
@@ -89,8 +126,20 @@ internal static class PetModeQa
                 Secondary = new UsageWindowSnapshot { UsedPercent = 34 }
             };
             form.SetUsage(snapshot);
-            Check(form.UsageSummaryForTesting == "5h 45% · 7d 34%",
-                "usage bubble contains both numeric percentages");
+            Check(form.UsageSummaryForTesting ==
+                    "5h 已用 45% · 7d 已用 34%",
+                "usage bubble displays used percentages");
+            form.SetUsageDisplayMode(PetUsageDisplayMode.Remaining);
+            Check(form.UsageSummaryForTesting ==
+                    "5h 剩余 55% · 7d 剩余 66%",
+                "usage bubble can display remaining percentages");
+            form.SetAppearance(PetAppearance.PhoebeChibi);
+            Check(form.AppearanceForTesting == PetAppearance.PhoebeChibi,
+                "pet appearance can switch to Phoebe Chibi");
+            form.SetScalePercent(137);
+            Check(form.ScalePercentForTesting == 137 &&
+                    form.ClientSize == new Size(301, 373),
+                "custom pet scale changes the layered window size");
             using (Bitmap preview = form.RenderImageForTesting())
             {
                 Check(preview.GetPixel(preview.Width / 2, 12).A > 200,

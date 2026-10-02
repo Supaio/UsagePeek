@@ -12,11 +12,29 @@ namespace UsagePeek
         Pet
     }
 
+    internal enum PetAppearance
+    {
+        WhaleMaid,
+        PhoebeChibi
+    }
+
+    internal enum PetUsageDisplayMode
+    {
+        Used,
+        Remaining
+    }
+
     internal sealed class DisplayModePreference
     {
+        internal const int MinimumPetScalePercent = 50;
+        internal const int MaximumPetScalePercent = 200;
+
         public string Mode { get; set; }
         public int? PetLeft { get; set; }
         public int? PetTop { get; set; }
+        public string PetAppearanceId { get; set; }
+        public string PetUsageMode { get; set; }
+        public int? PetScalePercent { get; set; }
 
         public UsageDisplayMode GetDisplayMode()
         {
@@ -29,6 +47,51 @@ namespace UsagePeek
         public void SetDisplayMode(UsageDisplayMode value)
         {
             Mode = value == UsageDisplayMode.Pet ? "pet" : "classic";
+        }
+
+        public PetAppearance GetPetAppearance()
+        {
+            return string.Equals(PetAppearanceId, "phoebe-chibi",
+                StringComparison.OrdinalIgnoreCase)
+                ? PetAppearance.PhoebeChibi
+                : PetAppearance.WhaleMaid;
+        }
+
+        public void SetPetAppearance(PetAppearance value)
+        {
+            PetAppearanceId = value == PetAppearance.PhoebeChibi
+                ? "phoebe-chibi"
+                : "whale-maid";
+        }
+
+        public PetUsageDisplayMode GetPetUsageDisplayMode()
+        {
+            return string.Equals(PetUsageMode, "remaining",
+                StringComparison.OrdinalIgnoreCase)
+                ? PetUsageDisplayMode.Remaining
+                : PetUsageDisplayMode.Used;
+        }
+
+        public void SetPetUsageDisplayMode(PetUsageDisplayMode value)
+        {
+            PetUsageMode = value == PetUsageDisplayMode.Remaining
+                ? "remaining"
+                : "used";
+        }
+
+        public int GetPetScalePercent()
+        {
+            int value = PetScalePercent.HasValue
+                ? PetScalePercent.Value
+                : 100;
+            return Math.Max(MinimumPetScalePercent,
+                Math.Min(MaximumPetScalePercent, value));
+        }
+
+        public void SetPetScalePercent(int value)
+        {
+            PetScalePercent = Math.Max(MinimumPetScalePercent,
+                Math.Min(MaximumPetScalePercent, value));
         }
 
         public Point? GetPetLocation()
@@ -79,6 +142,11 @@ namespace UsagePeek
                     if (value != null)
                     {
                         value.SetDisplayMode(value.GetDisplayMode());
+                        value.SetPetAppearance(value.GetPetAppearance());
+                        value.SetPetUsageDisplayMode(
+                            value.GetPetUsageDisplayMode());
+                        value.SetPetScalePercent(
+                            value.GetPetScalePercent());
                         return value;
                     }
                 }
@@ -90,6 +158,9 @@ namespace UsagePeek
 
             DisplayModePreference fallback = new DisplayModePreference();
             fallback.SetDisplayMode(UsageDisplayMode.Pet);
+            fallback.SetPetAppearance(PetAppearance.WhaleMaid);
+            fallback.SetPetUsageDisplayMode(PetUsageDisplayMode.Used);
+            fallback.SetPetScalePercent(100);
             return fallback;
         }
 
