@@ -26,7 +26,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
 "%CSC%" /nologo /utf8output /target:winexe /optimize+ /debug- /platform:anycpu ^
   /win32icon:"assets\usagepeek.ico" ^
   /win32manifest:app.manifest ^
-  /resource:"assets\pet-shark-maid.png",UsagePeek.Assets.PetSharkMaid.png ^
+  /resource:"assets\pet-whale-maid-curled.png",UsagePeek.Assets.PetWhaleMaidCurled.png ^
   /reference:System.dll ^
   /reference:System.Core.dll ^
   /reference:System.Drawing.dll ^

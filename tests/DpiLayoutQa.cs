@@ -94,11 +94,11 @@ internal static class DpiLayoutQa
         using (PetForm form = new PetForm())
         {
             Size designSize = form.ClientSize;
-            AssertEqual(new Size(250, 458), designSize,
-                "pet form reserves space for the numeric usage bubble");
+            AssertEqual(new Size(220, 272), designSize,
+                "compact pet form reserves space for the usage bubble");
 
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(375, 687), form.ClientSize,
+            AssertEqual(new Size(330, 408), form.ClientSize,
                 "pet form scales to 150 percent");
 
             form.ApplyDpiForTesting(96);

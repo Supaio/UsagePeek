@@ -11,7 +11,7 @@ namespace UsagePeek
     internal sealed class PetForm : DpiAwareForm
     {
         private const string PetResourceName =
-            "UsagePeek.Assets.PetSharkMaid.png";
+            "UsagePeek.Assets.PetWhaleMaidCurled.png";
         private const int WmNcHitTest = 0x0084;
         private const int HtClient = 1;
         private const int HtTransparent = -1;
@@ -20,9 +20,9 @@ namespace UsagePeek
         private const int UlwAlpha = 0x00000002;
         private const byte AcSrcOver = 0x00;
         private const byte AcSrcAlpha = 0x01;
-        private const int PetDesignHeight = 390;
-        private const int WindowDesignWidth = 250;
-        private const int WindowDesignHeight = 458;
+        private const int PetDesignHeight = 210;
+        private const int WindowDesignWidth = 220;
+        private const int WindowDesignHeight = 272;
 
         private readonly Bitmap sourceImage;
         private Bitmap renderedImage;

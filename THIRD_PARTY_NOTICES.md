@@ -39,7 +39,7 @@ The upstream license is available at
 
 ## Desktop pet artwork
 
-The desktop pet artwork embedded as `assets/pet-shark-maid.png` was supplied
+The desktop pet artwork embedded as `assets/pet-whale-maid-curled.png` was supplied
 for use in UsagePeek. Artwork credit: **ZipZipPipe**. The artwork is separate
 from the MIT-licensed source code and is not relicensed under the repository's
 MIT License. Copyright and other artwork rights remain with their respective

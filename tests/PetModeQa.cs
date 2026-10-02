@@ -67,15 +67,15 @@ internal static class PetModeQa
     {
         using (Bitmap image = PetForm.LoadPetImageForTesting())
         {
-            Check(image.Width == 937 && image.Height == 1678,
-                "maid artwork is embedded at the expected resolution");
+            Check(image.Width == 1254 && image.Height == 1254,
+                "round curled maid artwork is embedded at the expected resolution");
             Check(image.GetPixel(0, 0).A == 0 &&
                 image.GetPixel(image.Width - 1, 0).A == 0 &&
                 image.GetPixel(0, image.Height - 1).A == 0 &&
                 image.GetPixel(image.Width - 1, image.Height - 1).A == 0,
-                "maid artwork retains transparent corners");
+                "round curled maid artwork retains transparent corners");
             Check(image.GetPixel(image.Width / 2, image.Height / 2).A > 200,
-                "maid artwork contains an opaque character body");
+                "round curled maid artwork contains an opaque character body");
         }
     }
 

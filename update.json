@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
   "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
-  "sha256": "9D045E492DECD04A10D6D163B30AFF2BAD618E9E2F91A728573C9E1C35006F8B",
-  "notes": "正式版 v1.0.0：默认启用鲸鱼娘桌宠；数字气泡实时显示 5h 与 7d 用量；右键可切换经典一页面板，桌宠支持透明悬浮、拖动记忆位置、屏幕边缘限位与点击查看详情；新增关于页面并鸣谢 OpenUsage 与 ZipZipPipe。"
+  "sha256": "6A2D2794AAD9BD64D4B3F2FD9DFE3BF8CCD07DC495116F0601B32C9ECBE216A9",
+  "notes": "正式版 v1.0.0：桌宠改为更小巧的圆形鲸鱼娘趴趴造型；数字气泡实时显示 5h 与 7d 用量；右键可切换经典一页面板，支持透明悬浮、拖动记忆位置、屏幕边缘限位与点击查看详情；关于页面鸣谢 OpenUsage 与 ZipZipPipe。"
 }

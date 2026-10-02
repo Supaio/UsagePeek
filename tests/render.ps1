@@ -17,7 +17,7 @@ $preview = Join-Path $root 'preview.png'
     /reference:System.Core.dll `
     /reference:System.Drawing.dll `
     /reference:System.Windows.Forms.dll `
-    "/resource:$(Join-Path $root 'assets\pet-shark-maid.png'),UsagePeek.Assets.PetSharkMaid.png" `
+    "/resource:$(Join-Path $root 'assets\pet-whale-maid-curled.png'),UsagePeek.Assets.PetWhaleMaidCurled.png" `
     "/out:$renderer" `
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `

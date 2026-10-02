@@ -14,7 +14,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 <p align="center">
   <img src="assets/screenshot.png" alt="UsagePeek Windows Codex usage dashboard" width="428">
   <br>
-  <img src="assets/pet-shark-maid.png" alt="UsagePeek whale girl desktop pet" height="390">
+  <img src="assets/pet-whale-maid-curled.png" alt="UsagePeek curled whale girl desktop pet" height="260">
 </p>
 
 ## 下载
@@ -41,7 +41,8 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 - **模型用量占比**：按本机仍保存的会话统计每个模型的累计 Token、数量和
   百分比；可从主面板底部或托盘菜单打开。
 - **双显示模式**：右键托盘、经典面板或桌宠，可在“一页看完”的经典面板与
-  蓝发鲸鱼娘桌宠之间切换；桌宠支持拖动并记住位置，左键点击后在旁边打开
+  蓝发鲸鱼娘趴趴桌宠之间切换；圆形紧凑轮廓减少屏幕占用，桌宠支持拖动并
+  记住位置，左键点击后在旁边打开
   完整用量详情。新安装默认使用桌宠模式。
 - 桌宠上方的数字气泡会实时显示 `5h` 与 `7d` 两个窗口的已用百分比，后台
   刷新成功后同步更新，无需打开完整面板。
