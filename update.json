@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
-  "sha256": "3128AC7EB98109D4F22CB56A3A464B67716B9D00B4B4E82DEF54CF6F61CBB21F",
-  "notes": "v1.1.0：新增桌宠 RUA 互动；鼠标在角色表面快速左右来回移动即可触发摸头，显示手掌并让角色轻轻压缩回弹；角色下方新增操作提示。点击查看详情、拖动和气泡操作保持不变。"
+  "sha256": "CE9FBAF0D2D230DCA795CACDEDC6E1BA0C2ED0F81BA41406C5CDFDA8589DC82A",
+  "notes": "v1.1.1：将摸头动画升级为 classic petpet 风格；使用更大、更自然的透明手掌从左上方覆盖头顶，并增强角色压扁与回弹幅度。左右来回触发、点击详情、拖动和底部提示保持不变。"
 }

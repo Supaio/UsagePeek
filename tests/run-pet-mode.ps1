@@ -22,6 +22,7 @@ $output = Join-Path $outputDirectory 'PetModeQa.exe'
     /reference:System.Web.Extensions.dll `
     "/resource:$(Join-Path $root 'assets\pet-whale-maid-curled.png'),UsagePeek.Assets.PetWhaleMaidCurled.png" `
     "/resource:$(Join-Path $root 'assets\pet-phoebe-chibi.png'),UsagePeek.Assets.PetPhoebeChibi.png" `
+    "/resource:$(Join-Path $root 'assets\petpet-hand-v2.png'),UsagePeek.Assets.PetpetHandV2.png" `
     "/out:$output" `
     (Join-Path $root 'DpiAwareForm.cs') `
     (Join-Path $root 'DisplayModeSettings.cs') `

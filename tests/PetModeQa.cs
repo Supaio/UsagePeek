@@ -114,6 +114,19 @@ internal static class PetModeQa
             Check(image.GetPixel(image.Width / 2, image.Height / 2).A > 200,
                 "Phoebe Chibi artwork contains an opaque character body");
         }
+
+        using (Bitmap image = PetForm.LoadPettingHandImageForTesting())
+        {
+            Check(image.Width == 1568 && image.Height == 1003,
+                "petpet hand is embedded at the expected resolution");
+            Check(image.GetPixel(image.Width - 1, 0).A == 0 &&
+                    image.GetPixel(image.Width - 1,
+                        image.Height - 1).A == 0,
+                "petpet hand retains a transparent background");
+            Check(image.GetPixel(image.Width / 2,
+                    image.Height / 2).A > 200,
+                "petpet hand contains an opaque palm");
+        }
     }
 
     private static void VerifyLayeredWindowRendering()
@@ -171,6 +184,19 @@ internal static class PetModeQa
                         "pet returns exactly to its resting frame");
                 }
             }
+
+            form.SetAppearance(PetAppearance.WhaleMaid);
+            using (Bitmap whaleIdle = form.RenderImageForTesting())
+            {
+                form.SetPettingProgressForTesting(0.30f);
+                using (Bitmap whalePetting = form.RenderImageForTesting())
+                {
+                    Check(CountChangedPixels(whaleIdle, whalePetting) > 1000 &&
+                            CountAlphaIncreases(whaleIdle, whalePetting) > 80,
+                        "petpet animation also renders over the whale maid");
+                }
+            }
+            form.SetPettingProgressForTesting(null);
 
             IntPtr unused = form.Handle;
             Check(form.LayeredImageApplied,

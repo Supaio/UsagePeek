@@ -19,7 +19,8 @@ internal static class RenderQa
             string.Equals(mode, "pet-phoebe", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-remaining", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-small", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(mode, "pet-rua", StringComparison.OrdinalIgnoreCase);
+            string.Equals(mode, "pet-rua", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "pet-rua-whale", StringComparison.OrdinalIgnoreCase);
         if (pet)
         {
             using (PetForm petForm = new PetForm())
@@ -44,6 +45,12 @@ internal static class RenderQa
                     StringComparison.OrdinalIgnoreCase))
                 {
                     petForm.SetAppearance(PetAppearance.PhoebeChibi);
+                    petForm.SetPettingProgressForTesting(0.30f);
+                }
+                if (string.Equals(mode, "pet-rua-whale",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    petForm.SetAppearance(PetAppearance.WhaleMaid);
                     petForm.SetPettingProgressForTesting(0.30f);
                 }
                 petForm.SetUsage(new UsageSnapshot

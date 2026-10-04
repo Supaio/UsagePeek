@@ -28,6 +28,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
   /win32manifest:app.manifest ^
   /resource:"assets\pet-whale-maid-curled.png",UsagePeek.Assets.PetWhaleMaidCurled.png ^
   /resource:"assets\pet-phoebe-chibi.png",UsagePeek.Assets.PetPhoebeChibi.png ^
+  /resource:"assets\petpet-hand-v2.png",UsagePeek.Assets.PetpetHandV2.png ^
   /reference:System.dll ^
   /reference:System.Core.dll ^
   /reference:System.Drawing.dll ^

@@ -15,6 +15,8 @@ namespace UsagePeek
             "UsagePeek.Assets.PetWhaleMaidCurled.png";
         private const string PhoebePetResourceName =
             "UsagePeek.Assets.PetPhoebeChibi.png";
+        private const string PettingHandResourceName =
+            "UsagePeek.Assets.PetpetHandV2.png";
         private const int WmNcHitTest = 0x0084;
         private const int HtClient = 1;
         private const int HtTransparent = -1;
@@ -38,9 +40,12 @@ namespace UsagePeek
             new Rectangle(26, 31, 1223, 1197);
         private static readonly Rectangle PhoebeContentBounds =
             new Rectangle(34, 120, 366, 380);
+        private static readonly Rectangle PettingHandContentBounds =
+            new Rectangle(0, 0, 1508, 920);
 
         private readonly Bitmap whaleImage;
         private readonly Bitmap phoebeImage;
+        private readonly Bitmap pettingHandImage;
         private readonly Timer pettingTimer;
         private readonly Stopwatch pettingStopwatch;
         private Bitmap sourceImage;
@@ -109,6 +114,7 @@ namespace UsagePeek
         {
             whaleImage = LoadPetImage(PetAppearance.WhaleMaid);
             phoebeImage = LoadPetImage(PetAppearance.PhoebeChibi);
+            pettingHandImage = LoadPettingHandImage();
             sourceImage = whaleImage;
             sourceContentBounds = WhaleContentBounds;
             petAppearance = PetAppearance.WhaleMaid;
@@ -225,6 +231,11 @@ namespace UsagePeek
             PetAppearance appearance)
         {
             return LoadPetImage(appearance);
+        }
+
+        internal static Bitmap LoadPettingHandImageForTesting()
+        {
+            return LoadPettingHandImage();
         }
 
         internal Bitmap RenderImageForTesting()
@@ -353,6 +364,7 @@ namespace UsagePeek
                 }
                 whaleImage.Dispose();
                 phoebeImage.Dispose();
+                pettingHandImage.Dispose();
             }
             base.Dispose(disposing);
         }
@@ -362,14 +374,26 @@ namespace UsagePeek
             string resourceName = appearance == PetAppearance.PhoebeChibi
                 ? PhoebePetResourceName
                 : WhalePetResourceName;
+            return LoadEmbeddedBitmap(resourceName,
+                "桌宠资源未嵌入程序。请重新下载完整版本。");
+        }
+
+        private static Bitmap LoadPettingHandImage()
+        {
+            return LoadEmbeddedBitmap(PettingHandResourceName,
+                "摸头动画资源未嵌入程序。请重新下载完整版本。");
+        }
+
+        private static Bitmap LoadEmbeddedBitmap(
+            string resourceName, string missingMessage)
+        {
             Assembly assembly = Assembly.GetExecutingAssembly();
             using (System.IO.Stream stream =
                 assembly.GetManifestResourceStream(resourceName))
             {
                 if (stream == null)
                 {
-                    throw new InvalidOperationException(
-                        "桌宠资源未嵌入程序。请重新下载完整版本。");
+                    throw new InvalidOperationException(missingMessage);
                 }
 
                 using (Image image = Image.FromStream(stream))
@@ -512,9 +536,9 @@ namespace UsagePeek
         private static PettingPose CalculatePettingPose(float progress)
         {
             PettingPose resting = PettingPose.Resting;
-            PettingPose pressed = new PettingPose(1.045f, 0.91f, 0);
-            PettingPose rebound = new PettingPose(0.985f, 1.04f, -8);
-            PettingPose settling = new PettingPose(1.012f, 0.985f, 2);
+            PettingPose pressed = new PettingPose(1.09f, 0.78f, 0);
+            PettingPose rebound = new PettingPose(0.965f, 1.08f, -9);
+            PettingPose settling = new PettingPose(1.025f, 0.97f, 2);
 
             if (progress <= 0.24f)
             {
@@ -556,7 +580,7 @@ namespace UsagePeek
             return clamped * clamped * (3f - (2f * clamped));
         }
 
-        private static void DrawPettingHand(
+        private void DrawPettingHand(
             Graphics graphics,
             float contactX,
             float contactY,
@@ -595,98 +619,40 @@ namespace UsagePeek
                 return;
             }
 
-            float handScale = Math.Max(0.35f, scale);
-            GraphicsState state = graphics.Save();
-            try
+            int handWidth = Math.Max(1, ScaleDesign(196, scale));
+            int handHeight = Math.Max(1, (int)Math.Round(
+                handWidth * PettingHandContentBounds.Height /
+                    (double)PettingHandContentBounds.Width,
+                MidpointRounding.AwayFromZero));
+            int handLeft = (int)Math.Round(
+                contactX - (handWidth * 0.70f),
+                MidpointRounding.AwayFromZero);
+            int handTop = (int)Math.Round(
+                contactY - (handHeight * 0.82f) +
+                    (verticalOffset * scale),
+                MidpointRounding.AwayFromZero);
+            Rectangle destination = new Rectangle(
+                handLeft, handTop, handWidth, handHeight);
+
+            ColorMatrix opacityMatrix = new ColorMatrix(new[]
             {
-                graphics.TranslateTransform(contactX,
-                    contactY + (verticalOffset * handScale));
-                graphics.RotateTransform(-14f);
-
-                Rectangle sleeve = ScaleRectangle(
-                    -11, -49, 22, 18, handScale);
-                Rectangle cuff = ScaleRectangle(
-                    -13, -34, 26, 8, handScale);
-                Rectangle palm = ScaleRectangle(
-                    -16, -31, 32, 23, handScale);
-                Rectangle thumb = ScaleRectangle(
-                    -24, -28, 16, 12, handScale);
-                Rectangle[] fingers =
-                {
-                    ScaleRectangle(-14, -16, 8, 17, handScale),
-                    ScaleRectangle(-7, -16, 8, 21, handScale),
-                    ScaleRectangle(0, -16, 8, 19, handScale),
-                    ScaleRectangle(7, -16, 8, 15, handScale)
-                };
-
-                using (SolidBrush skin = new SolidBrush(
-                    Color.FromArgb(alpha, 255, 221, 188)))
-                using (SolidBrush sleeveBrush = new SolidBrush(
-                    Color.FromArgb(alpha, 80, 143, 224)))
-                using (SolidBrush cuffBrush = new SolidBrush(
-                    Color.FromArgb(alpha, 239, 246, 255)))
-                using (Pen outline = new Pen(
-                    Color.FromArgb(alpha, 89, 64, 76),
-                    Math.Max(1f, handScale * 1.4f)))
-                using (Pen motion = new Pen(
-                    Color.FromArgb(alpha, 96, 165, 250),
-                    Math.Max(1f, handScale * 1.8f)))
-                {
-                    FillRoundedShape(graphics, sleeve, skin: sleeveBrush,
-                        outline: outline, radius: ScaleDesign(7, handScale));
-                    FillRoundedShape(graphics, cuff, skin: cuffBrush,
-                        outline: outline, radius: ScaleDesign(4, handScale));
-                    foreach (Rectangle finger in fingers)
-                    {
-                        FillRoundedShape(graphics, finger, skin, outline,
-                            ScaleDesign(4, handScale));
-                    }
-                    graphics.FillEllipse(skin, thumb);
-                    graphics.DrawEllipse(outline, thumb);
-                    FillRoundedShape(graphics, palm, skin, outline,
-                        ScaleDesign(8, handScale));
-
-                    graphics.DrawLine(motion,
-                        ScaleDesign(-27, handScale),
-                        ScaleDesign(-12, handScale),
-                        ScaleDesign(-33, handScale),
-                        ScaleDesign(-5, handScale));
-                    graphics.DrawLine(motion,
-                        ScaleDesign(25, handScale),
-                        ScaleDesign(-15, handScale),
-                        ScaleDesign(31, handScale),
-                        ScaleDesign(-9, handScale));
-                }
-            }
-            finally
+                new[] { 1f, 0f, 0f, 0f, 0f },
+                new[] { 0f, 1f, 0f, 0f, 0f },
+                new[] { 0f, 0f, 1f, 0f, 0f },
+                new[] { 0f, 0f, 0f, alpha / 255f, 0f },
+                new[] { 0f, 0f, 0f, 0f, 1f }
+            });
+            using (ImageAttributes attributes = new ImageAttributes())
             {
-                graphics.Restore(state);
+                attributes.SetColorMatrix(opacityMatrix,
+                    ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+                graphics.DrawImage(pettingHandImage, destination,
+                    PettingHandContentBounds.X,
+                    PettingHandContentBounds.Y,
+                    PettingHandContentBounds.Width,
+                    PettingHandContentBounds.Height,
+                    GraphicsUnit.Pixel, attributes);
             }
-        }
-
-        private static void FillRoundedShape(
-            Graphics graphics,
-            Rectangle bounds,
-            Brush skin,
-            Pen outline,
-            int radius)
-        {
-            using (GraphicsPath path = RoundedRectangle(bounds,
-                Math.Max(1, radius)))
-            {
-                graphics.FillPath(skin, path);
-                graphics.DrawPath(outline, path);
-            }
-        }
-
-        private static Rectangle ScaleRectangle(
-            int x, int y, int width, int height, float scale)
-        {
-            return new Rectangle(
-                ScaleDesign(x, scale),
-                ScaleDesign(y, scale),
-                Math.Max(1, ScaleDesign(width, scale)),
-                Math.Max(1, ScaleDesign(height, scale)));
         }
 
         private static void DrawPettingHint(
