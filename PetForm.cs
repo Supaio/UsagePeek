@@ -9,6 +9,13 @@ using System.Windows.Forms;
 
 namespace UsagePeek
 {
+    internal enum PetMood
+    {
+        Normal,
+        Nervous,
+        Happy
+    }
+
     internal sealed class PetForm : DpiAwareForm
     {
         private const string WhalePetResourceName =
@@ -39,6 +46,10 @@ namespace UsagePeek
         private const int PetSurfaceMinimumYDesign = 68;
         private const int WmDisplayChange = 0x007E;
         private const int DisplayRecoveryDelayMilliseconds = 300;
+        private const int NervousUsedPercentThreshold = 80;
+        private const int HappyMoodDurationMilliseconds = 6000;
+        private const int MoodTimerIntervalMilliseconds = 50;
+        private const int ResetFallbackMinimumDropPercent = 50;
         private static readonly Rectangle WhaleContentBounds =
             new Rectangle(26, 31, 1223, 1197);
         private static readonly Rectangle PhoebeContentBounds =
@@ -51,7 +62,9 @@ namespace UsagePeek
         private readonly Bitmap pettingHandImage;
         private readonly Timer pettingTimer;
         private readonly Timer displayRecoveryTimer;
+        private readonly Timer moodTimer;
         private readonly Stopwatch pettingStopwatch;
+        private readonly Stopwatch moodStopwatch;
         private Bitmap sourceImage;
         private Rectangle sourceContentBounds;
         private Bitmap renderedImage;
@@ -61,9 +74,16 @@ namespace UsagePeek
         private bool moved;
         private int? primaryUsedPercent;
         private int? secondaryUsedPercent;
+        private int? livePrimaryUsedPercent;
+        private int? liveSecondaryUsedPercent;
+        private DateTime? livePrimaryResetsAtUtc;
+        private DateTime? liveSecondaryResetsAtUtc;
+        private bool hasLiveUsageBaseline;
         private PetAppearance petAppearance;
         private PetUsageDisplayMode usageDisplayMode;
         private int petScalePercent;
+        private PetMood mood;
+        private float moodAnimationProgress;
         private bool pettingActive;
         private float pettingProgress;
         private float pettingContactXRatio;
@@ -133,6 +153,11 @@ namespace UsagePeek
             displayRecoveryTimer.Interval =
                 DisplayRecoveryDelayMilliseconds;
             displayRecoveryTimer.Tick += RecoverDisplayLocation;
+            moodStopwatch = new Stopwatch();
+            moodTimer = new Timer();
+            moodTimer.Interval = MoodTimerIntervalMilliseconds;
+            moodTimer.Tick += AdvanceMoodAnimation;
+            mood = PetMood.Normal;
             Text = "UsagePeek 桌宠";
             ClientSize = new Size(WindowDesignWidth, WindowDesignHeight);
             FormBorderStyle = FormBorderStyle.None;
@@ -152,10 +177,59 @@ namespace UsagePeek
 
         public void SetUsage(UsageSnapshot snapshot)
         {
-            primaryUsedPercent = ReadUsedPercent(
+            int? nextPrimaryUsedPercent = ReadUsedPercent(
                 snapshot == null ? null : snapshot.Primary);
-            secondaryUsedPercent = ReadUsedPercent(
+            int? nextSecondaryUsedPercent = ReadUsedPercent(
                 snapshot == null ? null : snapshot.Secondary);
+            ApplyUsage(nextPrimaryUsedPercent,
+                nextSecondaryUsedPercent, false);
+        }
+
+        public void SetLiveUsage(UsageSnapshot snapshot)
+        {
+            int? nextPrimaryUsedPercent = ReadUsedPercent(
+                snapshot == null ? null : snapshot.Primary);
+            int? nextSecondaryUsedPercent = ReadUsedPercent(
+                snapshot == null ? null : snapshot.Secondary);
+            DateTime? nextPrimaryReset = ReadResetAt(
+                snapshot == null ? null : snapshot.Primary);
+            DateTime? nextSecondaryReset = ReadResetAt(
+                snapshot == null ? null : snapshot.Secondary);
+
+            bool quotaReset = hasLiveUsageBaseline &&
+                (HasQuotaWindowReset(
+                    livePrimaryUsedPercent, livePrimaryResetsAtUtc,
+                    nextPrimaryUsedPercent, nextPrimaryReset) ||
+                HasQuotaWindowReset(
+                    liveSecondaryUsedPercent, liveSecondaryResetsAtUtc,
+                    nextSecondaryUsedPercent, nextSecondaryReset));
+
+            livePrimaryUsedPercent = nextPrimaryUsedPercent;
+            liveSecondaryUsedPercent = nextSecondaryUsedPercent;
+            livePrimaryResetsAtUtc = nextPrimaryReset;
+            liveSecondaryResetsAtUtc = nextSecondaryReset;
+            hasLiveUsageBaseline = nextPrimaryUsedPercent.HasValue ||
+                nextSecondaryUsedPercent.HasValue;
+
+            ApplyUsage(nextPrimaryUsedPercent,
+                nextSecondaryUsedPercent, quotaReset);
+        }
+
+        private void ApplyUsage(
+            int? nextPrimaryUsedPercent,
+            int? nextSecondaryUsedPercent,
+            bool quotaReset)
+        {
+            primaryUsedPercent = nextPrimaryUsedPercent;
+            secondaryUsedPercent = nextSecondaryUsedPercent;
+            if (quotaReset)
+            {
+                StartHappyMood();
+            }
+            else if (mood != PetMood.Happy)
+            {
+                mood = GetPersistentMood();
+            }
             ApplyLayeredImage();
         }
 
@@ -284,6 +358,16 @@ namespace UsagePeek
             get { return pettingActive; }
         }
 
+        internal PetMood MoodForTesting
+        {
+            get { return mood; }
+        }
+
+        internal string MoodHintForTesting
+        {
+            get { return GetMoodHint(); }
+        }
+
         internal bool RegisterPettingMotionForTesting(int x, int tick)
         {
             bool triggered = RegisterPettingMotion(x, tick);
@@ -310,6 +394,22 @@ namespace UsagePeek
                 pettingProgress = 0f;
             }
             ApplyLayeredImage();
+        }
+
+        internal void SetMoodForTesting(
+            PetMood value, float animationProgress)
+        {
+            moodTimer.Stop();
+            moodStopwatch.Reset();
+            mood = value;
+            moodAnimationProgress = Math.Max(0f,
+                Math.Min(1f, animationProgress));
+            ApplyLayeredImage();
+        }
+
+        internal void CompleteHappyMoodForTesting()
+        {
+            CompleteHappyMood();
         }
 
         internal Point ClampLocationForTesting(Point value, Rectangle area)
@@ -403,6 +503,9 @@ namespace UsagePeek
         {
             if (disposing)
             {
+                moodTimer.Stop();
+                moodTimer.Dispose();
+                moodStopwatch.Stop();
                 displayRecoveryTimer.Stop();
                 displayRecoveryTimer.Dispose();
                 pettingTimer.Stop();
@@ -564,6 +667,11 @@ namespace UsagePeek
                 petLeft = (width - petWidth) / 2;
                 petTop = petBottom - petHeight +
                     ScaleDesign(pose.OffsetY, scale);
+                if (mood == PetMood.Happy)
+                {
+                    petTop += ScaleDesign(
+                        CalculateHappyBounce(moodAnimationProgress), scale);
+                }
                 graphics.DrawImage(sourceImage,
                     new Rectangle(petLeft, petTop, petWidth, petHeight),
                     sourceContentBounds.X, sourceContentBounds.Y,
@@ -571,6 +679,17 @@ namespace UsagePeek
                     GraphicsUnit.Pixel);
 
                 graphics.CompositingMode = CompositingMode.SourceOver;
+                Rectangle petBounds = new Rectangle(
+                    petLeft, petTop, petWidth, petHeight);
+                if (mood == PetMood.Nervous)
+                {
+                    DrawNervousMood(graphics, petBounds, scale);
+                }
+                else if (mood == PetMood.Happy)
+                {
+                    DrawHappyMood(graphics, petBounds,
+                        scale, moodAnimationProgress);
+                }
                 if (pettingActive)
                 {
                     DrawPettingHand(graphics,
@@ -578,7 +697,8 @@ namespace UsagePeek
                         petTop + (petHeight * 0.13f),
                         scale, pettingProgress);
                 }
-                DrawPettingHint(graphics, width, height, scale);
+                DrawPettingHint(graphics, width, height,
+                    scale, GetMoodHint(), GetMoodHintColor());
                 DrawUsageBubble(graphics, width, scale);
             }
             return bitmap;
@@ -640,6 +760,17 @@ namespace UsagePeek
         {
             float clamped = Math.Max(0f, Math.Min(1f, value));
             return clamped * clamped * (3f - (2f * clamped));
+        }
+
+        private static int CalculateHappyBounce(float progress)
+        {
+            float clamped = Math.Max(0f, Math.Min(1f, progress));
+            float fade = clamped > 0.84f
+                ? 1f - SmoothStep((clamped - 0.84f) / 0.16f)
+                : 1f;
+            return (int)Math.Round(-3f * fade * Math.Abs(
+                Math.Sin(clamped * Math.PI * 12d)),
+                MidpointRounding.AwayFromZero);
         }
 
         private void DrawPettingHand(
@@ -728,10 +859,202 @@ namespace UsagePeek
             }
         }
 
-        private static void DrawPettingHint(
-            Graphics graphics, int width, int height, float scale)
+        private void DrawNervousMood(
+            Graphics graphics, Rectangle petBounds, float scale)
         {
-            const string hint = "（鼠标来回可以摸摸头哦）";
+            bool whale = petAppearance == PetAppearance.WhaleMaid;
+            float centerX = petBounds.Left + petBounds.Width *
+                (whale ? 0.66f : 0.83f);
+            float top = petBounds.Top + petBounds.Height *
+                (whale ? 0.31f : 0.34f);
+            float width = Math.Max(4f, 12f * scale);
+            float height = Math.Max(6f, 18f * scale);
+
+            DrawSweatDrop(graphics, centerX, top,
+                width, height, 235);
+            if (GetHighestUsedPercent() >= 95)
+            {
+                DrawSweatDrop(graphics,
+                    centerX + (10f * scale),
+                    top + (13f * scale),
+                    Math.Max(3f, 7f * scale),
+                    Math.Max(4f, 10f * scale), 210);
+            }
+
+            using (Pen stress = new Pen(
+                Color.FromArgb(225, 251, 113, 133),
+                Math.Max(1f, 1.4f * scale)))
+            {
+                stress.StartCap = LineCap.Round;
+                stress.EndCap = LineCap.Round;
+                graphics.DrawLine(stress,
+                    centerX - (10f * scale), top - (3f * scale),
+                    centerX - (14f * scale), top - (8f * scale));
+                graphics.DrawLine(stress,
+                    centerX - (4f * scale), top - (6f * scale),
+                    centerX - (5f * scale), top - (12f * scale));
+            }
+        }
+
+        private static void DrawSweatDrop(
+            Graphics graphics,
+            float centerX,
+            float top,
+            float width,
+            float height,
+            int alpha)
+        {
+            float left = centerX - (width / 2f);
+            float right = centerX + (width / 2f);
+            float bottom = top + height;
+            using (GraphicsPath path = new GraphicsPath())
+            using (SolidBrush fill = new SolidBrush(
+                Color.FromArgb(alpha, 91, 220, 255)))
+            using (Pen outline = new Pen(
+                Color.FromArgb(alpha, 18, 48, 74),
+                Math.Max(1f, width / 10f)))
+            using (SolidBrush shine = new SolidBrush(
+                Color.FromArgb(Math.Min(255, alpha), 244, 253, 255)))
+            {
+                path.StartFigure();
+                path.AddBezier(centerX, top,
+                    right, top + height * 0.42f,
+                    right, bottom - height * 0.12f,
+                    centerX, bottom);
+                path.AddBezier(centerX, bottom,
+                    left, bottom - height * 0.12f,
+                    left, top + height * 0.42f,
+                    centerX, top);
+                path.CloseFigure();
+                graphics.FillPath(fill, path);
+                graphics.DrawPath(outline, path);
+                graphics.FillEllipse(shine,
+                    left + width * 0.28f,
+                    top + height * 0.34f,
+                    Math.Max(1f, width * 0.18f),
+                    Math.Max(1f, height * 0.18f));
+            }
+        }
+
+        private void DrawHappyMood(
+            Graphics graphics,
+            Rectangle petBounds,
+            float scale,
+            float progress)
+        {
+            float clamped = Math.Max(0f, Math.Min(1f, progress));
+            float opacity;
+            if (clamped < 0.08f)
+            {
+                opacity = SmoothStep(clamped / 0.08f);
+            }
+            else if (clamped > 0.84f)
+            {
+                opacity = 1f - SmoothStep((clamped - 0.84f) / 0.16f);
+            }
+            else
+            {
+                opacity = 1f;
+            }
+
+            int alpha = Math.Max(0, Math.Min(255,
+                (int)Math.Round(255f * opacity,
+                    MidpointRounding.AwayFromZero)));
+            if (alpha == 0)
+            {
+                return;
+            }
+
+            bool whale = petAppearance == PetAppearance.WhaleMaid;
+            float bob = (float)Math.Sin(clamped * Math.PI * 8d) *
+                3f * scale;
+            float heartX = petBounds.Left + petBounds.Width *
+                (whale ? 0.17f : 0.16f);
+            float heartY = petBounds.Top + petBounds.Height *
+                (whale ? 0.34f : 0.31f) + bob;
+            float largeStarX = petBounds.Left + petBounds.Width *
+                (whale ? 0.78f : 0.88f);
+            float largeStarY = petBounds.Top + petBounds.Height *
+                (whale ? 0.22f : 0.25f) - bob;
+            float smallStarX = petBounds.Left + petBounds.Width *
+                (whale ? 0.73f : 0.82f);
+            float smallStarY = petBounds.Top + petBounds.Height *
+                (whale ? 0.48f : 0.49f) + (bob * 0.5f);
+
+            DrawHeart(graphics, heartX, heartY,
+                Math.Max(6f, 15f * scale), alpha);
+            DrawSparkle(graphics, largeStarX, largeStarY,
+                Math.Max(4f, 8f * scale), alpha);
+            DrawSparkle(graphics, smallStarX, smallStarY,
+                Math.Max(3f, 5f * scale),
+                Math.Max(0, alpha - 24));
+        }
+
+        private static void DrawHeart(
+            Graphics graphics,
+            float centerX,
+            float centerY,
+            float size,
+            int alpha)
+        {
+            float left = centerX - (size / 2f);
+            float top = centerY - (size / 2f);
+            using (GraphicsPath path = new GraphicsPath())
+            using (SolidBrush fill = new SolidBrush(
+                Color.FromArgb(alpha, 255, 107, 145)))
+            using (Pen outline = new Pen(
+                Color.FromArgb(alpha, 91, 36, 64),
+                Math.Max(1f, size / 12f)))
+            {
+                path.StartFigure();
+                path.AddBezier(centerX, top + size * 0.28f,
+                    left + size * 0.12f, top - size * 0.02f,
+                    left - size * 0.04f, top + size * 0.42f,
+                    centerX, top + size);
+                path.AddBezier(centerX, top + size,
+                    left + size * 1.04f, top + size * 0.42f,
+                    left + size * 0.88f, top - size * 0.02f,
+                    centerX, top + size * 0.28f);
+                path.CloseFigure();
+                graphics.FillPath(fill, path);
+                graphics.DrawPath(outline, path);
+            }
+        }
+
+        private static void DrawSparkle(
+            Graphics graphics,
+            float centerX,
+            float centerY,
+            float radius,
+            int alpha)
+        {
+            float inner = radius * 0.24f;
+            PointF[] points =
+            {
+                new PointF(centerX, centerY - radius),
+                new PointF(centerX + inner, centerY - inner),
+                new PointF(centerX + radius, centerY),
+                new PointF(centerX + inner, centerY + inner),
+                new PointF(centerX, centerY + radius),
+                new PointF(centerX - inner, centerY + inner),
+                new PointF(centerX - radius, centerY),
+                new PointF(centerX - inner, centerY - inner)
+            };
+            using (SolidBrush fill = new SolidBrush(
+                Color.FromArgb(alpha, 255, 212, 90)))
+            using (Pen outline = new Pen(
+                Color.FromArgb(alpha, 107, 75, 19),
+                Math.Max(1f, radius / 7f)))
+            {
+                graphics.FillPolygon(fill, points);
+                graphics.DrawPolygon(outline, points);
+            }
+        }
+
+        private static void DrawPettingHint(
+            Graphics graphics, int width, int height, float scale,
+            string hint, Color hintColor)
+        {
             float fontSize = Math.Max(6f, 9f * scale);
             float top = height - ScaleDesign(18, scale);
             float hintHeight = Math.Max(8f, ScaleDesign(16, scale));
@@ -740,7 +1063,7 @@ namespace UsagePeek
             using (SolidBrush shadow = new SolidBrush(
                 Color.FromArgb(180, 4, 10, 18)))
             using (SolidBrush foreground = new SolidBrush(
-                Color.FromArgb(225, 151, 178, 207)))
+                Color.FromArgb(225, hintColor)))
             using (StringFormat format = new StringFormat())
             {
                 format.Alignment = StringAlignment.Center;
@@ -871,6 +1194,91 @@ namespace UsagePeek
                 diameter, diameter, 90, 90);
             path.CloseFigure();
             return path;
+        }
+
+        private PetMood GetPersistentMood()
+        {
+            return GetHighestUsedPercent() >= NervousUsedPercentThreshold
+                ? PetMood.Nervous
+                : PetMood.Normal;
+        }
+
+        private int GetHighestUsedPercent()
+        {
+            int highest = 0;
+            if (primaryUsedPercent.HasValue)
+            {
+                highest = Math.Max(highest, primaryUsedPercent.Value);
+            }
+            if (secondaryUsedPercent.HasValue)
+            {
+                highest = Math.Max(highest, secondaryUsedPercent.Value);
+            }
+            return highest;
+        }
+
+        private string GetMoodHint()
+        {
+            if (mood == PetMood.Happy)
+            {
+                return "（额度重置啦！）";
+            }
+            if (mood == PetMood.Nervous)
+            {
+                return "（额度快到上限啦…）";
+            }
+            return "（鼠标来回可以摸摸头哦）";
+        }
+
+        private Color GetMoodHintColor()
+        {
+            if (mood == PetMood.Happy)
+            {
+                return Color.FromArgb(244, 114, 182);
+            }
+            if (mood == PetMood.Nervous)
+            {
+                return Color.FromArgb(251, 191, 36);
+            }
+            return Color.FromArgb(151, 178, 207);
+        }
+
+        private static bool HasQuotaWindowReset(
+            int? previousUsedPercent,
+            DateTime? previousResetAtUtc,
+            int? currentUsedPercent,
+            DateTime? currentResetAtUtc)
+        {
+            if (!previousUsedPercent.HasValue ||
+                !currentUsedPercent.HasValue)
+            {
+                return false;
+            }
+
+            bool nextWindow = previousResetAtUtc.HasValue &&
+                currentResetAtUtc.HasValue &&
+                currentResetAtUtc.Value >
+                    previousResetAtUtc.Value.AddMinutes(1);
+            if (nextWindow)
+            {
+                return true;
+            }
+            if (currentUsedPercent.Value >= previousUsedPercent.Value)
+            {
+                return false;
+            }
+
+            int drop = previousUsedPercent.Value -
+                currentUsedPercent.Value;
+            bool clearFallbackReset =
+                drop >= ResetFallbackMinimumDropPercent &&
+                currentUsedPercent.Value <= 20;
+            return clearFallbackReset;
+        }
+
+        private static DateTime? ReadResetAt(UsageWindowSnapshot window)
+        {
+            return window == null ? null : window.ResetsAtUtc;
         }
 
         private static int? ReadUsedPercent(UsageWindowSnapshot window)
@@ -1098,6 +1506,37 @@ namespace UsagePeek
         private static uint ElapsedTicks(int current, int previous)
         {
             return unchecked((uint)(current - previous));
+        }
+
+        private void StartHappyMood()
+        {
+            mood = PetMood.Happy;
+            moodAnimationProgress = 0f;
+            moodStopwatch.Restart();
+            moodTimer.Start();
+        }
+
+        private void AdvanceMoodAnimation(object sender, EventArgs e)
+        {
+            double elapsed = moodStopwatch.Elapsed.TotalMilliseconds;
+            if (elapsed >= HappyMoodDurationMilliseconds)
+            {
+                CompleteHappyMood();
+                return;
+            }
+
+            moodAnimationProgress = (float)(elapsed /
+                HappyMoodDurationMilliseconds);
+            ApplyLayeredImage();
+        }
+
+        private void CompleteHappyMood()
+        {
+            moodTimer.Stop();
+            moodStopwatch.Reset();
+            moodAnimationProgress = 0f;
+            mood = GetPersistentMood();
+            ApplyLayeredImage();
         }
 
         private void StartPettingAnimation(int contactX)

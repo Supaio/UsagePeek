@@ -296,7 +296,7 @@ namespace UsagePeek
                 lastSnapshot = snapshot;
                 cache.Save(snapshot);
                 form.ShowSnapshot(snapshot, null);
-                petForm.SetUsage(snapshot);
+                petForm.SetLiveUsage(snapshot);
                 UpdateTrayText(snapshot, false);
                 ShowResetCreditGrant(resetCreditGrant);
             }

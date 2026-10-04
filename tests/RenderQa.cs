@@ -20,7 +20,9 @@ internal static class RenderQa
             string.Equals(mode, "pet-remaining", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-small", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-rua", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(mode, "pet-rua-whale", StringComparison.OrdinalIgnoreCase);
+            string.Equals(mode, "pet-rua-whale", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "pet-nervous", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "pet-happy", StringComparison.OrdinalIgnoreCase);
         if (pet)
         {
             using (PetForm petForm = new PetForm())
@@ -53,11 +55,27 @@ internal static class RenderQa
                     petForm.SetAppearance(PetAppearance.WhaleMaid);
                     petForm.SetPettingProgressForTesting(0.15f);
                 }
+                if (string.Equals(mode, "pet-nervous",
+                    StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(mode, "pet-happy",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    petForm.SetAppearance(PetAppearance.PhoebeChibi);
+                }
                 petForm.SetUsage(new UsageSnapshot
                 {
-                    Primary = new UsageWindowSnapshot { UsedPercent = 45 },
+                    Primary = new UsageWindowSnapshot
+                    {
+                        UsedPercent = string.Equals(mode, "pet-nervous",
+                            StringComparison.OrdinalIgnoreCase) ? 88 : 45
+                    },
                     Secondary = new UsageWindowSnapshot { UsedPercent = 34 }
                 });
+                if (string.Equals(mode, "pet-happy",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    petForm.SetMoodForTesting(PetMood.Happy, 0.45f);
+                }
                 using (Bitmap petImage = petForm.RenderImageForTesting())
                 {
                     petImage.Save(output, ImageFormat.Png);

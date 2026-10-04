@@ -17,6 +17,7 @@ internal static class PetModeQa
             VerifyPreferenceRoundTrip(root);
             VerifyEmbeddedArtwork();
             VerifyLayeredWindowRendering();
+            VerifyMoodStates();
         }
         finally
         {
@@ -267,6 +268,134 @@ internal static class PetModeQa
                     committedLocations == 1,
                 "a pet on a valid negative-coordinate monitor is preserved");
         }
+    }
+
+    private static void VerifyMoodStates()
+    {
+        using (PetForm form = new PetForm())
+        {
+            UsageSnapshot safe = Snapshot(79, 34, null, null);
+            form.SetUsage(safe);
+            Check(form.MoodForTesting == PetMood.Normal,
+                "usage below 80 percent keeps the pet calm");
+
+            UsageSnapshot high = Snapshot(80, 34, null, null);
+            form.SetUsage(high);
+            Check(form.MoodForTesting == PetMood.Nervous &&
+                    form.MoodHintForTesting.IndexOf("上限",
+                        StringComparison.Ordinal) >= 0,
+                "usage at 80 percent makes the pet nervous");
+
+            form.SetAppearance(PetAppearance.PhoebeChibi);
+            form.SetMoodForTesting(PetMood.Normal, 0f);
+            using (Bitmap calmPhoebe = form.RenderImageForTesting())
+            {
+                form.SetMoodForTesting(PetMood.Nervous, 0f);
+                using (Bitmap nervousPhoebe = form.RenderImageForTesting())
+                {
+                    Check(CountChangedPixels(calmPhoebe, nervousPhoebe) > 40,
+                        "Phoebe visibly shows the nervous sweat state");
+                }
+            }
+
+            form.SetAppearance(PetAppearance.WhaleMaid);
+            form.SetMoodForTesting(PetMood.Normal, 0f);
+            using (Bitmap calmWhale = form.RenderImageForTesting())
+            {
+                form.SetMoodForTesting(PetMood.Nervous, 0f);
+                using (Bitmap nervousWhale = form.RenderImageForTesting())
+                {
+                    Check(CountChangedPixels(calmWhale, nervousWhale) > 40,
+                        "the whale maid visibly shows the nervous sweat state");
+                }
+            }
+
+            DateTime firstReset = new DateTime(
+                2026, 10, 5, 5, 0, 0, DateTimeKind.Utc);
+            DateTime nextReset = firstReset.AddHours(5);
+            form.SetUsage(Snapshot(92, 40, firstReset, firstReset));
+            form.SetLiveUsage(Snapshot(5, 4, nextReset, nextReset));
+            Check(form.MoodForTesting == PetMood.Normal,
+                "the first live sample establishes a reset baseline silently");
+
+            form.SetLiveUsage(Snapshot(92, 40, nextReset, nextReset));
+            Check(form.MoodForTesting == PetMood.Nervous,
+                "a high live sample uses the persistent nervous state");
+            form.SetLiveUsage(Snapshot(4, 5,
+                nextReset.AddHours(5), nextReset));
+            Check(form.MoodForTesting == PetMood.Happy &&
+                    form.MoodHintForTesting.IndexOf("重置",
+                        StringComparison.Ordinal) >= 0,
+                "a live quota rollover starts the happy state");
+
+            form.SetAppearance(PetAppearance.PhoebeChibi);
+            form.SetMoodForTesting(PetMood.Normal, 0f);
+            using (Bitmap calmAfterReset = form.RenderImageForTesting())
+            {
+                form.SetMoodForTesting(PetMood.Happy, 0.45f);
+                using (Bitmap happyPhoebe = form.RenderImageForTesting())
+                {
+                    Check(CountChangedPixels(calmAfterReset, happyPhoebe) > 80,
+                        "Phoebe celebrates a quota reset with visible effects");
+                }
+            }
+
+            form.SetAppearance(PetAppearance.WhaleMaid);
+            form.SetMoodForTesting(PetMood.Normal, 0f);
+            using (Bitmap calmWhaleAfterReset = form.RenderImageForTesting())
+            {
+                form.SetMoodForTesting(PetMood.Happy, 0.45f);
+                using (Bitmap happyWhale = form.RenderImageForTesting())
+                {
+                    Check(CountChangedPixels(
+                            calmWhaleAfterReset, happyWhale) > 80,
+                        "the whale maid also celebrates a quota reset");
+                }
+            }
+
+            form.CompleteHappyMoodForTesting();
+            Check(form.MoodForTesting == PetMood.Normal,
+                "the happy state returns to the current persistent mood");
+
+            DateTime equalUsageReset = nextReset.AddHours(5);
+            form.SetLiveUsage(Snapshot(10, 5,
+                equalUsageReset, nextReset));
+            form.CompleteHappyMoodForTesting();
+            form.SetLiveUsage(Snapshot(10, 5,
+                equalUsageReset.AddHours(5), nextReset));
+            Check(form.MoodForTesting == PetMood.Happy,
+                "an advanced reset time is detected even at equal usage");
+            form.CompleteHappyMoodForTesting();
+
+            DateTime weeklyReset = nextReset.AddDays(7);
+            form.SetLiveUsage(Snapshot(10, 95,
+                nextReset.AddHours(5), weeklyReset));
+            form.SetLiveUsage(Snapshot(10, 5,
+                nextReset.AddHours(5), weeklyReset.AddDays(7)));
+            Check(form.MoodForTesting == PetMood.Happy,
+                "a secondary quota rollover also starts the happy state");
+        }
+    }
+
+    private static UsageSnapshot Snapshot(
+        int primaryUsed,
+        int secondaryUsed,
+        DateTime? primaryReset,
+        DateTime? secondaryReset)
+    {
+        return new UsageSnapshot
+        {
+            Primary = new UsageWindowSnapshot
+            {
+                UsedPercent = primaryUsed,
+                ResetsAtUtc = primaryReset
+            },
+            Secondary = new UsageWindowSnapshot
+            {
+                UsedPercent = secondaryUsed,
+                ResetsAtUtc = secondaryReset
+            }
+        };
     }
 
     private static int CountChangedPixels(Bitmap first, Bitmap second)
