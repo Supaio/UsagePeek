@@ -36,6 +36,8 @@ namespace UsagePeek
         private readonly NotifyIcon trayIcon;
         private readonly Timer refreshTimer;
         private readonly Timer initialRefreshTimer;
+        private readonly Timer activationTimer;
+        private readonly System.Threading.EventWaitHandle activationEvent;
         private readonly Icon icon;
         private UsageSnapshot lastSnapshot;
         private bool refreshing;
@@ -43,8 +45,11 @@ namespace UsagePeek
         private bool checkingUpdate;
         private bool repairingCodex;
 
-        public TrayApplicationContext(bool startHidden)
+        public TrayApplicationContext(
+            bool startHidden,
+            System.Threading.EventWaitHandle instanceActivationEvent)
         {
+            activationEvent = instanceActivationEvent;
             provider = new CodexUsageProvider();
             cache = new UsageCache();
             resetCreditNotificationTracker = new ResetCreditNotificationTracker();
@@ -238,6 +243,17 @@ namespace UsagePeek
                 }
             };
             initialRefreshTimer.Start();
+
+            activationTimer = new Timer();
+            activationTimer.Interval = 150;
+            activationTimer.Tick += delegate
+            {
+                if (!exiting && activationEvent.WaitOne(0))
+                {
+                    ShowDetails();
+                }
+            };
+            activationTimer.Start();
 
             lastSnapshot = cache.Load();
             if (lastSnapshot != null)
@@ -662,6 +678,8 @@ namespace UsagePeek
             refreshTimer.Stop();
             initialRefreshTimer.Stop();
             initialRefreshTimer.Dispose();
+            activationTimer.Stop();
+            activationTimer.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             icon.Dispose();

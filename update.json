@@ -1,6 +1,6 @@
 {
-  "version": "1.1.1",
+  "version": "1.1.2",
   "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
-  "sha256": "CE9FBAF0D2D230DCA795CACDEDC6E1BA0C2ED0F81BA41406C5CDFDA8589DC82A",
-  "notes": "v1.1.1：将摸头动画升级为 classic petpet 风格；使用更大、更自然的透明手掌从左上方覆盖头顶，并增强角色压扁与回弹幅度。左右来回触发、点击详情、拖动和底部提示保持不变。"
+  "sha256": "8D21C7A33609C5B424643C3E9137C3B8E293FD622150D7909A9BF924A180B756",
+  "notes": "v1.1.2：修复 UsagePeek 已在后台运行时，再次双击 EXE 看起来没有反应的问题；重复启动现在会唤醒现有实例并打开用量详情。保留 v1.1.1 的 classic petpet 摸头动画。"
 }
