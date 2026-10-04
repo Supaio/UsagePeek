@@ -95,11 +95,11 @@ internal static class DpiLayoutQa
         using (PetForm form = new PetForm())
         {
             Size designSize = form.ClientSize;
-            AssertEqual(new Size(220, 272), designSize,
-                "compact pet form reserves space for the usage bubble");
+            AssertEqual(new Size(220, 292), designSize,
+                "compact pet form reserves space for the bubble and hint");
 
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(330, 408), form.ClientSize,
+            AssertEqual(new Size(330, 438), form.ClientSize,
                 "pet form scales to 150 percent");
 
             form.ApplyDpiForTesting(96);
@@ -107,16 +107,16 @@ internal static class DpiLayoutQa
                 "pet form returns exactly to 100 percent");
 
             form.SetScalePercent(75);
-            AssertEqual(new Size(165, 204), form.ClientSize,
+            AssertEqual(new Size(165, 219), form.ClientSize,
                 "pet form supports a 75 percent custom size");
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(248, 306), form.ClientSize,
+            AssertEqual(new Size(248, 329), form.ClientSize,
                 "custom pet size combines with 150 percent display DPI");
             form.SetScalePercent(137);
-            AssertEqual(new Size(452, 559), form.ClientSize,
+            AssertEqual(new Size(452, 600), form.ClientSize,
                 "arbitrary pet size remains correct at 150 percent DPI");
             form.ApplyDpiForTesting(96);
-            AssertEqual(new Size(301, 373), form.ClientSize,
+            AssertEqual(new Size(301, 400), form.ClientSize,
                 "arbitrary pet size returns correctly to 100 percent DPI");
         }
     }

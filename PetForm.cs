@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -24,7 +25,15 @@ namespace UsagePeek
         private const byte AcSrcAlpha = 0x01;
         private const int PetDesignHeight = 210;
         private const int WindowDesignWidth = 220;
-        private const int WindowDesignHeight = 272;
+        private const int WindowDesignHeight = 292;
+        private const int PetHintDesignHeight = 20;
+        private const int PettingTimerIntervalMilliseconds = 25;
+        private const int PettingAnimationDurationMilliseconds = 480;
+        private const int PettingGestureTimeoutMilliseconds = 700;
+        private const int PettingTriggerCooldownMilliseconds = 650;
+        private const int PettingMinimumStrokeDesignPixels = 14;
+        private const int PettingMinimumTravelDesignPixels = 34;
+        private const int PetSurfaceMinimumYDesign = 68;
         private static readonly Rectangle WhaleContentBounds =
             new Rectangle(26, 31, 1223, 1197);
         private static readonly Rectangle PhoebeContentBounds =
@@ -32,6 +41,8 @@ namespace UsagePeek
 
         private readonly Bitmap whaleImage;
         private readonly Bitmap phoebeImage;
+        private readonly Timer pettingTimer;
+        private readonly Stopwatch pettingStopwatch;
         private Bitmap sourceImage;
         private Rectangle sourceContentBounds;
         private Bitmap renderedImage;
@@ -44,6 +55,18 @@ namespace UsagePeek
         private PetAppearance petAppearance;
         private PetUsageDisplayMode usageDisplayMode;
         private int petScalePercent;
+        private bool pettingActive;
+        private float pettingProgress;
+        private float pettingContactXRatio;
+        private bool pettingGestureTracking;
+        private bool pettingGestureHasReversed;
+        private bool hasPettingTriggerTick;
+        private int pettingGestureLastX;
+        private int pettingGestureLastTick;
+        private int pettingGestureDirection;
+        private int pettingGestureSegmentDistance;
+        private int pettingGestureTotalDistance;
+        private int lastPettingTriggerTick;
 
         internal bool LayeredImageApplied { get; private set; }
 
@@ -91,6 +114,11 @@ namespace UsagePeek
             petAppearance = PetAppearance.WhaleMaid;
             usageDisplayMode = PetUsageDisplayMode.Used;
             petScalePercent = 100;
+            pettingContactXRatio = 0.62f;
+            pettingStopwatch = new Stopwatch();
+            pettingTimer = new Timer();
+            pettingTimer.Interval = PettingTimerIntervalMilliseconds;
+            pettingTimer.Tick += AdvancePettingAnimation;
             Text = "UsagePeek 桌宠";
             ClientSize = new Size(WindowDesignWidth, WindowDesignHeight);
             FormBorderStyle = FormBorderStyle.None;
@@ -102,7 +130,9 @@ namespace UsagePeek
 
             MouseDown += BeginDrag;
             MouseMove += ContinueDrag;
+            MouseMove += TrackHoverPetting;
             MouseUp += EndDrag;
+            MouseLeave += delegate { ResetPettingGesture(); };
             InitializeDpiLayout();
         }
 
@@ -225,6 +255,39 @@ namespace UsagePeek
             get { return petScalePercent; }
         }
 
+        internal bool IsPettingForTesting
+        {
+            get { return pettingActive; }
+        }
+
+        internal bool RegisterPettingMotionForTesting(int x, int tick)
+        {
+            bool triggered = RegisterPettingMotion(x, tick);
+            if (triggered)
+            {
+                StartPettingAnimation(x);
+            }
+            return triggered;
+        }
+
+        internal void SetPettingProgressForTesting(float? progress)
+        {
+            pettingTimer.Stop();
+            pettingStopwatch.Reset();
+            if (progress.HasValue)
+            {
+                pettingActive = true;
+                pettingProgress = Math.Max(0f,
+                    Math.Min(1f, progress.Value));
+            }
+            else
+            {
+                pettingActive = false;
+                pettingProgress = 0f;
+            }
+            ApplyLayeredImage();
+        }
+
         internal Point ClampLocationForTesting(Point value, Rectangle area)
         {
             return ClampToWorkArea(value, area);
@@ -280,6 +343,9 @@ namespace UsagePeek
         {
             if (disposing)
             {
+                pettingTimer.Stop();
+                pettingTimer.Dispose();
+                pettingStopwatch.Stop();
                 if (renderedImage != null)
                 {
                     renderedImage.Dispose();
@@ -407,8 +473,22 @@ namespace UsagePeek
                         petBoxSize * aspect,
                         MidpointRounding.AwayFromZero));
                 }
+                int petBottom = height -
+                    ScaleDesign(PetHintDesignHeight, scale);
                 int petLeft = (width - petWidth) / 2;
-                int petTop = height - petHeight;
+                int petTop = petBottom - petHeight;
+                PettingPose pose = pettingActive
+                    ? CalculatePettingPose(pettingProgress)
+                    : PettingPose.Resting;
+                petWidth = Math.Max(1, (int)Math.Round(
+                    petWidth * pose.ScaleX,
+                    MidpointRounding.AwayFromZero));
+                petHeight = Math.Max(1, (int)Math.Round(
+                    petHeight * pose.ScaleY,
+                    MidpointRounding.AwayFromZero));
+                petLeft = (width - petWidth) / 2;
+                petTop = petBottom - petHeight +
+                    ScaleDesign(pose.OffsetY, scale);
                 graphics.DrawImage(sourceImage,
                     new Rectangle(petLeft, petTop, petWidth, petHeight),
                     sourceContentBounds.X, sourceContentBounds.Y,
@@ -416,9 +496,224 @@ namespace UsagePeek
                     GraphicsUnit.Pixel);
 
                 graphics.CompositingMode = CompositingMode.SourceOver;
+                if (pettingActive)
+                {
+                    DrawPettingHand(graphics,
+                        petLeft + (petWidth * pettingContactXRatio),
+                        petTop + (petHeight * 0.13f),
+                        scale, pettingProgress);
+                }
+                DrawPettingHint(graphics, width, height, scale);
                 DrawUsageBubble(graphics, width, scale);
             }
             return bitmap;
+        }
+
+        private static PettingPose CalculatePettingPose(float progress)
+        {
+            PettingPose resting = PettingPose.Resting;
+            PettingPose pressed = new PettingPose(1.045f, 0.91f, 0);
+            PettingPose rebound = new PettingPose(0.985f, 1.04f, -8);
+            PettingPose settling = new PettingPose(1.012f, 0.985f, 2);
+
+            if (progress <= 0.24f)
+            {
+                return InterpolatePose(resting, pressed,
+                    SmoothStep(progress / 0.24f));
+            }
+            if (progress <= 0.50f)
+            {
+                return InterpolatePose(pressed, rebound,
+                    SmoothStep((progress - 0.24f) / 0.26f));
+            }
+            if (progress <= 0.72f)
+            {
+                return InterpolatePose(rebound, settling,
+                    SmoothStep((progress - 0.50f) / 0.22f));
+            }
+            return InterpolatePose(settling, resting,
+                SmoothStep((progress - 0.72f) / 0.28f));
+        }
+
+        private static PettingPose InterpolatePose(
+            PettingPose start, PettingPose end, float amount)
+        {
+            return new PettingPose(
+                Interpolate(start.ScaleX, end.ScaleX, amount),
+                Interpolate(start.ScaleY, end.ScaleY, amount),
+                (int)Math.Round(Interpolate(start.OffsetY,
+                    end.OffsetY, amount), MidpointRounding.AwayFromZero));
+        }
+
+        private static float Interpolate(float start, float end, float amount)
+        {
+            return start + ((end - start) * amount);
+        }
+
+        private static float SmoothStep(float value)
+        {
+            float clamped = Math.Max(0f, Math.Min(1f, value));
+            return clamped * clamped * (3f - (2f * clamped));
+        }
+
+        private static void DrawPettingHand(
+            Graphics graphics,
+            float contactX,
+            float contactY,
+            float scale,
+            float progress)
+        {
+            float opacity;
+            float verticalOffset;
+            if (progress < 0.16f)
+            {
+                float amount = SmoothStep(progress / 0.16f);
+                opacity = amount;
+                verticalOffset = -16f * (1f - amount);
+            }
+            else if (progress < 0.60f)
+            {
+                opacity = 1f;
+                verticalOffset = 0f;
+            }
+            else if (progress < 0.88f)
+            {
+                float amount = SmoothStep((progress - 0.60f) / 0.28f);
+                opacity = 1f - amount;
+                verticalOffset = -18f * amount;
+            }
+            else
+            {
+                return;
+            }
+
+            int alpha = Math.Max(0, Math.Min(255,
+                (int)Math.Round(255f * opacity,
+                    MidpointRounding.AwayFromZero)));
+            if (alpha == 0)
+            {
+                return;
+            }
+
+            float handScale = Math.Max(0.35f, scale);
+            GraphicsState state = graphics.Save();
+            try
+            {
+                graphics.TranslateTransform(contactX,
+                    contactY + (verticalOffset * handScale));
+                graphics.RotateTransform(-14f);
+
+                Rectangle sleeve = ScaleRectangle(
+                    -11, -49, 22, 18, handScale);
+                Rectangle cuff = ScaleRectangle(
+                    -13, -34, 26, 8, handScale);
+                Rectangle palm = ScaleRectangle(
+                    -16, -31, 32, 23, handScale);
+                Rectangle thumb = ScaleRectangle(
+                    -24, -28, 16, 12, handScale);
+                Rectangle[] fingers =
+                {
+                    ScaleRectangle(-14, -16, 8, 17, handScale),
+                    ScaleRectangle(-7, -16, 8, 21, handScale),
+                    ScaleRectangle(0, -16, 8, 19, handScale),
+                    ScaleRectangle(7, -16, 8, 15, handScale)
+                };
+
+                using (SolidBrush skin = new SolidBrush(
+                    Color.FromArgb(alpha, 255, 221, 188)))
+                using (SolidBrush sleeveBrush = new SolidBrush(
+                    Color.FromArgb(alpha, 80, 143, 224)))
+                using (SolidBrush cuffBrush = new SolidBrush(
+                    Color.FromArgb(alpha, 239, 246, 255)))
+                using (Pen outline = new Pen(
+                    Color.FromArgb(alpha, 89, 64, 76),
+                    Math.Max(1f, handScale * 1.4f)))
+                using (Pen motion = new Pen(
+                    Color.FromArgb(alpha, 96, 165, 250),
+                    Math.Max(1f, handScale * 1.8f)))
+                {
+                    FillRoundedShape(graphics, sleeve, skin: sleeveBrush,
+                        outline: outline, radius: ScaleDesign(7, handScale));
+                    FillRoundedShape(graphics, cuff, skin: cuffBrush,
+                        outline: outline, radius: ScaleDesign(4, handScale));
+                    foreach (Rectangle finger in fingers)
+                    {
+                        FillRoundedShape(graphics, finger, skin, outline,
+                            ScaleDesign(4, handScale));
+                    }
+                    graphics.FillEllipse(skin, thumb);
+                    graphics.DrawEllipse(outline, thumb);
+                    FillRoundedShape(graphics, palm, skin, outline,
+                        ScaleDesign(8, handScale));
+
+                    graphics.DrawLine(motion,
+                        ScaleDesign(-27, handScale),
+                        ScaleDesign(-12, handScale),
+                        ScaleDesign(-33, handScale),
+                        ScaleDesign(-5, handScale));
+                    graphics.DrawLine(motion,
+                        ScaleDesign(25, handScale),
+                        ScaleDesign(-15, handScale),
+                        ScaleDesign(31, handScale),
+                        ScaleDesign(-9, handScale));
+                }
+            }
+            finally
+            {
+                graphics.Restore(state);
+            }
+        }
+
+        private static void FillRoundedShape(
+            Graphics graphics,
+            Rectangle bounds,
+            Brush skin,
+            Pen outline,
+            int radius)
+        {
+            using (GraphicsPath path = RoundedRectangle(bounds,
+                Math.Max(1, radius)))
+            {
+                graphics.FillPath(skin, path);
+                graphics.DrawPath(outline, path);
+            }
+        }
+
+        private static Rectangle ScaleRectangle(
+            int x, int y, int width, int height, float scale)
+        {
+            return new Rectangle(
+                ScaleDesign(x, scale),
+                ScaleDesign(y, scale),
+                Math.Max(1, ScaleDesign(width, scale)),
+                Math.Max(1, ScaleDesign(height, scale)));
+        }
+
+        private static void DrawPettingHint(
+            Graphics graphics, int width, int height, float scale)
+        {
+            const string hint = "（鼠标来回可以摸摸头哦）";
+            float fontSize = Math.Max(6f, 9f * scale);
+            float top = height - ScaleDesign(18, scale);
+            float hintHeight = Math.Max(8f, ScaleDesign(16, scale));
+            using (Font font = new Font("Microsoft YaHei UI", fontSize,
+                FontStyle.Regular, GraphicsUnit.Pixel))
+            using (SolidBrush shadow = new SolidBrush(
+                Color.FromArgb(180, 4, 10, 18)))
+            using (SolidBrush foreground = new SolidBrush(
+                Color.FromArgb(225, 151, 178, 207)))
+            using (StringFormat format = new StringFormat())
+            {
+                format.Alignment = StringAlignment.Center;
+                format.LineAlignment = StringAlignment.Center;
+                format.Trimming = StringTrimming.EllipsisCharacter;
+                RectangleF area = new RectangleF(
+                    0, top, width, hintHeight);
+                RectangleF shadowArea = area;
+                shadowArea.Y += Math.Max(1f, scale);
+                graphics.DrawString(hint, font, shadow, shadowArea, format);
+                graphics.DrawString(hint, font, foreground, area, format);
+            }
         }
 
         private void DrawUsageBubble(
@@ -608,6 +903,169 @@ namespace UsagePeek
                     Math.Min(value.Y, area.Bottom - Height - 8)));
         }
 
+        private void TrackHoverPetting(object sender, MouseEventArgs e)
+        {
+            if (dragging || e.Button != MouseButtons.None ||
+                !IsPetSurfacePoint(e.Location))
+            {
+                ResetPettingGesture();
+                return;
+            }
+
+            int tick = Environment.TickCount;
+            if (RegisterPettingMotion(e.X, tick))
+            {
+                StartPettingAnimation(e.X);
+            }
+        }
+
+        private bool RegisterPettingMotion(int x, int tick)
+        {
+            float scale = Height / (float)WindowDesignHeight;
+            int minimumStroke = Math.Max(4,
+                ScaleDesign(PettingMinimumStrokeDesignPixels, scale));
+            int minimumTravel = Math.Max(minimumStroke * 2,
+                ScaleDesign(PettingMinimumTravelDesignPixels, scale));
+
+            if (!pettingGestureTracking ||
+                ElapsedTicks(tick, pettingGestureLastTick) >
+                    PettingGestureTimeoutMilliseconds)
+            {
+                ResetPettingGesture();
+                pettingGestureTracking = true;
+                pettingGestureLastX = x;
+                pettingGestureLastTick = tick;
+                return false;
+            }
+
+            int delta = x - pettingGestureLastX;
+            pettingGestureLastX = x;
+            pettingGestureLastTick = tick;
+            int distance = Math.Abs(delta);
+            if (distance < 2)
+            {
+                return false;
+            }
+
+            int direction = Math.Sign(delta);
+            pettingGestureTotalDistance += distance;
+            if (pettingGestureDirection == 0)
+            {
+                pettingGestureDirection = direction;
+                pettingGestureSegmentDistance = distance;
+                return false;
+            }
+
+            if (direction == pettingGestureDirection)
+            {
+                pettingGestureSegmentDistance += distance;
+            }
+            else
+            {
+                if (pettingGestureSegmentDistance >= minimumStroke)
+                {
+                    pettingGestureHasReversed = true;
+                }
+                pettingGestureDirection = direction;
+                pettingGestureSegmentDistance = distance;
+            }
+
+            if (!pettingGestureHasReversed ||
+                pettingGestureSegmentDistance < minimumStroke ||
+                pettingGestureTotalDistance < minimumTravel)
+            {
+                return false;
+            }
+
+            bool coolingDown = hasPettingTriggerTick &&
+                ElapsedTicks(tick, lastPettingTriggerTick) <
+                    PettingTriggerCooldownMilliseconds;
+            ResetPettingGesture();
+            if (coolingDown)
+            {
+                return false;
+            }
+
+            hasPettingTriggerTick = true;
+            lastPettingTriggerTick = tick;
+            return true;
+        }
+
+        private bool IsPetSurfacePoint(Point point)
+        {
+            if (renderedImage == null || point.X < 0 || point.Y < 0 ||
+                point.X >= renderedImage.Width ||
+                point.Y >= renderedImage.Height)
+            {
+                return false;
+            }
+
+            float scale = Height / (float)WindowDesignHeight;
+            if (point.Y < ScaleDesign(PetSurfaceMinimumYDesign, scale))
+            {
+                return false;
+            }
+            if (point.Y >= Height -
+                ScaleDesign(PetHintDesignHeight, scale))
+            {
+                return false;
+            }
+            return renderedImage.GetPixel(point.X, point.Y).A >= 24;
+        }
+
+        private void ResetPettingGesture()
+        {
+            pettingGestureTracking = false;
+            pettingGestureHasReversed = false;
+            pettingGestureDirection = 0;
+            pettingGestureSegmentDistance = 0;
+            pettingGestureTotalDistance = 0;
+        }
+
+        private static uint ElapsedTicks(int current, int previous)
+        {
+            return unchecked((uint)(current - previous));
+        }
+
+        private void StartPettingAnimation(int contactX)
+        {
+            float ratio = Width > 0 ? contactX / (float)Width : 0.62f;
+            pettingContactXRatio = Math.Max(0.32f,
+                Math.Min(0.72f, ratio));
+            pettingProgress = 0f;
+            pettingActive = true;
+            pettingStopwatch.Restart();
+            pettingTimer.Start();
+            ApplyLayeredImage();
+        }
+
+        private void AdvancePettingAnimation(object sender, EventArgs e)
+        {
+            double elapsed = pettingStopwatch.Elapsed.TotalMilliseconds;
+            if (elapsed >= PettingAnimationDurationMilliseconds)
+            {
+                StopPettingAnimation(true);
+                return;
+            }
+
+            pettingProgress = (float)(elapsed /
+                PettingAnimationDurationMilliseconds);
+            ApplyLayeredImage();
+        }
+
+        private void StopPettingAnimation(bool redraw)
+        {
+            bool changed = pettingActive;
+            pettingTimer.Stop();
+            pettingStopwatch.Reset();
+            pettingActive = false;
+            pettingProgress = 0f;
+            if (redraw && changed)
+            {
+                ApplyLayeredImage();
+            }
+        }
+
         private void BeginDrag(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Left)
@@ -615,6 +1073,8 @@ namespace UsagePeek
                 return;
             }
 
+            StopPettingAnimation(true);
+            ResetPettingGesture();
             dragging = true;
             moved = false;
             dragStartCursor = Cursor.Position;
@@ -638,6 +1098,10 @@ namespace UsagePeek
                 return;
             }
 
+            if (!moved)
+            {
+                StopPettingAnimation(true);
+            }
             moved = true;
             Point requested = new Point(
                 dragStartWindow.X + deltaX,
@@ -671,6 +1135,25 @@ namespace UsagePeek
             {
                 requested(this, EventArgs.Empty);
             }
+        }
+
+        private struct PettingPose
+        {
+            public PettingPose(float scaleX, float scaleY, int offsetY)
+            {
+                ScaleX = scaleX;
+                ScaleY = scaleY;
+                OffsetY = offsetY;
+            }
+
+            public static PettingPose Resting
+            {
+                get { return new PettingPose(1f, 1f, 0); }
+            }
+
+            public float ScaleX;
+            public float ScaleY;
+            public int OffsetY;
         }
 
         [StructLayout(LayoutKind.Sequential)]

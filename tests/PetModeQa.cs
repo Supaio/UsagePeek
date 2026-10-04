@@ -138,12 +138,38 @@ internal static class PetModeQa
                 "pet appearance can switch to Phoebe Chibi");
             form.SetScalePercent(137);
             Check(form.ScalePercentForTesting == 137 &&
-                    form.ClientSize == new Size(301, 373),
+                    form.ClientSize == new Size(301, 400),
                 "custom pet scale changes the layered window size");
-            using (Bitmap preview = form.RenderImageForTesting())
+            using (Bitmap idle = form.RenderImageForTesting())
             {
-                Check(preview.GetPixel(preview.Width / 2, 12).A > 200,
+                Check(idle.GetPixel(idle.Width / 2, 12).A > 200,
                     "usage bubble is rendered above the pet");
+
+                Check(!form.RegisterPettingMotionForTesting(45, 0) &&
+                        !form.RegisterPettingMotionForTesting(90, 100),
+                    "a one-way hover does not count as petting");
+                Check(!form.RegisterPettingMotionForTesting(50, 1000) &&
+                        !form.RegisterPettingMotionForTesting(95, 1080) &&
+                        form.RegisterPettingMotionForTesting(45, 1160),
+                    "a quick left-right hover is recognized as petting");
+                Check(form.IsPettingForTesting,
+                    "recognized hover starts the petting animation");
+
+                form.SetPettingProgressForTesting(0.30f);
+                using (Bitmap petting = form.RenderImageForTesting())
+                {
+                    Check(CountChangedPixels(idle, petting) > 1000,
+                        "petting visibly changes the layered pet frame");
+                    Check(CountAlphaIncreases(idle, petting) > 80,
+                        "petting draws a hand over the character");
+                }
+
+                form.SetPettingProgressForTesting(null);
+                using (Bitmap restored = form.RenderImageForTesting())
+                {
+                    Check(CountChangedPixels(idle, restored) == 0,
+                        "pet returns exactly to its resting frame");
+                }
             }
 
             IntPtr unused = form.Handle;
@@ -162,6 +188,40 @@ internal static class PetModeQa
                     workArea.Bottom - form.Height - 8),
                 "dragging stops at the bottom and right screen edges");
         }
+    }
+
+    private static int CountChangedPixels(Bitmap first, Bitmap second)
+    {
+        int changed = 0;
+        for (int y = 0; y < first.Height; y++)
+        {
+            for (int x = 0; x < first.Width; x++)
+            {
+                if (first.GetPixel(x, y).ToArgb() !=
+                    second.GetPixel(x, y).ToArgb())
+                {
+                    changed++;
+                }
+            }
+        }
+        return changed;
+    }
+
+    private static int CountAlphaIncreases(Bitmap first, Bitmap second)
+    {
+        int increased = 0;
+        for (int y = 0; y < first.Height; y++)
+        {
+            for (int x = 0; x < first.Width; x++)
+            {
+                if (second.GetPixel(x, y).A >
+                    first.GetPixel(x, y).A + 24)
+                {
+                    increased++;
+                }
+            }
+        }
+        return increased;
     }
 
     private static void Check(bool condition, string name)
