@@ -12,50 +12,26 @@ if (-not (Test-Path -LiteralPath $compiler)) {
 
 $outputDirectory = Join-Path $root 'bin'
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-$output = Join-Path $outputDirectory 'ParserQa.exe'
+$output = Join-Path $outputDirectory 'SettingsDiagnosticsQa.exe'
 
 & $compiler /nologo /utf8output /target:exe /optimize+ `
     /reference:System.dll `
     /reference:System.Core.dll `
+    /reference:System.Drawing.dll `
+    /reference:System.Windows.Forms.dll `
     /reference:System.Web.Extensions.dll `
     "/out:$output" `
     (Join-Path $root 'UsageModels.cs') `
-    (Join-Path $root 'CodexResponseParser.cs') `
-    (Join-Path $PSScriptRoot 'ParserQa.cs')
+    (Join-Path $root 'DisplayModeSettings.cs') `
+    (Join-Path $root 'DiagnosticsSnapshot.cs') `
+    (Join-Path $root 'DpiAwareForm.cs') `
+    (Join-Path $root 'UiControls.cs') `
+    (Join-Path $root 'SettingsForm.cs') `
+    (Join-Path $PSScriptRoot 'SettingsDiagnosticsQa.cs')
 
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
 & $output
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-local-usage.ps1')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-reset-credit-notification.ps1')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-pet-mode.ps1')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-taskbar-recovery.ps1')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-settings-diagnostics.ps1')
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
-
-& (Join-Path $PSScriptRoot 'run-dpi-layout.ps1')
 exit $LASTEXITCODE

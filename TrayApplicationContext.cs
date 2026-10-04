@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -33,6 +35,7 @@ namespace UsagePeek
         private readonly ToolStripMenuItem petSize100Item;
         private readonly ToolStripMenuItem petSize125Item;
         private readonly ToolStripMenuItem customPetSizeItem;
+        private readonly ToolStripMenuItem startupItem;
         private readonly NotifyIcon trayIcon;
         private readonly TaskbarCreatedListener taskbarCreatedListener;
         private readonly Timer refreshTimer;
@@ -45,6 +48,9 @@ namespace UsagePeek
         private bool exiting;
         private bool checkingUpdate;
         private bool repairingCodex;
+        private DateTime? lastRefreshAttemptUtc;
+        private DateTime? lastRefreshSuccessUtc;
+        private string lastRefreshErrorCode;
 
         public TrayApplicationContext(
             bool startHidden,
@@ -89,6 +95,9 @@ namespace UsagePeek
             ToolStripMenuItem modelUsageItem =
                 new ToolStripMenuItem("查看模型用量占比");
             modelUsageItem.Click += delegate { ShowModelUsage(); };
+            ToolStripMenuItem settingsItem =
+                new ToolStripMenuItem("设置与诊断…");
+            settingsItem.Click += delegate { ShowSettings(); };
             ToolStripMenuItem displayModeItem =
                 new ToolStripMenuItem("显示模式");
             classicModeItem = new ToolStripMenuItem("经典面板（一页看完）");
@@ -157,7 +166,7 @@ namespace UsagePeek
             petSettingsItem.DropDownItems.Add(appearanceMenuItem);
             petSettingsItem.DropDownItems.Add(usageDisplayItem);
             petSettingsItem.DropDownItems.Add(petSizeMenuItem);
-            ToolStripMenuItem startupItem = new ToolStripMenuItem("开机自启");
+            startupItem = new ToolStripMenuItem("开机自启");
             startupItem.Checked = startupManager.IsEnabled();
             startupItem.CheckOnClick = false;
             startupItem.Click += delegate
@@ -193,6 +202,7 @@ namespace UsagePeek
             menu.Items.Add(refreshItem);
             menu.Items.Add(modelUsageItem);
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(settingsItem);
             menu.Items.Add(displayModeItem);
             menu.Items.Add(petSettingsItem);
             menu.Items.Add(startupItem);
@@ -285,6 +295,7 @@ namespace UsagePeek
             }
 
             refreshing = true;
+            lastRefreshAttemptUtc = DateTime.UtcNow;
             form.SetLoading(true);
 
             try
@@ -294,6 +305,8 @@ namespace UsagePeek
                 ResetCreditGrantNotification resetCreditGrant =
                     resetCreditNotificationTracker.Observe(snapshot);
                 lastSnapshot = snapshot;
+                lastRefreshSuccessUtc = DateTime.UtcNow;
+                lastRefreshErrorCode = null;
                 cache.Save(snapshot);
                 form.ShowSnapshot(snapshot, null);
                 petForm.SetLiveUsage(snapshot);
@@ -302,6 +315,7 @@ namespace UsagePeek
             }
             catch (Exception ex)
             {
+                lastRefreshErrorCode = ClassifyRefreshError(ex.Message);
                 if (lastSnapshot != null)
                 {
                     lastSnapshot.IsStale = true;
@@ -552,6 +566,261 @@ namespace UsagePeek
             }
 
             form.ShowNearTray();
+        }
+
+        private void ShowSettings()
+        {
+            SettingsSelection initial = new SettingsSelection
+            {
+                DisplayMode = displayPreference.GetDisplayMode(),
+                PetAppearance = displayPreference.GetPetAppearance(),
+                PetUsageDisplayMode =
+                    displayPreference.GetPetUsageDisplayMode(),
+                PetScalePercent = displayPreference.GetPetScalePercent(),
+                StartupEnabled = startupManager.IsEnabled()
+            };
+
+            using (SettingsForm dialog = new SettingsForm(
+                initial, BuildDiagnosticsSnapshot))
+            {
+                dialog.ConnectionTestRequested += async delegate
+                {
+                    dialog.SetConnectionTestBusy(true);
+                    try
+                    {
+                        await RefreshAsync();
+                        if (!dialog.IsDisposed)
+                        {
+                            dialog.RefreshDiagnostics();
+                        }
+                    }
+                    finally
+                    {
+                        if (!dialog.IsDisposed)
+                        {
+                            dialog.SetConnectionTestBusy(false);
+                        }
+                    }
+                };
+                dialog.PlaceNearCursor();
+                if (dialog.ShowDialog() != DialogResult.OK)
+                {
+                    return;
+                }
+
+                SettingsSelection selected = dialog.Selection;
+                displayPreference.SetDisplayMode(selected.DisplayMode);
+                displayPreference.SetPetAppearance(selected.PetAppearance);
+                displayPreference.SetPetUsageDisplayMode(
+                    selected.PetUsageDisplayMode);
+                displayPreference.SetPetScalePercent(
+                    selected.PetScalePercent);
+                if (!displayModeSettings.TrySave(displayPreference))
+                {
+                    RestoreDisplayPreference(initial);
+                    MessageBox.Show(
+                        "无法保存设置，请检查本机数据目录的写入权限。",
+                        "UsagePeek", MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                try
+                {
+                    if (selected.StartupEnabled != startupManager.IsEnabled())
+                    {
+                        startupManager.SetEnabled(selected.StartupEnabled);
+                    }
+                    startupItem.Checked = startupManager.IsEnabled();
+                }
+                catch (Exception ex)
+                {
+                    RestoreDisplayPreference(initial);
+                    displayModeSettings.Save(displayPreference);
+                    MessageBox.Show("无法修改开机自启：" + ex.Message,
+                        "UsagePeek", MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                SetPetAppearance(selected.PetAppearance);
+                SetPetUsageDisplayMode(selected.PetUsageDisplayMode);
+                SetPetScalePercent(selected.PetScalePercent);
+                SetDisplayMode(selected.DisplayMode);
+                trayIcon.ShowBalloonTip(2200, "UsagePeek",
+                    "设置已保存并应用。", ToolTipIcon.Info);
+            }
+        }
+
+        private void RestoreDisplayPreference(SettingsSelection previous)
+        {
+            displayPreference.SetDisplayMode(previous.DisplayMode);
+            displayPreference.SetPetAppearance(previous.PetAppearance);
+            displayPreference.SetPetUsageDisplayMode(
+                previous.PetUsageDisplayMode);
+            displayPreference.SetPetScalePercent(previous.PetScalePercent);
+        }
+
+        private DiagnosticsSnapshot BuildDiagnosticsSnapshot()
+        {
+            DiagnosticsSnapshot diagnostics = new DiagnosticsSnapshot();
+            diagnostics.GeneratedAtUtc = DateTime.UtcNow;
+            Version version = Assembly.GetExecutingAssembly()
+                .GetName().Version;
+            diagnostics.AppVersion = string.Format("v{0}.{1}.{2}",
+                version.Major, version.Minor, version.Build);
+            diagnostics.OperatingSystem = Environment.OSVersion.VersionString;
+            diagnostics.ProcessArchitecture = Environment.Is64BitProcess
+                ? "64 位"
+                : "32 位";
+            diagnostics.ExecutablePath = Application.ExecutablePath;
+            diagnostics.DisplayCount = Screen.AllScreens.Length;
+            diagnostics.CurrentDpi = petForm.Visible
+                ? petForm.CurrentDpi
+                : form.Visible
+                    ? form.CurrentDpi
+                    : DpiNative.GetSystemDpi();
+            diagnostics.DisplayMode = displayPreference.GetDisplayMode() ==
+                UsageDisplayMode.Pet ? "桌宠模式" : "经典面板";
+            diagnostics.PetAppearance = displayPreference.GetPetAppearance() ==
+                PetAppearance.PhoebeChibi ? "菲比啾比" : "鲸鱼娘趴趴";
+            diagnostics.PetUsageMode =
+                displayPreference.GetPetUsageDisplayMode() ==
+                    PetUsageDisplayMode.Remaining
+                    ? "显示剩余百分比"
+                    : "显示已用百分比";
+            diagnostics.PetScalePercent =
+                displayPreference.GetPetScalePercent();
+            diagnostics.StartupEnabled = startupManager.IsEnabled();
+            diagnostics.UpdateConfigured = updateService.IsConfigured;
+            diagnostics.LastRefreshAttemptUtc = lastRefreshAttemptUtc;
+            diagnostics.LastRefreshSuccessUtc = lastRefreshSuccessUtc;
+            diagnostics.LastRefreshError = lastRefreshErrorCode;
+
+            try
+            {
+                List<CodexLaunchSpec> candidates =
+                    CodexExecutableLocator.FindAll();
+                diagnostics.CodexCandidateCount = candidates.Count;
+                if (candidates.Count > 0)
+                {
+                    diagnostics.CodexStatus = "已找到本地组件";
+                    diagnostics.CodexSource = candidates[0].SourceName;
+                    diagnostics.CodexPath = candidates[0].FilePath;
+                }
+                else
+                {
+                    diagnostics.CodexStatus = "未找到本地组件";
+                }
+            }
+            catch
+            {
+                diagnostics.CodexStatus = "自定义组件路径无效";
+            }
+
+            UsageSnapshot snapshot = lastSnapshot;
+            if (snapshot == null)
+            {
+                diagnostics.UsageStatus = lastRefreshErrorCode == null
+                    ? "尚未读取"
+                    : "离线";
+                diagnostics.PriceCoverage = "尚无本地统计";
+                return diagnostics;
+            }
+
+            diagnostics.UsageStatus = snapshot.IsStale
+                ? "缓存数据"
+                : "实时数据";
+            diagnostics.ProviderName = snapshot.ProviderName;
+            diagnostics.SnapshotFetchedAtUtc = snapshot.FetchedAtUtc;
+            if (snapshot.LocalTokenUsage != null)
+            {
+                diagnostics.LocalFilesScanned =
+                    snapshot.LocalTokenUsage.FilesScanned;
+            }
+            diagnostics.PriceCoverage = DescribePriceCoverage(snapshot);
+            return diagnostics;
+        }
+
+        private static string DescribePriceCoverage(UsageSnapshot snapshot)
+        {
+            LocalTokenUsageSnapshot local = snapshot == null
+                ? null
+                : snapshot.LocalTokenUsage;
+            TokenPeriodSnapshot lifetime = local == null
+                ? null
+                : local.Lifetime;
+            if (lifetime == null || !lifetime.HasData ||
+                lifetime.TotalTokens <= 0)
+            {
+                return "尚无本地统计";
+            }
+            if (lifetime.HasCompleteCostEstimate)
+            {
+                return "完整（已扫描模型均可计价）";
+            }
+
+            int unknownModels = 0;
+            if (local.ModelUsage != null)
+            {
+                foreach (ModelTokenUsageSnapshot model in local.ModelUsage)
+                {
+                    if (model != null && model.HasPriceEstimate == false)
+                    {
+                        unknownModels++;
+                    }
+                }
+            }
+            string suffix = unknownModels > 0
+                ? "，" + unknownModels + " 个模型暂无公开价格"
+                : string.Empty;
+            if (lifetime.PricedTokens <= 0)
+            {
+                return "暂不可计价" + suffix;
+            }
+
+            int percent = (int)Math.Round(
+                lifetime.PricedTokens * 100d / lifetime.TotalTokens,
+                MidpointRounding.AwayFromZero);
+            return "部分可计价（覆盖 " + percent + "%）" + suffix;
+        }
+
+        private static string ClassifyRefreshError(string message)
+        {
+            string value = message ?? string.Empty;
+            if (Contains(value, "USAGEPEEK_CODEX_PATH"))
+            {
+                return "UP-CX-003 自定义 Codex 路径无效";
+            }
+            if (Contains(value, "未找到 Codex"))
+            {
+                return "UP-CX-001 未找到 Codex 本地组件";
+            }
+            if (Contains(value, "登录") || Contains(value, "401") ||
+                Contains(value, "403") || Contains(value, "auth"))
+            {
+                return "UP-CX-004 Codex 登录状态不可用";
+            }
+            if (Contains(value, "超时") || Contains(value, "timeout"))
+            {
+                return "UP-CX-006 连接 Codex 超时";
+            }
+            if (Contains(value, "解析") || Contains(value, "JSON") ||
+                Contains(value, "响应"))
+            {
+                return "UP-CX-007 Codex 返回的数据无法解析";
+            }
+            if (Contains(value, "启动") || Contains(value, "start"))
+            {
+                return "UP-CX-005 Codex 本地组件无法启动";
+            }
+            return "UP-CX-999 读取失败（详细信息已隐藏）";
+        }
+
+        private static bool Contains(string value, string fragment)
+        {
+            return value.IndexOf(fragment,
+                StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void ReRegisterTrayIcon()

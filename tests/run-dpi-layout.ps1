@@ -21,6 +21,7 @@ $output = Join-Path $outputDirectory 'DpiLayoutQa.exe'
     "/out:$output" `
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'DisplayModeSettings.cs') `
+    (Join-Path $root 'DiagnosticsSnapshot.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `
     (Join-Path $root 'DpiAwareForm.cs') `
     (Join-Path $root 'UiControls.cs') `
@@ -29,6 +30,7 @@ $output = Join-Path $outputDirectory 'DpiLayoutQa.exe'
     (Join-Path $root 'MainForm.cs') `
     (Join-Path $root 'ModelUsageForm.cs') `
     (Join-Path $root 'AboutForm.cs') `
+    (Join-Path $root 'SettingsForm.cs') `
     (Join-Path $root 'PetSizeDialog.cs') `
     (Join-Path $root 'PetForm.cs') `
     (Join-Path $PSScriptRoot 'DpiLayoutQa.cs')

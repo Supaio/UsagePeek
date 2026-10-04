@@ -15,6 +15,33 @@ internal static class RenderQa
         Application.SetCompatibleTextRenderingDefault(false);
 
         string mode = args.Length > 1 ? args[1] : string.Empty;
+        bool settings = string.Equals(mode, "settings",
+            StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "diagnostics",
+                StringComparison.OrdinalIgnoreCase);
+        if (settings)
+        {
+            SettingsSelection selection = new SettingsSelection
+            {
+                DisplayMode = UsageDisplayMode.Pet,
+                PetAppearance = PetAppearance.WhaleMaid,
+                PetUsageDisplayMode = PetUsageDisplayMode.Remaining,
+                PetScalePercent = 110,
+                StartupEnabled = true
+            };
+            using (SettingsForm settingsForm = new SettingsForm(
+                selection, CreateDiagnosticsPreview))
+            {
+                if (string.Equals(mode, "diagnostics",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    settingsForm.ShowDiagnosticsForTesting();
+                }
+                Render(settingsForm, output);
+            }
+            return;
+        }
+
         bool pet = string.Equals(mode, "pet", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-phoebe", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-remaining", StringComparison.OrdinalIgnoreCase) ||
@@ -200,6 +227,38 @@ internal static class RenderQa
             form.TopMost = false;
             Render(form, output);
         }
+    }
+
+    private static DiagnosticsSnapshot CreateDiagnosticsPreview()
+    {
+        return new DiagnosticsSnapshot
+        {
+            GeneratedAtUtc = DateTime.UtcNow,
+            AppVersion = "v1.1.2",
+            OperatingSystem = "Microsoft Windows 11",
+            ProcessArchitecture = "64 位",
+            ExecutablePath = @"C:\Users\Tester\Apps\UsagePeek.exe",
+            DisplayCount = 2,
+            CurrentDpi = 144,
+            DisplayMode = "桌宠模式",
+            PetAppearance = "鲸鱼娘趴趴",
+            PetUsageMode = "显示剩余百分比",
+            PetScalePercent = 110,
+            StartupEnabled = true,
+            UpdateConfigured = true,
+            CodexStatus = "已找到本地组件",
+            CodexCandidateCount = 3,
+            CodexSource = "Codex Windows 桌面版",
+            CodexPath = @"C:\Program Files\OpenAI\codex.exe",
+            UsageStatus = "缓存数据",
+            ProviderName = "ChatGPT / Codex",
+            SnapshotFetchedAtUtc = DateTime.UtcNow.AddMinutes(-6),
+            LastRefreshAttemptUtc = DateTime.UtcNow.AddMinutes(-1),
+            LastRefreshSuccessUtc = DateTime.UtcNow.AddMinutes(-6),
+            LastRefreshError = "UP-CX-006 连接 Codex 超时",
+            LocalFilesScanned = 48,
+            PriceCoverage = "部分可计价（覆盖 82%），2 个模型暂无公开价格"
+        };
     }
 
     private static void Render(Form form, string output)

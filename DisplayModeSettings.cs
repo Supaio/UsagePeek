@@ -166,9 +166,14 @@ namespace UsagePeek
 
         public void Save(DisplayModePreference value)
         {
+            TrySave(value);
+        }
+
+        public bool TrySave(DisplayModePreference value)
+        {
             if (value == null)
             {
-                return;
+                return false;
             }
 
             try
@@ -180,10 +185,12 @@ namespace UsagePeek
                 }
                 File.WriteAllText(settingsPath,
                     serializer.Serialize(value), Encoding.UTF8);
+                return true;
             }
             catch
             {
                 // Display preferences are optional and must never stop the app.
+                return false;
             }
         }
     }

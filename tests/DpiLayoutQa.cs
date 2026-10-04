@@ -17,6 +17,7 @@ internal static class DpiLayoutQa
         VerifyMainForm();
         VerifyModelForm();
         VerifyAboutForm();
+        VerifySettingsForm();
         VerifyPetSizeDialog();
         VerifyPetForm();
 
@@ -154,6 +155,50 @@ internal static class DpiLayoutQa
             form.ApplyDpiForTesting(96);
             AssertEqual(designSize, form.ClientSize,
                 "about form returns exactly to 100 percent");
+        }
+    }
+
+    private static void VerifySettingsForm()
+    {
+        SettingsSelection initial = new SettingsSelection
+        {
+            DisplayMode = UsageDisplayMode.Pet,
+            PetAppearance = PetAppearance.WhaleMaid,
+            PetUsageDisplayMode = PetUsageDisplayMode.Used,
+            PetScalePercent = 100,
+            StartupEnabled = false
+        };
+        using (SettingsForm form = new SettingsForm(initial, delegate
+        {
+            return new DiagnosticsSnapshot
+            {
+                GeneratedAtUtc = DateTime.UtcNow,
+                AppVersion = "v1.1.2",
+                OperatingSystem = "Windows QA",
+                ProcessArchitecture = "64 位",
+                DisplayCount = 1,
+                CurrentDpi = 96,
+                DisplayMode = "桌宠模式",
+                PetAppearance = "鲸鱼娘趴趴",
+                PetUsageMode = "显示已用百分比",
+                PetScalePercent = 100,
+                CodexStatus = "未找到本地组件",
+                UsageStatus = "尚未读取",
+                PriceCoverage = "尚无本地统计"
+            };
+        }))
+        {
+            AssertEqual(new Size(560, 440), form.ClientSize,
+                "settings form uses the expected design size");
+            form.ApplyDpiForTesting(144);
+            AssertEqual(new Size(840, 660), form.ClientSize,
+                "settings form scales to 150 percent");
+            form.ApplyDpiForTesting(192);
+            AssertEqual(new Size(1120, 880), form.ClientSize,
+                "settings form scales to 200 percent");
+            form.ApplyDpiForTesting(96);
+            AssertEqual(new Size(560, 440), form.ClientSize,
+                "settings form returns exactly to 100 percent");
         }
     }
 
