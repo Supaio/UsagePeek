@@ -245,6 +245,27 @@ internal static class PetModeQa
                     workArea.Right - form.Width - 8,
                     workArea.Bottom - form.Height - 8),
                 "dragging stops at the bottom and right screen edges");
+
+            int committedLocations = 0;
+            form.LocationCommitted += delegate { committedLocations++; };
+            form.Location = new Point(2300, 900);
+            Check(form.EnsureVisibleInWorkAreaForTesting(workArea) &&
+                    form.Location == new Point(
+                        workArea.Right - form.Width - 8,
+                        workArea.Bottom - form.Height - 8),
+                "display recovery returns an off-screen pet to the work area");
+            Check(committedLocations == 1,
+                "display recovery persists the corrected pet location");
+            Check(!form.EnsureVisibleInWorkAreaForTesting(workArea) &&
+                    committedLocations == 1,
+                "an already visible pet is not moved or saved again");
+
+            Rectangle leftMonitor = new Rectangle(-1600, 0, 1600, 900);
+            form.Location = new Point(-1500, 100);
+            Check(!form.EnsureVisibleInWorkAreaForTesting(leftMonitor) &&
+                    form.Location == new Point(-1500, 100) &&
+                    committedLocations == 1,
+                "a pet on a valid negative-coordinate monitor is preserved");
         }
     }
 

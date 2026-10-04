@@ -37,6 +37,8 @@ namespace UsagePeek
         private const int PettingMinimumStrokeDesignPixels = 14;
         private const int PettingMinimumTravelDesignPixels = 34;
         private const int PetSurfaceMinimumYDesign = 68;
+        private const int WmDisplayChange = 0x007E;
+        private const int DisplayRecoveryDelayMilliseconds = 300;
         private static readonly Rectangle WhaleContentBounds =
             new Rectangle(26, 31, 1223, 1197);
         private static readonly Rectangle PhoebeContentBounds =
@@ -48,6 +50,7 @@ namespace UsagePeek
         private readonly Bitmap phoebeImage;
         private readonly Bitmap pettingHandImage;
         private readonly Timer pettingTimer;
+        private readonly Timer displayRecoveryTimer;
         private readonly Stopwatch pettingStopwatch;
         private Bitmap sourceImage;
         private Rectangle sourceContentBounds;
@@ -126,6 +129,10 @@ namespace UsagePeek
             pettingTimer = new Timer();
             pettingTimer.Interval = PettingTimerIntervalMilliseconds;
             pettingTimer.Tick += AdvancePettingAnimation;
+            displayRecoveryTimer = new Timer();
+            displayRecoveryTimer.Interval =
+                DisplayRecoveryDelayMilliseconds;
+            displayRecoveryTimer.Tick += RecoverDisplayLocation;
             Text = "UsagePeek 桌宠";
             ClientSize = new Size(WindowDesignWidth, WindowDesignHeight);
             FormBorderStyle = FormBorderStyle.None;
@@ -221,6 +228,11 @@ namespace UsagePeek
             }
             ApplyLayeredImage();
             BringToFront();
+            if (preferredLocation.HasValue &&
+                Location != preferredLocation.Value)
+            {
+                RaiseLocationCommitted();
+            }
         }
 
         internal static Bitmap LoadPetImageForTesting()
@@ -305,6 +317,37 @@ namespace UsagePeek
             return ClampToWorkArea(value, area);
         }
 
+        internal bool EnsureVisibleInWorkAreaForTesting(Rectangle area)
+        {
+            return EnsureVisibleInWorkArea(area);
+        }
+
+        internal bool EnsureVisibleOnAvailableScreen()
+        {
+            if (!Visible)
+            {
+                return false;
+            }
+
+            Point original = Location;
+            Screen target = Screen.FromRectangle(Bounds);
+            PrepareForScreen(target);
+            Point corrected = ClampToWorkArea(
+                Location, target.WorkingArea);
+            if (corrected != Location)
+            {
+                Location = corrected;
+            }
+
+            bool changed = Location != original;
+            if (changed)
+            {
+                ApplyLayeredImage();
+                RaiseLocationCommitted();
+            }
+            return changed;
+        }
+
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
@@ -343,6 +386,11 @@ namespace UsagePeek
         protected override void WndProc(ref Message message)
         {
             base.WndProc(ref message);
+            if (message.Msg == WmDisplayChange && Visible)
+            {
+                displayRecoveryTimer.Stop();
+                displayRecoveryTimer.Start();
+            }
             if (message.Msg == WmNcHitTest &&
                 message.Result == new IntPtr(HtClient) &&
                 IsTransparentPoint(message.LParam))
@@ -355,6 +403,8 @@ namespace UsagePeek
         {
             if (disposing)
             {
+                displayRecoveryTimer.Stop();
+                displayRecoveryTimer.Dispose();
                 pettingTimer.Stop();
                 pettingTimer.Dispose();
                 pettingStopwatch.Stop();
@@ -892,6 +942,40 @@ namespace UsagePeek
                     Math.Min(value.Y, area.Bottom - Height - 8)));
         }
 
+        private bool EnsureVisibleInWorkArea(Rectangle area)
+        {
+            Point corrected = ClampToWorkArea(Location, area);
+            if (corrected == Location)
+            {
+                return false;
+            }
+
+            Location = corrected;
+            ApplyLayeredImage();
+            RaiseLocationCommitted();
+            return true;
+        }
+
+        private void RecoverDisplayLocation(object sender, EventArgs e)
+        {
+            displayRecoveryTimer.Stop();
+            if (!EnsureVisibleOnAvailableScreen() && Visible)
+            {
+                // A DPI change may already have moved the window before this
+                // delayed pass. Persist the final position either way.
+                RaiseLocationCommitted();
+            }
+        }
+
+        private void RaiseLocationCommitted()
+        {
+            EventHandler committed = LocationCommitted;
+            if (committed != null)
+            {
+                committed(this, EventArgs.Empty);
+            }
+        }
+
         private void TrackHoverPetting(object sender, MouseEventArgs e)
         {
             if (dragging || e.Button != MouseButtons.None ||
@@ -1111,11 +1195,7 @@ namespace UsagePeek
             Cursor = Cursors.Hand;
             if (moved)
             {
-                EventHandler committed = LocationCommitted;
-                if (committed != null)
-                {
-                    committed(this, EventArgs.Empty);
-                }
+                RaiseLocationCommitted();
                 return;
             }
 

@@ -34,6 +34,7 @@ namespace UsagePeek
         private readonly ToolStripMenuItem petSize125Item;
         private readonly ToolStripMenuItem customPetSizeItem;
         private readonly NotifyIcon trayIcon;
+        private readonly TaskbarCreatedListener taskbarCreatedListener;
         private readonly Timer refreshTimer;
         private readonly Timer initialRefreshTimer;
         private readonly Timer activationTimer;
@@ -225,6 +226,8 @@ namespace UsagePeek
                     }
                 }
             };
+            taskbarCreatedListener =
+                new TaskbarCreatedListener(ReRegisterTrayIcon);
 
             refreshTimer = new Timer();
             refreshTimer.Interval = RefreshIntervalMilliseconds;
@@ -540,11 +543,26 @@ namespace UsagePeek
                     petForm.ShowAtPreferredLocation(
                         displayPreference.GetPetLocation());
                 }
+                else
+                {
+                    petForm.EnsureVisibleOnAvailableScreen();
+                }
                 form.ShowNearAnchor(petForm.Bounds);
                 return;
             }
 
             form.ShowNearTray();
+        }
+
+        private void ReRegisterTrayIcon()
+        {
+            if (exiting)
+            {
+                return;
+            }
+
+            trayIcon.Visible = false;
+            trayIcon.Visible = true;
         }
 
         private void SetDisplayMode(UsageDisplayMode mode)
@@ -680,6 +698,7 @@ namespace UsagePeek
             initialRefreshTimer.Dispose();
             activationTimer.Stop();
             activationTimer.Dispose();
+            taskbarCreatedListener.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             icon.Dispose();
