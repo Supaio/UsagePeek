@@ -29,10 +29,11 @@ namespace UsagePeek
         private const int WindowDesignWidth = 220;
         private const int WindowDesignHeight = 292;
         private const int PetHintDesignHeight = 20;
-        private const int PettingTimerIntervalMilliseconds = 25;
-        private const int PettingAnimationDurationMilliseconds = 480;
+        private const int PettingTimerIntervalMilliseconds = 20;
+        private const int PettingAnimationDurationMilliseconds = 960;
+        private const int PettingStrokeCount = 3;
         private const int PettingGestureTimeoutMilliseconds = 700;
-        private const int PettingTriggerCooldownMilliseconds = 650;
+        private const int PettingTriggerCooldownMilliseconds = 1050;
         private const int PettingMinimumStrokeDesignPixels = 14;
         private const int PettingMinimumTravelDesignPixels = 34;
         private const int PetSurfaceMinimumYDesign = 68;
@@ -535,28 +536,39 @@ namespace UsagePeek
 
         private static PettingPose CalculatePettingPose(float progress)
         {
+            float strokeProgress = GetPettingStrokeProgress(progress);
             PettingPose resting = PettingPose.Resting;
-            PettingPose pressed = new PettingPose(1.09f, 0.78f, 0);
-            PettingPose rebound = new PettingPose(0.965f, 1.08f, -9);
-            PettingPose settling = new PettingPose(1.025f, 0.97f, 2);
+            PettingPose pressed = new PettingPose(1.055f, 0.90f, 2);
+            PettingPose rebound = new PettingPose(0.99f, 1.025f, -3);
 
-            if (progress <= 0.24f)
+            if (strokeProgress <= 0.40f)
             {
                 return InterpolatePose(resting, pressed,
-                    SmoothStep(progress / 0.24f));
+                    SmoothStep(strokeProgress / 0.40f));
             }
-            if (progress <= 0.50f)
+            if (strokeProgress <= 0.58f)
+            {
+                return pressed;
+            }
+            if (strokeProgress <= 0.82f)
             {
                 return InterpolatePose(pressed, rebound,
-                    SmoothStep((progress - 0.24f) / 0.26f));
+                    SmoothStep((strokeProgress - 0.58f) / 0.24f));
             }
-            if (progress <= 0.72f)
+            return InterpolatePose(rebound, resting,
+                SmoothStep((strokeProgress - 0.82f) / 0.18f));
+        }
+
+        private static float GetPettingStrokeProgress(float progress)
+        {
+            float clamped = Math.Max(0f, Math.Min(1f, progress));
+            if (clamped >= 1f)
             {
-                return InterpolatePose(rebound, settling,
-                    SmoothStep((progress - 0.50f) / 0.22f));
+                return 1f;
             }
-            return InterpolatePose(settling, resting,
-                SmoothStep((progress - 0.72f) / 0.28f));
+
+            float repeated = clamped * PettingStrokeCount;
+            return repeated - (float)Math.Floor(repeated);
         }
 
         private static PettingPose InterpolatePose(
@@ -588,28 +600,39 @@ namespace UsagePeek
             float progress)
         {
             float opacity;
-            float verticalOffset;
-            if (progress < 0.16f)
+            if (progress < 0.08f)
             {
-                float amount = SmoothStep(progress / 0.16f);
-                opacity = amount;
-                verticalOffset = -16f * (1f - amount);
-            }
-            else if (progress < 0.60f)
-            {
-                opacity = 1f;
-                verticalOffset = 0f;
+                opacity = SmoothStep(progress / 0.08f);
             }
             else if (progress < 0.88f)
             {
-                float amount = SmoothStep((progress - 0.60f) / 0.28f);
-                opacity = 1f - amount;
-                verticalOffset = -18f * amount;
+                opacity = 1f;
+            }
+            else if (progress < 1f)
+            {
+                opacity = 1f - SmoothStep((progress - 0.88f) / 0.12f);
             }
             else
             {
                 return;
             }
+
+            float strokeProgress = GetPettingStrokeProgress(progress);
+            float contactAmount;
+            if (strokeProgress <= 0.40f)
+            {
+                contactAmount = SmoothStep(strokeProgress / 0.40f);
+            }
+            else if (strokeProgress <= 0.58f)
+            {
+                contactAmount = 1f;
+            }
+            else
+            {
+                contactAmount = 1f - SmoothStep(
+                    (strokeProgress - 0.58f) / 0.42f);
+            }
+            float verticalOffset = -14f * (1f - contactAmount);
 
             int alpha = Math.Max(0, Math.Min(255,
                 (int)Math.Round(255f * opacity,

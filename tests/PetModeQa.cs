@@ -177,6 +177,38 @@ internal static class PetModeQa
                         "petting draws a hand over the character");
                 }
 
+                form.SetPettingProgressForTesting(0.15f);
+                using (Bitmap firstPress = form.RenderImageForTesting())
+                {
+                    form.SetPettingProgressForTesting(0.32f);
+                    using (Bitmap firstRelease = form.RenderImageForTesting())
+                    {
+                        Check(CountChangedPixels(firstPress, firstRelease) >
+                                1000,
+                            "petting smoothly releases after the first stroke");
+                    }
+                }
+
+                form.SetPettingProgressForTesting(0.48f);
+                using (Bitmap secondPress = form.RenderImageForTesting())
+                {
+                    form.SetPettingProgressForTesting(0.65f);
+                    using (Bitmap secondRelease = form.RenderImageForTesting())
+                    {
+                        Check(CountChangedPixels(secondPress, secondRelease) >
+                                1000,
+                            "petting continues into a second distinct stroke");
+                    }
+                }
+
+                form.SetPettingProgressForTesting(0.82f);
+                using (Bitmap thirdPress = form.RenderImageForTesting())
+                {
+                    Check(CountChangedPixels(idle, thirdPress) > 1000 &&
+                            CountAlphaIncreases(idle, thirdPress) > 80,
+                        "petting keeps the hand visible for a third stroke");
+                }
+
                 form.SetPettingProgressForTesting(null);
                 using (Bitmap restored = form.RenderImageForTesting())
                 {

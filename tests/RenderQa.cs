@@ -45,13 +45,13 @@ internal static class RenderQa
                     StringComparison.OrdinalIgnoreCase))
                 {
                     petForm.SetAppearance(PetAppearance.PhoebeChibi);
-                    petForm.SetPettingProgressForTesting(0.30f);
+                    petForm.SetPettingProgressForTesting(0.15f);
                 }
                 if (string.Equals(mode, "pet-rua-whale",
                     StringComparison.OrdinalIgnoreCase))
                 {
                     petForm.SetAppearance(PetAppearance.WhaleMaid);
-                    petForm.SetPettingProgressForTesting(0.30f);
+                    petForm.SetPettingProgressForTesting(0.15f);
                 }
                 petForm.SetUsage(new UsageSnapshot
                 {
