@@ -30,6 +30,7 @@ $mode = if ($args.Count -gt 1) { $args[1] } else { '' }
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'DisplayModeSettings.cs') `
     (Join-Path $root 'DiagnosticsSnapshot.cs') `
+    (Join-Path $root 'ExecutableIntegrity.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `
     (Join-Path $root 'DpiAwareForm.cs') `
     (Join-Path $root 'UiControls.cs') `

@@ -22,7 +22,7 @@ namespace UsagePeek
             {
                 client.Encoding = System.Text.Encoding.UTF8;
                 client.Headers[HttpRequestHeader.UserAgent] =
-                    "UsagePeek/1.1.2 (+https://frankfurter.dev/)";
+                    "UsagePeek/1.2.0 (+https://frankfurter.dev/)";
                 json = await client.DownloadStringTaskAsync(new Uri(Endpoint));
             }
 

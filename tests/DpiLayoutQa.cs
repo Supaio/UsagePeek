@@ -145,7 +145,7 @@ internal static class DpiLayoutQa
         using (AboutForm form = new AboutForm())
         {
             Size designSize = form.ClientSize;
-            AssertEqual(new Size(390, 348), designSize,
+            AssertEqual(new Size(390, 370), designSize,
                 "about form uses the expected design size");
             AssertEqual("产品构思、用量展示与交互思路",
                 AboutForm.OpenUsageCredit,
@@ -155,7 +155,7 @@ internal static class DpiLayoutQa
                 "about form credits the character artist");
 
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(585, 522), form.ClientSize,
+            AssertEqual(new Size(585, 555), form.ClientSize,
                 "about form scales to 150 percent");
 
             form.ApplyDpiForTesting(96);
@@ -179,7 +179,7 @@ internal static class DpiLayoutQa
             return new DiagnosticsSnapshot
             {
                 GeneratedAtUtc = DateTime.UtcNow,
-                AppVersion = "v1.1.2",
+                AppVersion = "v1.2.0",
                 OperatingSystem = "Windows QA",
                 ProcessArchitecture = "64 位",
                 DisplayCount = 1,

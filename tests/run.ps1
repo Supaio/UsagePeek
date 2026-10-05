@@ -52,6 +52,11 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& (Join-Path $PSScriptRoot 'run-update-rollback.ps1')
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 & (Join-Path $PSScriptRoot 'run-settings-diagnostics.ps1')
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

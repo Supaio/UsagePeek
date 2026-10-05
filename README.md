@@ -24,6 +24,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 下载单文件版，也可以[直接下载最新版 UsagePeek.exe](https://github.com/Supaio/UsagePeek/releases/latest/download/UsagePeek.exe)。
 无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
 点击“修复连接”即可获取官方 Codex CLI 运行组件。
+Release 页面同时提供 SHA-256，程序“关于”页可查看并复制当前 EXE 的哈希。
 
 ## 当前功能
 
@@ -67,9 +68,12 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 - 托盘菜单可开关“开机自启”；经典模式自启时只驻留托盘，桌宠模式则恢复
   上次保存的桌宠位置，不主动弹出详情面板。
 - 托盘菜单支持联网检查更新，下载后先校验 SHA-256，再由独立更新进程
-  替换并重启程序。
+  备份、替换并重启程序；只有新版本完成启动确认后才清理备份，启动失败或
+  超时会自动恢复旧 EXE，并在托盘提示已经回滚。
 - 托盘菜单的“关于 UsagePeek”会显示版本信息与项目鸣谢：感谢 OpenUsage
   提供产品构思、用量展示与交互思路，鲸鱼娘形象鸣谢 **ZipZipPipe**。
+- “关于 UsagePeek”显示当前 EXE 的 SHA-256 摘要并可一键复制完整值；脱敏
+  诊断报告也包含完整 SHA-256，方便与 Release 附件核对。
 - 如果只检测到受 Windows 保护的桌面版组件，离线界面会显示“修复连接”。
   用户确认后，程序从 OpenAI 官方地址获取 Windows Codex CLI 安装器，安装到
   当前用户目录并自动重试，不要求 Node.js、PATH 配置或管理员权限。
@@ -191,15 +195,23 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```json
 {
-  "version": "1.1.2",
+  "version": "1.2.0",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"
 }
 ```
 
-发布新版本时可用
-`(Get-FileHash .\bin\UsagePeek.exe -Algorithm SHA256).Hash` 生成校验值。配置后，
+发布新版本时，先构建 `dist\UsagePeek.exe`，再计算最终文件的 SHA-256：
+
+```powershell
+(Get-FileHash .\dist\UsagePeek.exe -Algorithm SHA256).Hash
+```
+
+把该值写入 `update.json`。Release 工作流会拒绝版本或哈希不一致的 EXE，并
+额外发布 `SHA256SUMS.txt`。
+
+配置后，
 程序每次启动会静默检查一次，也可从托盘菜单手动检查；发现新版本后仍会先询问，
 不会静默安装。当前程序所在目录必须可写，建议放在个人目录而不是 Program Files。
 

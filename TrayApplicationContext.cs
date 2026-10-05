@@ -175,6 +175,13 @@ namespace UsagePeek
             {
                 form.ShowNearTray();
             }
+
+            if (updateService.TryConsumeRollbackNotice())
+            {
+                trayIcon.ShowBalloonTip(8000, "UsagePeek · 更新已回滚",
+                    "新版本未能正常启动，已自动恢复旧版本。",
+                    ToolTipIcon.Warning);
+            }
         }
 
         private async Task RefreshAsync()
@@ -641,6 +648,16 @@ namespace UsagePeek
                 ? "64 位"
                 : "32 位";
             diagnostics.ExecutablePath = Application.ExecutablePath;
+            try
+            {
+                diagnostics.ExecutableSha256 =
+                    ExecutableIntegrity.ComputeSha256(
+                        Application.ExecutablePath);
+            }
+            catch
+            {
+                diagnostics.ExecutableSha256 = null;
+            }
             diagnostics.DisplayCount = Screen.AllScreens.Length;
             diagnostics.CurrentDpi = petForm.Visible
                 ? petForm.CurrentDpi

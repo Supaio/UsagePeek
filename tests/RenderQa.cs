@@ -234,10 +234,13 @@ internal static class RenderQa
         return new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.1.2",
+            AppVersion = "v1.2.0",
             OperatingSystem = "Microsoft Windows 11",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Users\Tester\Apps\UsagePeek.exe",
+            ExecutableSha256 =
+                "0123456789ABCDEF0123456789ABCDEF" +
+                "0123456789ABCDEF0123456789ABCDEF",
             DisplayCount = 2,
             CurrentDpi = 144,
             DisplayMode = "桌宠模式",

@@ -17,6 +17,8 @@ namespace UsagePeek
         internal const string CharacterCredit =
             "鲸鱼娘形象 · ZipZipPipe";
 
+        internal string ExecutableSha256 { get; private set; }
+
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
 
@@ -32,7 +34,7 @@ namespace UsagePeek
                 ControlStyles.UserPaint, true);
 
             Text = "关于 UsagePeek";
-            ClientSize = new Size(390, 348);
+            ClientSize = new Size(390, 370);
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
@@ -64,17 +66,44 @@ namespace UsagePeek
                 "版本 " + ReadVersion(), new Point(20, 78),
                 new Size(350, 22), 8.4f, FontStyle.Bold,
                 Color.FromArgb(45, 212, 191));
+            try
+            {
+                ExecutableSha256 = ExecutableIntegrity.ComputeSha256(
+                    Application.ExecutablePath);
+            }
+            catch
+            {
+                ExecutableSha256 = null;
+            }
+            LinkLabel hashLabel = new LinkLabel();
+            hashLabel.AutoSize = false;
+            hashLabel.BackColor = Color.Transparent;
+            hashLabel.Font = new Font("Consolas", 7.8f, FontStyle.Regular);
+            hashLabel.LinkBehavior = LinkBehavior.HoverUnderline;
+            hashLabel.LinkColor = Color.FromArgb(117, 159, 202);
+            hashLabel.ActiveLinkColor = Color.FromArgb(155, 209, 239);
+            hashLabel.Location = new Point(20, 100);
+            hashLabel.Size = new Size(350, 22);
+            hashLabel.Text = "SHA-256  " +
+                ExecutableIntegrity.FormatShortHash(ExecutableSha256) +
+                (ExecutableSha256 == null ? string.Empty : "  · 复制");
+            hashLabel.TextAlign = ContentAlignment.MiddleLeft;
+            hashLabel.Enabled = ExecutableSha256 != null;
+            hashLabel.LinkClicked += delegate
+            {
+                CopySha256();
+            };
             Label descriptionLabel = CreateLabel(
                 "轻量、只读的 Windows 用量查看器。不会上传本机会话内容。",
-                new Point(20, 101), new Size(350, 38),
+                new Point(20, 123), new Size(350, 38),
                 8.1f, FontStyle.Regular, Color.FromArgb(150, 169, 193));
 
             Label creditsLabel = CreateLabel(
-                "特别鸣谢", new Point(20, 143), new Size(350, 24),
+                "特别鸣谢", new Point(20, 165), new Size(350, 24),
                 9.5f, FontStyle.Bold, ForeColor);
 
             Panel openUsageCard = CreateCreditCard(
-                new Point(20, 174), Color.FromArgb(45, 212, 191));
+                new Point(20, 196), Color.FromArgb(45, 212, 191));
             LinkLabel openUsageName = new LinkLabel();
             openUsageName.AutoSize = false;
             openUsageName.BackColor = Color.Transparent;
@@ -97,7 +126,7 @@ namespace UsagePeek
             openUsageCard.Controls.Add(openUsageDescription);
 
             Panel characterCard = CreateCreditCard(
-                new Point(20, 240), Color.FromArgb(251, 113, 133));
+                new Point(20, 262), Color.FromArgb(251, 113, 133));
             Label characterName = CreateLabel(
                 "ZipZipPipe", new Point(16, 8), new Size(320, 24),
                 9.2f, FontStyle.Bold, Color.FromArgb(255, 160, 179));
@@ -109,7 +138,7 @@ namespace UsagePeek
 
             Label footerLabel = CreateLabel(
                 "独立社区实现 · 感谢每一位测试和反馈的朋友",
-                new Point(20, 312), new Size(350, 20),
+                new Point(20, 334), new Size(350, 20),
                 7.4f, FontStyle.Regular, Color.FromArgb(88, 106, 128));
             footerLabel.TextAlign = ContentAlignment.MiddleCenter;
 
@@ -118,6 +147,7 @@ namespace UsagePeek
             Controls.Add(subtitleLabel);
             Controls.Add(closeButton);
             Controls.Add(versionLabel);
+            Controls.Add(hashLabel);
             Controls.Add(descriptionLabel);
             Controls.Add(creditsLabel);
             Controls.Add(openUsageCard);
@@ -214,6 +244,25 @@ namespace UsagePeek
             catch (Exception ex)
             {
                 MessageBox.Show("无法打开链接：" + ex.Message,
+                    "UsagePeek", MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private void CopySha256()
+        {
+            if (ExecutableSha256 == null)
+            {
+                return;
+            }
+
+            try
+            {
+                Clipboard.SetText(ExecutableSha256);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("无法复制 SHA-256：" + ex.Message,
                     "UsagePeek", MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
             }

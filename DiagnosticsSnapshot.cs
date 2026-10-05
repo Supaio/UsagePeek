@@ -11,6 +11,7 @@ namespace UsagePeek
         public string OperatingSystem { get; set; }
         public string ProcessArchitecture { get; set; }
         public string ExecutablePath { get; set; }
+        public string ExecutableSha256 { get; set; }
         public int DisplayCount { get; set; }
         public int CurrentDpi { get; set; }
         public string DisplayMode { get; set; }
@@ -45,6 +46,7 @@ namespace UsagePeek
             text.AppendLine("显示器 / DPI: " + DisplayCount + " / " +
                 CurrentDpi);
             text.AppendLine("程序路径: " + RedactPath(ExecutablePath));
+            text.AppendLine("EXE SHA-256: " + SafeSha256(ExecutableSha256));
             text.AppendLine("开机自启: " + YesNo(StartupEnabled));
             text.AppendLine("在线更新: " +
                 (UpdateConfigured ? "已配置" : "未配置"));
@@ -156,6 +158,22 @@ namespace UsagePeek
         private static string Safe(string value)
         {
             return string.IsNullOrWhiteSpace(value) ? "--" : value.Trim();
+        }
+
+        private static string SafeSha256(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length != 64)
+            {
+                return "--";
+            }
+            foreach (char character in value)
+            {
+                if (!Uri.IsHexDigit(character))
+                {
+                    return "--";
+                }
+            }
+            return value.ToUpperInvariant();
         }
 
         private static string SafeError(string value)

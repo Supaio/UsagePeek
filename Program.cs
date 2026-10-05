@@ -5,8 +5,8 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("UsagePeek")]
 [assembly: AssemblyProduct("UsagePeek")]
-[assembly: AssemblyVersion("1.1.2.0")]
-[assembly: AssemblyFileVersion("1.1.2.0")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
 
 namespace UsagePeek
 {
@@ -40,8 +40,23 @@ namespace UsagePeek
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new TrayApplicationContext(
-                    startHidden, activationEvent));
+                TrayApplicationContext context =
+                    new TrayApplicationContext(startHidden, activationEvent);
+                EventHandler confirmStartup = null;
+                confirmStartup = delegate
+                {
+                    Application.Idle -= confirmStartup;
+                    SelfUpdateRunner.ConfirmStartup(args);
+                };
+                Application.Idle += confirmStartup;
+                try
+                {
+                    Application.Run(context);
+                }
+                finally
+                {
+                    Application.Idle -= confirmStartup;
+                }
                 GC.KeepAlive(mutex);
             }
         }

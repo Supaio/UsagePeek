@@ -22,6 +22,7 @@ $output = Join-Path $outputDirectory 'DpiLayoutQa.exe'
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'DisplayModeSettings.cs') `
     (Join-Path $root 'DiagnosticsSnapshot.cs') `
+    (Join-Path $root 'ExecutableIntegrity.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `
     (Join-Path $root 'DpiAwareForm.cs') `
     (Join-Path $root 'UiControls.cs') `

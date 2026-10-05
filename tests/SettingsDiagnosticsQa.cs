@@ -51,6 +51,8 @@ internal static class SettingsDiagnosticsQa
             "private folders below the user profile are absent");
         Check(report.Contains(@"F:\…\codex.exe"),
             "external absolute path is collapsed");
+        Check(report.Contains(snapshot.ExecutableSha256),
+            "report includes the executable SHA-256");
         Check(!report.Contains("PrivateOwner") &&
             !report.Contains("SecretFolder"),
             "external directory names are absent");
@@ -159,10 +161,13 @@ internal static class SettingsDiagnosticsQa
         return new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.1.2",
+            AppVersion = "v1.2.0",
             OperatingSystem = "Windows QA",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Program Files\UsagePeek\UsagePeek.exe",
+            ExecutableSha256 =
+                "0123456789ABCDEF0123456789ABCDEF" +
+                "0123456789ABCDEF0123456789ABCDEF",
             DisplayCount = 2,
             CurrentDpi = 144,
             DisplayMode = "桌宠模式",

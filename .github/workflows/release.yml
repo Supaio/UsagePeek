@@ -36,6 +36,9 @@ jobs:
             throw "dist/UsagePeek.exe does not match update.json SHA-256."
           }
 
+          "$actualHash  UsagePeek.exe" | Set-Content `
+            -Path dist/SHA256SUMS.txt -Encoding ascii
+
           "sha256=$actualHash" >> $env:GITHUB_OUTPUT
 
       - name: Create GitHub Release
@@ -58,6 +61,8 @@ jobs:
           - 统计今天、昨天、近 30 天及本机累计 Token，并估算 API 等价费用。
           - 支持经典面板及鲸鱼娘、菲比啾比两种桌宠外形，可自定义大小与已用/剩余显示，并支持 classic petpet 摸头互动。
           - 支持美元与人民币换算、开机自启、在线更新和 Codex CLI 一键修复。
+          - 更新失败或新版本无法正常启动时会自动恢复旧版本。
+          - “关于 UsagePeek”和诊断报告可查看当前 EXE 的 SHA-256。
           - “关于 UsagePeek”中展示版本信息与项目鸣谢。
           - 单文件运行，无需安装 UsagePeek 本体。
 
@@ -76,6 +81,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:GITHUB_REF_NAME `
               "dist/UsagePeek.exe#UsagePeek.exe" `
+              "dist/SHA256SUMS.txt#SHA256SUMS.txt" `
               --repo $env:GITHUB_REPOSITORY `
               --clobber
             gh release edit $env:GITHUB_REF_NAME `
@@ -86,6 +92,7 @@ jobs:
           else {
             gh release create $env:GITHUB_REF_NAME `
               "dist/UsagePeek.exe#UsagePeek.exe" `
+              "dist/SHA256SUMS.txt#SHA256SUMS.txt" `
               --repo $env:GITHUB_REPOSITORY `
               --title "UsagePeek $env:GITHUB_REF_NAME" `
               --notes-file $notesPath `

@@ -1,6 +1,6 @@
 {
-  "version": "1.1.2",
-  "url": "https://raw.githubusercontent.com/Supaio/UsagePeek/main/dist/UsagePeek.exe",
-  "sha256": "8D21C7A33609C5B424643C3E9137C3B8E293FD622150D7909A9BF924A180B756",
-  "notes": "v1.1.2：修复 UsagePeek 已在后台运行时，再次双击 EXE 看起来没有反应的问题；重复启动现在会唤醒现有实例并打开用量详情。保留 v1.1.1 的 classic petpet 摸头动画。"
+  "version": "1.2.0",
+  "url": "https://github.com/Supaio/UsagePeek/releases/download/v1.2.0/UsagePeek.exe",
+  "sha256": "56E15C3561AA8D9DB298742EFE43D8871F65F10F1BCDB3EBBEEBBA09B681024D",
+  "notes": "v1.2.0：新增集中设置与诊断、桌宠额度状态表情和 EXE SHA-256 展示；自动更新采用启动确认和失败回滚，避免更新失败后无法启动。"
 }
