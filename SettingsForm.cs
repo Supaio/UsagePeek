@@ -73,6 +73,7 @@ namespace UsagePeek
             BackColor = Color.FromArgb(9, 14, 22);
             ForeColor = Color.FromArgb(233, 239, 247);
             TopMost = true;
+            KeyPreview = true;
             AutoScaleMode = AutoScaleMode.None;
 
             BrandMarkControl brandMark = new BrandMarkControl();
@@ -183,16 +184,9 @@ namespace UsagePeek
             settingsPage.Controls.Add(startupCard);
 
             autoSaveStatusLabel = CreateLabel("●  更改会自动保存",
-                new Point(0, 304), new Size(270, 32), 7.4f,
+                new Point(0, 304), new Size(382, 32), 7.4f,
                 FontStyle.Bold, Color.FromArgb(94, 234, 212));
-            Button doneButton = CreateActionButton("关闭", true);
-            doneButton.Location = new Point(282, 304);
-            doneButton.Size = new Size(100, 32);
-            doneButton.DialogResult = DialogResult.Cancel;
             settingsPage.Controls.Add(autoSaveStatusLabel);
-            settingsPage.Controls.Add(doneButton);
-            AcceptButton = doneButton;
-            CancelButton = doneButton;
 
             diagnosticsPage = new Panel();
             diagnosticsPage.BackColor = Color.Transparent;
@@ -284,6 +278,14 @@ namespace UsagePeek
             titleLabel.MouseDown += DragWindow;
             subtitleLabel.MouseDown += DragWindow;
             Resize += delegate { UpdateRoundedRegion(); };
+            KeyDown += delegate(object sender, KeyEventArgs args)
+            {
+                if (args.KeyCode == Keys.Escape)
+                {
+                    args.SuppressKeyPress = true;
+                    Close();
+                }
+            };
             displayModeInput.SelectedIndexChanged += delegate
             {
                 RaiseSettingsChanged();
