@@ -81,6 +81,8 @@ internal static class SettingsDiagnosticsQa
         using (SettingsForm form = new SettingsForm(initial,
             CreateDiagnostics))
         {
+            int settingsChanges = 0;
+            form.SettingsChanged += delegate { settingsChanges++; };
             SettingsSelection selected = form.Selection;
             Check(selected.DisplayMode == UsageDisplayMode.Classic,
                 "settings keeps classic mode");
@@ -93,6 +95,15 @@ internal static class SettingsDiagnosticsQa
                 "settings keeps custom pet scale");
             Check(selected.StartupEnabled,
                 "settings keeps startup choice");
+
+            form.SelectDisplayModeForTesting(UsageDisplayMode.Pet);
+            Check(settingsChanges == 1 &&
+                    form.Selection.DisplayMode == UsageDisplayMode.Pet,
+                "changing an option immediately raises an apply request");
+            form.SetSelection(initial);
+            Check(settingsChanges == 1 &&
+                    form.Selection.DisplayMode == UsageDisplayMode.Classic,
+                "restoring a failed choice does not raise another request");
 
             form.ShowDiagnosticsForTesting();
             Check(form.DiagnosticsTextForTesting.Contains(

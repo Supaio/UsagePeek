@@ -476,19 +476,15 @@ namespace UsagePeek
 
         private void ShowSettingsDialog()
         {
-            SettingsSelection initial = new SettingsSelection
-            {
-                DisplayMode = displayPreference.GetDisplayMode(),
-                PetAppearance = displayPreference.GetPetAppearance(),
-                PetUsageDisplayMode =
-                    displayPreference.GetPetUsageDisplayMode(),
-                PetScalePercent = displayPreference.GetPetScalePercent(),
-                StartupEnabled = startupManager.IsEnabled()
-            };
+            SettingsSelection initial = ReadSettingsSelection();
 
             using (SettingsForm dialog = new SettingsForm(
                 initial, BuildDiagnosticsSnapshot))
             {
+                dialog.SettingsChanged += delegate
+                {
+                    ApplySettingsChange(dialog);
+                };
                 dialog.ConnectionTestRequested += async delegate
                 {
                     dialog.SetConnectionTestBusy(true);
@@ -509,12 +505,47 @@ namespace UsagePeek
                     }
                 };
                 dialog.PlaceNearCursor();
-                if (dialog.ShowDialog() != DialogResult.OK)
-                {
-                    return;
-                }
+                dialog.ShowDialog();
+            }
+        }
 
-                SettingsSelection selected = dialog.Selection;
+        private SettingsSelection ReadSettingsSelection()
+        {
+            return new SettingsSelection
+            {
+                DisplayMode = displayPreference.GetDisplayMode(),
+                PetAppearance = displayPreference.GetPetAppearance(),
+                PetUsageDisplayMode =
+                    displayPreference.GetPetUsageDisplayMode(),
+                PetScalePercent = displayPreference.GetPetScalePercent(),
+                StartupEnabled = startupManager.IsEnabled()
+            };
+        }
+
+        private void ApplySettingsChange(SettingsForm dialog)
+        {
+            SettingsSelection previous = ReadSettingsSelection();
+            SettingsSelection selected = dialog.Selection;
+            bool modeChanged = selected.DisplayMode != previous.DisplayMode;
+            bool appearanceChanged =
+                selected.PetAppearance != previous.PetAppearance;
+            bool usageModeChanged = selected.PetUsageDisplayMode !=
+                previous.PetUsageDisplayMode;
+            bool scaleChanged = selected.PetScalePercent !=
+                previous.PetScalePercent;
+            bool startupChanged = selected.StartupEnabled !=
+                previous.StartupEnabled;
+            bool displayChanged = modeChanged || appearanceChanged ||
+                usageModeChanged || scaleChanged;
+
+            if (!displayChanged && !startupChanged)
+            {
+                dialog.SetApplyResult(true);
+                return;
+            }
+
+            if (displayChanged)
+            {
                 displayPreference.SetDisplayMode(selected.DisplayMode);
                 displayPreference.SetPetAppearance(selected.PetAppearance);
                 displayPreference.SetPetUsageDisplayMode(
@@ -523,38 +554,69 @@ namespace UsagePeek
                     selected.PetScalePercent);
                 if (!displayModeSettings.TrySave(displayPreference))
                 {
-                    RestoreDisplayPreference(initial);
+                    RestoreDisplayPreference(previous);
+                    dialog.SetSelection(previous);
+                    dialog.SetApplyResult(false);
                     MessageBox.Show(
-                        "无法保存设置，请检查本机数据目录的写入权限。",
+                        "无法自动保存设置，请检查本机数据目录的写入权限。",
                         "UsagePeek", MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                     return;
                 }
+            }
 
-                try
+            try
+            {
+                if (startupChanged)
                 {
-                    if (selected.StartupEnabled != startupManager.IsEnabled())
+                    startupManager.SetEnabled(selected.StartupEnabled);
+                    if (startupManager.IsEnabled() !=
+                        selected.StartupEnabled)
                     {
-                        startupManager.SetEnabled(selected.StartupEnabled);
+                        throw new InvalidOperationException(
+                            "启动项状态未能更新。");
                     }
                 }
-                catch (Exception ex)
-                {
-                    RestoreDisplayPreference(initial);
-                    displayModeSettings.Save(displayPreference);
-                    MessageBox.Show("无法修改开机自启：" + ex.Message,
-                        "UsagePeek", MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
-                    return;
-                }
-
-                SetPetAppearance(selected.PetAppearance);
-                SetPetUsageDisplayMode(selected.PetUsageDisplayMode);
-                SetPetScalePercent(selected.PetScalePercent);
-                SetDisplayMode(selected.DisplayMode);
-                trayIcon.ShowBalloonTip(2200, "UsagePeek",
-                    "设置已保存并应用。", ToolTipIcon.Info);
             }
+            catch (Exception ex)
+            {
+                if (displayChanged)
+                {
+                    RestoreDisplayPreference(previous);
+                    displayModeSettings.Save(displayPreference);
+                }
+                try
+                {
+                    startupManager.SetEnabled(previous.StartupEnabled);
+                }
+                catch
+                {
+                }
+                dialog.SetSelection(previous);
+                dialog.SetApplyResult(false);
+                MessageBox.Show("无法修改开机自启：" + ex.Message,
+                    "UsagePeek", MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (appearanceChanged)
+            {
+                SetPetAppearance(selected.PetAppearance);
+            }
+            if (usageModeChanged)
+            {
+                SetPetUsageDisplayMode(selected.PetUsageDisplayMode);
+            }
+            if (scaleChanged)
+            {
+                SetPetScalePercent(selected.PetScalePercent);
+            }
+            if (modeChanged)
+            {
+                SetDisplayMode(selected.DisplayMode);
+            }
+            dialog.SetApplyResult(true);
         }
 
         private void RestoreDisplayPreference(SettingsSelection previous)

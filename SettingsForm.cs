@@ -32,9 +32,11 @@ namespace UsagePeek
         private readonly TextBox diagnosticsText;
         private readonly Label diagnosticsHeadlineLabel;
         private readonly Label diagnosticsStatusLabel;
+        private readonly Label autoSaveStatusLabel;
         private readonly Button testConnectionButton;
         private readonly Func<DiagnosticsSnapshot> diagnosticsProvider;
         private bool diagnosticsPageSelected;
+        private bool suppressSettingsChanged;
 
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
@@ -44,6 +46,7 @@ namespace UsagePeek
             IntPtr handle, int message, IntPtr wParam, IntPtr lParam);
 
         public event EventHandler ConnectionTestRequested;
+        public event EventHandler SettingsChanged;
 
         public SettingsForm(
             SettingsSelection initial,
@@ -111,7 +114,7 @@ namespace UsagePeek
                 new Point(0, 0), new Size(382, 28), 12f,
                 FontStyle.Bold, ForeColor);
             Label settingsHint = CreateLabel(
-                "修改会在保存后立即生效，原有用量数据不会受影响。",
+                "切换后立即生效并自动保存，原有用量数据不会受影响。",
                 new Point(0, 27), new Size(382, 20), 7.6f,
                 FontStyle.Regular, Color.FromArgb(121, 139, 162));
             settingsPage.Controls.Add(settingsTitle);
@@ -179,18 +182,17 @@ namespace UsagePeek
             startupCard.Controls.Add(startupInput);
             settingsPage.Controls.Add(startupCard);
 
-            Button cancelButton = CreateActionButton("取消", false);
-            cancelButton.Location = new Point(190, 304);
-            cancelButton.Size = new Size(88, 32);
-            cancelButton.DialogResult = DialogResult.Cancel;
-            Button saveButton = CreateActionButton("保存并应用", true);
-            saveButton.Location = new Point(282, 304);
-            saveButton.Size = new Size(100, 32);
-            saveButton.DialogResult = DialogResult.OK;
-            settingsPage.Controls.Add(cancelButton);
-            settingsPage.Controls.Add(saveButton);
-            AcceptButton = saveButton;
-            CancelButton = cancelButton;
+            autoSaveStatusLabel = CreateLabel("●  更改会自动保存",
+                new Point(0, 304), new Size(270, 32), 7.4f,
+                FontStyle.Bold, Color.FromArgb(94, 234, 212));
+            Button doneButton = CreateActionButton("关闭", true);
+            doneButton.Location = new Point(282, 304);
+            doneButton.Size = new Size(100, 32);
+            doneButton.DialogResult = DialogResult.Cancel;
+            settingsPage.Controls.Add(autoSaveStatusLabel);
+            settingsPage.Controls.Add(doneButton);
+            AcceptButton = doneButton;
+            CancelButton = doneButton;
 
             diagnosticsPage = new Panel();
             diagnosticsPage.BackColor = Color.Transparent;
@@ -282,6 +284,23 @@ namespace UsagePeek
             titleLabel.MouseDown += DragWindow;
             subtitleLabel.MouseDown += DragWindow;
             Resize += delegate { UpdateRoundedRegion(); };
+            displayModeInput.SelectedIndexChanged += delegate
+            {
+                RaiseSettingsChanged();
+            };
+            appearanceInput.SelectedIndexChanged += delegate
+            {
+                RaiseSettingsChanged();
+            };
+            usageModeInput.SelectedIndexChanged += delegate
+            {
+                RaiseSettingsChanged();
+            };
+            scaleInput.ValueChanged += delegate { RaiseSettingsChanged(); };
+            startupInput.CheckedChanged += delegate
+            {
+                RaiseSettingsChanged();
+            };
             ShowPage(false);
             UpdateRoundedRegion();
             InitializeDpiLayout();
@@ -321,6 +340,50 @@ namespace UsagePeek
         internal void ShowDiagnosticsForTesting()
         {
             ShowPage(true);
+        }
+
+        internal void SelectDisplayModeForTesting(UsageDisplayMode mode)
+        {
+            displayModeInput.SelectedIndex = mode == UsageDisplayMode.Pet
+                ? 1
+                : 0;
+        }
+
+        public void SetSelection(SettingsSelection value)
+        {
+            if (value == null)
+            {
+                return;
+            }
+
+            suppressSettingsChanged = true;
+            try
+            {
+                displayModeInput.SelectedIndex = value.DisplayMode ==
+                    UsageDisplayMode.Pet ? 1 : 0;
+                appearanceInput.SelectedIndex = value.PetAppearance ==
+                    PetAppearance.PhoebeChibi ? 1 : 0;
+                usageModeInput.SelectedIndex = value.PetUsageDisplayMode ==
+                    PetUsageDisplayMode.Remaining ? 1 : 0;
+                scaleInput.Value = Math.Max((int)scaleInput.Minimum,
+                    Math.Min((int)scaleInput.Maximum,
+                        value.PetScalePercent));
+                startupInput.Checked = value.StartupEnabled;
+            }
+            finally
+            {
+                suppressSettingsChanged = false;
+            }
+        }
+
+        public void SetApplyResult(bool success)
+        {
+            autoSaveStatusLabel.Text = success
+                ? "●  已自动保存"
+                : "●  保存失败，已恢复";
+            autoSaveStatusLabel.ForeColor = success
+                ? Color.FromArgb(94, 234, 212)
+                : Color.FromArgb(251, 113, 133);
         }
 
         public void PlaceNearCursor()
@@ -415,6 +478,22 @@ namespace UsagePeek
             if (diagnostics)
             {
                 RefreshDiagnostics();
+            }
+        }
+
+        private void RaiseSettingsChanged()
+        {
+            if (suppressSettingsChanged)
+            {
+                return;
+            }
+
+            autoSaveStatusLabel.Text = "●  正在应用…";
+            autoSaveStatusLabel.ForeColor = Color.FromArgb(251, 191, 36);
+            EventHandler handler = SettingsChanged;
+            if (handler != null)
+            {
+                handler(this, EventArgs.Empty);
             }
         }
 
