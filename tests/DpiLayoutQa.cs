@@ -35,6 +35,12 @@ internal static class DpiLayoutQa
     {
         using (MainForm form = new MainForm())
         {
+            int settingsRequests = 0;
+            form.SettingsRequested += delegate { settingsRequests++; };
+            form.RequestSettingsForTesting();
+            AssertEqual(1, settingsRequests,
+                "main form exposes the centralized settings action");
+
             form.ApplyDpiForTesting(144);
             AssertEqual(new Size(642, 1062), form.ClientSize,
                 "main form scales to 150 percent");

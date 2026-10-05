@@ -20,6 +20,7 @@ namespace UsagePeek
         private readonly GlyphButtonControl currencyButton;
         private readonly GlyphButtonControl repairButton;
         private readonly GlyphButtonControl modelUsageButton;
+        private readonly GlyphButtonControl settingsButton;
         private readonly UsageCardControl primaryCard;
         private readonly UsageCardControl secondaryCard;
         private readonly Timer countdownTimer;
@@ -29,6 +30,7 @@ namespace UsagePeek
         public event EventHandler CurrencyToggleRequested;
         public event EventHandler RepairRequested;
         public event EventHandler ModelUsageRequested;
+        public event EventHandler SettingsRequested;
 
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
@@ -86,7 +88,7 @@ namespace UsagePeek
             closeButton.Click += delegate { Hide(); };
 
             GlyphButtonControl statusButton = new GlyphButtonControl("系统状态  ↗", false);
-            statusButton.Size = new Size(108, 31);
+            statusButton.Size = new Size(88, 31);
             statusButton.Location = new Point(20, 72);
             statusButton.Click += delegate
             {
@@ -94,16 +96,16 @@ namespace UsagePeek
             };
 
             GlyphButtonControl dashboardButton = new GlyphButtonControl("用量面板  ↗", false);
-            dashboardButton.Size = new Size(122, 31);
-            dashboardButton.Location = new Point(136, 72);
+            dashboardButton.Size = new Size(96, 31);
+            dashboardButton.Location = new Point(116, 72);
             dashboardButton.Click += delegate
             {
                 OpenUrl("https://chatgpt.com/codex/settings/usage");
             };
 
             currencyButton = new GlyphButtonControl("$ USD  ·  换算", false);
-            currencyButton.Size = new Size(142, 31);
-            currencyButton.Location = new Point(266, 72);
+            currencyButton.Size = new Size(118, 31);
+            currencyButton.Location = new Point(220, 72);
             currencyButton.Click += delegate
             {
                 EventHandler handler = CurrencyToggleRequested;
@@ -112,6 +114,11 @@ namespace UsagePeek
                     handler(this, EventArgs.Empty);
                 }
             };
+
+            settingsButton = new GlyphButtonControl("⚙ 设置", false);
+            settingsButton.Size = new Size(62, 31);
+            settingsButton.Location = new Point(346, 72);
+            settingsButton.Click += delegate { RequestSettings(); };
 
             statusBanner = new StatusBannerControl();
             statusBanner.Size = new Size(388, 52);
@@ -187,6 +194,7 @@ namespace UsagePeek
             Controls.Add(statusButton);
             Controls.Add(dashboardButton);
             Controls.Add(currencyButton);
+            Controls.Add(settingsButton);
             Controls.Add(statusBanner);
             Controls.Add(primaryCard);
             Controls.Add(secondaryCard);
@@ -222,6 +230,20 @@ namespace UsagePeek
             };
             UpdateRoundedRegion();
             InitializeDpiLayout();
+        }
+
+        internal void RequestSettingsForTesting()
+        {
+            RequestSettings();
+        }
+
+        private void RequestSettings()
+        {
+            EventHandler handler = SettingsRequested;
+            if (handler != null)
+            {
+                handler(this, EventArgs.Empty);
+            }
         }
 
         protected override CreateParams CreateParams

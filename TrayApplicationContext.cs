@@ -24,18 +24,6 @@ namespace UsagePeek
         private readonly MainForm form;
         private readonly PetForm petForm;
         private readonly ContextMenuStrip menu;
-        private readonly ToolStripMenuItem classicModeItem;
-        private readonly ToolStripMenuItem petModeItem;
-        private readonly ToolStripMenuItem whaleAppearanceItem;
-        private readonly ToolStripMenuItem phoebeAppearanceItem;
-        private readonly ToolStripMenuItem usedUsageItem;
-        private readonly ToolStripMenuItem remainingUsageItem;
-        private readonly ToolStripMenuItem petSizeMenuItem;
-        private readonly ToolStripMenuItem petSize75Item;
-        private readonly ToolStripMenuItem petSize100Item;
-        private readonly ToolStripMenuItem petSize125Item;
-        private readonly ToolStripMenuItem customPetSizeItem;
-        private readonly ToolStripMenuItem startupItem;
         private readonly NotifyIcon trayIcon;
         private readonly TaskbarCreatedListener taskbarCreatedListener;
         private readonly Timer refreshTimer;
@@ -78,6 +66,7 @@ namespace UsagePeek
             form.CurrencyToggleRequested += async delegate { await ToggleCurrencyAsync(); };
             form.RepairRequested += async delegate { await RepairCodexAsync(); };
             form.ModelUsageRequested += delegate { ShowModelUsage(); };
+            form.SettingsRequested += delegate { ShowSettings(); };
             form.SetCurrencyState(currencyState);
             form.FormClosed += delegate { ExitApplication(); };
             petForm.DetailsRequested += delegate { ShowDetails(); };
@@ -98,100 +87,6 @@ namespace UsagePeek
             ToolStripMenuItem settingsItem =
                 new ToolStripMenuItem("设置与诊断…");
             settingsItem.Click += delegate { ShowSettings(); };
-            ToolStripMenuItem displayModeItem =
-                new ToolStripMenuItem("显示模式");
-            classicModeItem = new ToolStripMenuItem("经典面板（一页看完）");
-            classicModeItem.CheckOnClick = false;
-            classicModeItem.Click += delegate
-            {
-                SetDisplayMode(UsageDisplayMode.Classic);
-            };
-            petModeItem = new ToolStripMenuItem("桌宠模式（点击看详情）");
-            petModeItem.CheckOnClick = false;
-            petModeItem.Click += delegate
-            {
-                SetDisplayMode(UsageDisplayMode.Pet);
-            };
-            displayModeItem.DropDownItems.Add(classicModeItem);
-            displayModeItem.DropDownItems.Add(petModeItem);
-
-            ToolStripMenuItem petSettingsItem =
-                new ToolStripMenuItem("桌宠设置");
-            ToolStripMenuItem appearanceMenuItem =
-                new ToolStripMenuItem("桌宠外形");
-            whaleAppearanceItem = new ToolStripMenuItem("鲸鱼娘趴趴");
-            whaleAppearanceItem.CheckOnClick = false;
-            whaleAppearanceItem.Click += delegate
-            {
-                SetPetAppearance(PetAppearance.WhaleMaid);
-            };
-            phoebeAppearanceItem = new ToolStripMenuItem("菲比啾比");
-            phoebeAppearanceItem.CheckOnClick = false;
-            phoebeAppearanceItem.Click += delegate
-            {
-                SetPetAppearance(PetAppearance.PhoebeChibi);
-            };
-            appearanceMenuItem.DropDownItems.Add(whaleAppearanceItem);
-            appearanceMenuItem.DropDownItems.Add(phoebeAppearanceItem);
-
-            ToolStripMenuItem usageDisplayItem =
-                new ToolStripMenuItem("气泡用量显示");
-            usedUsageItem = new ToolStripMenuItem("显示已用百分比");
-            usedUsageItem.CheckOnClick = false;
-            usedUsageItem.Click += delegate
-            {
-                SetPetUsageDisplayMode(PetUsageDisplayMode.Used);
-            };
-            remainingUsageItem = new ToolStripMenuItem("显示剩余百分比");
-            remainingUsageItem.CheckOnClick = false;
-            remainingUsageItem.Click += delegate
-            {
-                SetPetUsageDisplayMode(PetUsageDisplayMode.Remaining);
-            };
-            usageDisplayItem.DropDownItems.Add(usedUsageItem);
-            usageDisplayItem.DropDownItems.Add(remainingUsageItem);
-
-            petSizeMenuItem = new ToolStripMenuItem("桌宠大小");
-            petSize75Item = CreatePetSizeMenuItem("75%", 75);
-            petSize100Item = CreatePetSizeMenuItem("100%", 100);
-            petSize125Item = CreatePetSizeMenuItem("125%", 125);
-            customPetSizeItem = new ToolStripMenuItem("自定义…");
-            customPetSizeItem.Click += delegate { ShowCustomPetSize(); };
-            petSizeMenuItem.DropDownItems.Add(petSize75Item);
-            petSizeMenuItem.DropDownItems.Add(petSize100Item);
-            petSizeMenuItem.DropDownItems.Add(petSize125Item);
-            petSizeMenuItem.DropDownItems.Add(new ToolStripSeparator());
-            petSizeMenuItem.DropDownItems.Add(customPetSizeItem);
-
-            petSettingsItem.DropDownItems.Add(appearanceMenuItem);
-            petSettingsItem.DropDownItems.Add(usageDisplayItem);
-            petSettingsItem.DropDownItems.Add(petSizeMenuItem);
-            startupItem = new ToolStripMenuItem("开机自启");
-            startupItem.Checked = startupManager.IsEnabled();
-            startupItem.CheckOnClick = false;
-            startupItem.Click += delegate
-            {
-                bool enable = !startupManager.IsEnabled();
-                try
-                {
-                    startupManager.SetEnabled(enable);
-                    startupItem.Checked = startupManager.IsEnabled();
-                    trayIcon.ShowBalloonTip(2500, "UsagePeek",
-                        startupItem.Checked
-                            ? displayPreference.GetDisplayMode() ==
-                                UsageDisplayMode.Pet
-                                ? "已开启开机自启；启动时会恢复桌宠。"
-                                : "已开启开机自启；启动时只驻留托盘。"
-                            : "已关闭开机自启。",
-                        ToolTipIcon.Info);
-                }
-                catch (Exception ex)
-                {
-                    startupItem.Checked = startupManager.IsEnabled();
-                    MessageBox.Show("无法修改开机自启：" + ex.Message,
-                        "UsagePeek", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
-            };
             ToolStripMenuItem updateItem = new ToolStripMenuItem("联网检查更新");
             updateItem.Click += async delegate { await CheckForUpdatesAsync(false); };
             ToolStripMenuItem aboutItem = new ToolStripMenuItem("关于 UsagePeek");
@@ -203,12 +98,9 @@ namespace UsagePeek
             menu.Items.Add(modelUsageItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(settingsItem);
-            menu.Items.Add(displayModeItem);
-            menu.Items.Add(petSettingsItem);
-            menu.Items.Add(startupItem);
             menu.Items.Add(updateItem);
-            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(aboutItem);
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(exitItem);
 
             icon = IconFactory.Create();
@@ -219,8 +111,6 @@ namespace UsagePeek
             trayIcon.ContextMenuStrip = menu;
             AttachContextMenu(form, menu);
             petForm.ContextMenuStrip = menu;
-            UpdateDisplayModeMenu();
-            UpdatePetSettingsMenu();
             trayIcon.MouseUp += delegate(object sender, MouseEventArgs args)
             {
                 if (args.Button == MouseButtons.Left)
@@ -570,6 +460,22 @@ namespace UsagePeek
 
         private void ShowSettings()
         {
+            bool restoreDetails = form.Visible;
+            try
+            {
+                ShowSettingsDialog();
+            }
+            finally
+            {
+                if (restoreDetails && !exiting)
+                {
+                    ShowDetails();
+                }
+            }
+        }
+
+        private void ShowSettingsDialog()
+        {
             SettingsSelection initial = new SettingsSelection
             {
                 DisplayMode = displayPreference.GetDisplayMode(),
@@ -631,7 +537,6 @@ namespace UsagePeek
                     {
                         startupManager.SetEnabled(selected.StartupEnabled);
                     }
-                    startupItem.Checked = startupManager.IsEnabled();
                 }
                 catch (Exception ex)
                 {
@@ -838,7 +743,6 @@ namespace UsagePeek
         {
             displayPreference.SetDisplayMode(mode);
             displayModeSettings.Save(displayPreference);
-            UpdateDisplayModeMenu();
 
             if (mode == UsageDisplayMode.Pet)
             {
@@ -853,21 +757,11 @@ namespace UsagePeek
             }
         }
 
-        private ToolStripMenuItem CreatePetSizeMenuItem(
-            string text, int percent)
-        {
-            ToolStripMenuItem item = new ToolStripMenuItem(text);
-            item.CheckOnClick = false;
-            item.Click += delegate { SetPetScalePercent(percent); };
-            return item;
-        }
-
         private void SetPetAppearance(PetAppearance appearance)
         {
             displayPreference.SetPetAppearance(appearance);
             displayModeSettings.Save(displayPreference);
             petForm.SetAppearance(appearance);
-            UpdatePetSettingsMenu();
         }
 
         private void SetPetUsageDisplayMode(PetUsageDisplayMode mode)
@@ -875,7 +769,6 @@ namespace UsagePeek
             displayPreference.SetPetUsageDisplayMode(mode);
             displayModeSettings.Save(displayPreference);
             petForm.SetUsageDisplayMode(mode);
-            UpdatePetSettingsMenu();
         }
 
         private void SetPetScalePercent(int percent)
@@ -887,51 +780,6 @@ namespace UsagePeek
                 displayPreference.SetPetLocation(petForm.Location);
             }
             displayModeSettings.Save(displayPreference);
-            UpdatePetSettingsMenu();
-        }
-
-        private void ShowCustomPetSize()
-        {
-            using (PetSizeDialog dialog = new PetSizeDialog(
-                displayPreference.GetPetScalePercent()))
-            {
-                dialog.PlaceNearCursor();
-                if (dialog.ShowDialog() == DialogResult.OK)
-                {
-                    SetPetScalePercent(dialog.SelectedPercent);
-                }
-            }
-        }
-
-        private void UpdateDisplayModeMenu()
-        {
-            UsageDisplayMode mode = displayPreference.GetDisplayMode();
-            classicModeItem.Checked = mode == UsageDisplayMode.Classic;
-            petModeItem.Checked = mode == UsageDisplayMode.Pet;
-        }
-
-        private void UpdatePetSettingsMenu()
-        {
-            PetAppearance appearance = displayPreference.GetPetAppearance();
-            whaleAppearanceItem.Checked =
-                appearance == PetAppearance.WhaleMaid;
-            phoebeAppearanceItem.Checked =
-                appearance == PetAppearance.PhoebeChibi;
-
-            PetUsageDisplayMode usageMode =
-                displayPreference.GetPetUsageDisplayMode();
-            usedUsageItem.Checked = usageMode == PetUsageDisplayMode.Used;
-            remainingUsageItem.Checked =
-                usageMode == PetUsageDisplayMode.Remaining;
-
-            int size = displayPreference.GetPetScalePercent();
-            petSize75Item.Checked = size == 75;
-            petSize100Item.Checked = size == 100;
-            petSize125Item.Checked = size == 125;
-            petSizeMenuItem.Text = "桌宠大小（" + size + "%）";
-            customPetSizeItem.Text = size == 75 || size == 100 || size == 125
-                ? "自定义…"
-                : "自定义…（当前 " + size + "%）";
         }
 
         private static void ShowAbout()
