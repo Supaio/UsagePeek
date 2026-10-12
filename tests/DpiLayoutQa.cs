@@ -35,6 +35,8 @@ internal static class DpiLayoutQa
     {
         using (MainForm form = new MainForm())
         {
+            AssertEqual(false, form.TopMost,
+                "main form is not forced above other apps");
             int settingsRequests = 0;
             form.SettingsRequested += delegate { settingsRequests++; };
             form.RequestSettingsForTesting();
@@ -84,6 +86,8 @@ internal static class DpiLayoutQa
 
         using (ModelUsageForm form = new ModelUsageForm(snapshot))
         {
+            AssertEqual(false, form.TopMost,
+                "model usage form is not forced above other apps");
             Size designSize = form.ClientSize;
             form.ApplyDpiForTesting(144);
             AssertEqual(new Size(
@@ -101,6 +105,12 @@ internal static class DpiLayoutQa
     {
         using (PetForm form = new PetForm())
         {
+            AssertEqual(false, form.TopMost,
+                "pet form is not forced above other apps by default");
+            form.SetAlwaysOnTop(true);
+            AssertEqual(true, form.TopMost,
+                "pet form honors the optional topmost setting");
+            form.SetAlwaysOnTop(false);
             Size designSize = form.ClientSize;
             AssertEqual(new Size(220, 292), designSize,
                 "compact pet form reserves space for the bubble and hint");
@@ -132,6 +142,8 @@ internal static class DpiLayoutQa
     {
         using (PetSizeDialog form = new PetSizeDialog(137))
         {
+            AssertEqual(false, form.TopMost,
+                "custom size dialog is not forced above other apps");
             AssertEqual(137, form.SelectedPercent,
                 "custom size dialog keeps the requested percentage");
             form.ApplyDpiForTesting(144);
@@ -144,6 +156,8 @@ internal static class DpiLayoutQa
     {
         using (AboutForm form = new AboutForm())
         {
+            AssertEqual(false, form.TopMost,
+                "about form is not forced above other apps");
             Size designSize = form.ClientSize;
             AssertEqual(new Size(390, 370), designSize,
                 "about form uses the expected design size");
@@ -172,6 +186,7 @@ internal static class DpiLayoutQa
             PetAppearance = PetAppearance.WhaleMaid,
             PetUsageDisplayMode = PetUsageDisplayMode.Used,
             PetScalePercent = 100,
+            PetAlwaysOnTop = false,
             StartupEnabled = false
         };
         using (SettingsForm form = new SettingsForm(initial, delegate
@@ -179,7 +194,7 @@ internal static class DpiLayoutQa
             return new DiagnosticsSnapshot
             {
                 GeneratedAtUtc = DateTime.UtcNow,
-                AppVersion = "v1.2.0",
+                AppVersion = "v1.2.1",
                 OperatingSystem = "Windows QA",
                 ProcessArchitecture = "64 位",
                 DisplayCount = 1,
@@ -194,16 +209,18 @@ internal static class DpiLayoutQa
             };
         }))
         {
-            AssertEqual(new Size(560, 440), form.ClientSize,
+            AssertEqual(false, form.TopMost,
+                "settings form is not forced above other apps");
+            AssertEqual(new Size(560, 480), form.ClientSize,
                 "settings form uses the expected design size");
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(840, 660), form.ClientSize,
+            AssertEqual(new Size(840, 720), form.ClientSize,
                 "settings form scales to 150 percent");
             form.ApplyDpiForTesting(192);
-            AssertEqual(new Size(1120, 880), form.ClientSize,
+            AssertEqual(new Size(1120, 960), form.ClientSize,
                 "settings form scales to 200 percent");
             form.ApplyDpiForTesting(96);
-            AssertEqual(new Size(560, 440), form.ClientSize,
+            AssertEqual(new Size(560, 480), form.ClientSize,
                 "settings form returns exactly to 100 percent");
         }
     }

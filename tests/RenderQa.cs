@@ -27,6 +27,7 @@ internal static class RenderQa
                 PetAppearance = PetAppearance.WhaleMaid,
                 PetUsageDisplayMode = PetUsageDisplayMode.Remaining,
                 PetScalePercent = 110,
+                PetAlwaysOnTop = false,
                 StartupEnabled = true
             };
             using (SettingsForm settingsForm = new SettingsForm(
@@ -234,7 +235,7 @@ internal static class RenderQa
         return new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.2.0",
+            AppVersion = "v1.2.1",
             OperatingSystem = "Microsoft Windows 11",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Users\Tester\Apps\UsagePeek.exe",
@@ -247,6 +248,7 @@ internal static class RenderQa
             PetAppearance = "鲸鱼娘趴趴",
             PetUsageMode = "显示剩余百分比",
             PetScalePercent = 110,
+            PetAlwaysOnTop = false,
             StartupEnabled = true,
             UpdateConfigured = true,
             CodexStatus = "已找到本地组件",

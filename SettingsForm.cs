@@ -12,6 +12,7 @@ namespace UsagePeek
         public PetAppearance PetAppearance { get; set; }
         public PetUsageDisplayMode PetUsageDisplayMode { get; set; }
         public int PetScalePercent { get; set; }
+        public bool PetAlwaysOnTop { get; set; }
         public bool StartupEnabled { get; set; }
     }
 
@@ -24,6 +25,7 @@ namespace UsagePeek
         private readonly ComboBox appearanceInput;
         private readonly ComboBox usageModeInput;
         private readonly NumericUpDown scaleInput;
+        private readonly CheckBox petAlwaysOnTopInput;
         private readonly CheckBox startupInput;
         private readonly Button settingsNavButton;
         private readonly Button diagnosticsNavButton;
@@ -57,7 +59,8 @@ namespace UsagePeek
                 DisplayMode = UsageDisplayMode.Pet,
                 PetAppearance = PetAppearance.WhaleMaid,
                 PetUsageDisplayMode = PetUsageDisplayMode.Used,
-                PetScalePercent = 100
+                PetScalePercent = 100,
+                PetAlwaysOnTop = false
             };
             diagnosticsProvider = reportProvider;
 
@@ -66,13 +69,12 @@ namespace UsagePeek
                 ControlStyles.ResizeRedraw |
                 ControlStyles.UserPaint, true);
             Text = "UsagePeek 设置与诊断";
-            ClientSize = new Size(560, 440);
+            ClientSize = new Size(560, 480);
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             BackColor = Color.FromArgb(9, 14, 22);
             ForeColor = Color.FromArgb(233, 239, 247);
-            TopMost = true;
             KeyPreview = true;
             AutoScaleMode = AutoScaleMode.None;
 
@@ -97,7 +99,7 @@ namespace UsagePeek
             Panel divider = new Panel();
             divider.BackColor = Color.FromArgb(31, 43, 57);
             divider.Location = new Point(146, 80);
-            divider.Size = new Size(1, 340);
+            divider.Size = new Size(1, 380);
 
             settingsNavButton = CreateNavButton("⚙  常规设置",
                 new Point(14, 86));
@@ -109,7 +111,7 @@ namespace UsagePeek
             settingsPage = new Panel();
             settingsPage.BackColor = Color.Transparent;
             settingsPage.Location = new Point(158, 76);
-            settingsPage.Size = new Size(382, 344);
+            settingsPage.Size = new Size(382, 384);
 
             Label settingsTitle = CreateLabel("常规设置",
                 new Point(0, 0), new Size(382, 28), 12f,
@@ -167,7 +169,23 @@ namespace UsagePeek
             AddSettingRow(settingsPage, 202, "桌宠大小",
                 "50%–200%，切换显示器时仍会自动适配", scaleInput);
 
-            Panel startupCard = CreateCard(new Point(0, 252),
+            Panel alwaysOnTopCard = CreateCard(new Point(0, 252),
+                new Size(382, 42));
+            petAlwaysOnTopInput = new CheckBox();
+            petAlwaysOnTopInput.AutoSize = false;
+            petAlwaysOnTopInput.Location = new Point(14, 6);
+            petAlwaysOnTopInput.Size = new Size(354, 30);
+            petAlwaysOnTopInput.Font = new Font("Microsoft YaHei UI", 8.8f,
+                FontStyle.Bold);
+            petAlwaysOnTopInput.ForeColor = ForeColor;
+            petAlwaysOnTopInput.BackColor = Color.Transparent;
+            petAlwaysOnTopInput.Text = "桌宠保持置顶";
+            petAlwaysOnTopInput.Checked = safe.PetAlwaysOnTop;
+            petAlwaysOnTopInput.UseVisualStyleBackColor = false;
+            alwaysOnTopCard.Controls.Add(petAlwaysOnTopInput);
+            settingsPage.Controls.Add(alwaysOnTopCard);
+
+            Panel startupCard = CreateCard(new Point(0, 300),
                 new Size(382, 42));
             startupInput = new CheckBox();
             startupInput.AutoSize = false;
@@ -184,14 +202,14 @@ namespace UsagePeek
             settingsPage.Controls.Add(startupCard);
 
             autoSaveStatusLabel = CreateLabel("●  更改会自动保存",
-                new Point(0, 304), new Size(382, 32), 7.4f,
+                new Point(0, 350), new Size(382, 28), 7.4f,
                 FontStyle.Bold, Color.FromArgb(94, 234, 212));
             settingsPage.Controls.Add(autoSaveStatusLabel);
 
             diagnosticsPage = new Panel();
             diagnosticsPage.BackColor = Color.Transparent;
             diagnosticsPage.Location = new Point(158, 76);
-            diagnosticsPage.Size = new Size(382, 344);
+            diagnosticsPage.Size = new Size(382, 384);
             Label diagnosticsTitle = CreateLabel("诊断信息",
                 new Point(0, 0), new Size(382, 28), 12f,
                 FontStyle.Bold, ForeColor);
@@ -299,6 +317,10 @@ namespace UsagePeek
                 RaiseSettingsChanged();
             };
             scaleInput.ValueChanged += delegate { RaiseSettingsChanged(); };
+            petAlwaysOnTopInput.CheckedChanged += delegate
+            {
+                RaiseSettingsChanged();
+            };
             startupInput.CheckedChanged += delegate
             {
                 RaiseSettingsChanged();
@@ -324,6 +346,7 @@ namespace UsagePeek
                         ? PetUsageDisplayMode.Remaining
                         : PetUsageDisplayMode.Used,
                     PetScalePercent = Decimal.ToInt32(scaleInput.Value),
+                    PetAlwaysOnTop = petAlwaysOnTopInput.Checked,
                     StartupEnabled = startupInput.Checked
                 };
             }
@@ -339,6 +362,21 @@ namespace UsagePeek
             get { return diagnosticsPageSelected; }
         }
 
+        internal bool VisibleControlsReadyForTesting
+        {
+            get
+            {
+                return IsHandleCreated &&
+                    settingsPage.IsHandleCreated &&
+                    displayModeInput.IsHandleCreated &&
+                    appearanceInput.IsHandleCreated &&
+                    usageModeInput.IsHandleCreated &&
+                    scaleInput.IsHandleCreated &&
+                    petAlwaysOnTopInput.IsHandleCreated &&
+                    startupInput.IsHandleCreated;
+            }
+        }
+
         internal void ShowDiagnosticsForTesting()
         {
             ShowPage(true);
@@ -349,6 +387,11 @@ namespace UsagePeek
             displayModeInput.SelectedIndex = mode == UsageDisplayMode.Pet
                 ? 1
                 : 0;
+        }
+
+        internal void SetPetAlwaysOnTopForTesting(bool enabled)
+        {
+            petAlwaysOnTopInput.Checked = enabled;
         }
 
         public void SetSelection(SettingsSelection value)
@@ -370,6 +413,7 @@ namespace UsagePeek
                 scaleInput.Value = Math.Max((int)scaleInput.Minimum,
                     Math.Min((int)scaleInput.Maximum,
                         value.PetScalePercent));
+                petAlwaysOnTopInput.Checked = value.PetAlwaysOnTop;
                 startupInput.Checked = value.StartupEnabled;
             }
             finally
@@ -402,6 +446,12 @@ namespace UsagePeek
             Location = new Point(
                 Math.Max(area.Left, Math.Min(left, area.Right - Width)),
                 Math.Max(area.Top, Math.Min(top, area.Bottom - Height)));
+        }
+
+        public void PrepareForDisplay()
+        {
+            CreateChildHandles(this);
+            PerformLayout();
         }
 
         public void RefreshDiagnostics()
@@ -462,6 +512,12 @@ namespace UsagePeek
             {
                 e.Graphics.DrawPath(border, path);
             }
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            Refresh();
         }
 
         protected override void OnDpiScaleChanged()
@@ -573,6 +629,18 @@ namespace UsagePeek
             panel.Size = size;
             panel.BackColor = Color.FromArgb(17, 26, 38);
             return panel;
+        }
+
+        private static void CreateChildHandles(Control root)
+        {
+            if (!root.IsHandleCreated)
+            {
+                IntPtr unused = root.Handle;
+            }
+            foreach (Control child in root.Controls)
+            {
+                CreateChildHandles(child);
+            }
         }
 
         private static ComboBox CreateComboBox()

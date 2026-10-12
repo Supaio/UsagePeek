@@ -18,6 +18,7 @@ namespace UsagePeek
         public string PetAppearance { get; set; }
         public string PetUsageMode { get; set; }
         public int PetScalePercent { get; set; }
+        public bool PetAlwaysOnTop { get; set; }
         public bool StartupEnabled { get; set; }
         public bool UpdateConfigured { get; set; }
         public string CodexStatus { get; set; }
@@ -56,6 +57,7 @@ namespace UsagePeek
             text.AppendLine("桌宠形象: " + Safe(PetAppearance));
             text.AppendLine("气泡口径: " + Safe(PetUsageMode));
             text.AppendLine("桌宠大小: " + PetScalePercent + "%");
+            text.AppendLine("桌宠置顶: " + YesNo(PetAlwaysOnTop));
             text.AppendLine();
             text.AppendLine("[Codex 连接]");
             text.AppendLine("状态: " + SafeCodexStatus(CodexStatus));

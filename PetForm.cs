@@ -163,7 +163,6 @@ namespace UsagePeek
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            TopMost = true;
             AutoScaleMode = AutoScaleMode.None;
             Cursor = Cursors.Hand;
 
@@ -249,6 +248,11 @@ namespace UsagePeek
         {
             usageDisplayMode = value;
             ApplyLayeredImage();
+        }
+
+        public void SetAlwaysOnTop(bool enabled)
+        {
+            TopMost = enabled;
         }
 
         public void SetScalePercent(int value)

@@ -58,12 +58,15 @@ internal static class PetModeQa
             "new installs display used percentages");
         Check(initial.GetPetScalePercent() == 100,
             "new installs use the standard pet size");
+        Check(!initial.GetPetAlwaysOnTop(),
+            "new installs do not force the pet above other windows");
 
         initial.SetDisplayMode(UsageDisplayMode.Pet);
         initial.SetPetLocation(new Point(321, 654));
         initial.SetPetAppearance(PetAppearance.PhoebeChibi);
         initial.SetPetUsageDisplayMode(PetUsageDisplayMode.Remaining);
         initial.SetPetScalePercent(137);
+        initial.SetPetAlwaysOnTop(true);
         settings.Save(initial);
 
         DisplayModePreference restored = settings.Load();
@@ -78,6 +81,8 @@ internal static class PetModeQa
             "remaining usage display survives restart");
         Check(restored.GetPetScalePercent() == 137,
             "custom pet size survives restart");
+        Check(restored.GetPetAlwaysOnTop(),
+            "optional pet topmost mode survives restart");
 
         restored.SetPetScalePercent(10);
         Check(restored.GetPetScalePercent() == 50,
@@ -134,6 +139,15 @@ internal static class PetModeQa
     {
         using (PetForm form = new PetForm())
         {
+            Check(!form.TopMost,
+                "the desktop pet is not forced on top by default");
+            form.SetAlwaysOnTop(true);
+            Check(form.TopMost,
+                "the desktop pet can be kept on top when requested");
+            form.SetAlwaysOnTop(false);
+            Check(!form.TopMost,
+                "the desktop pet can immediately return to normal stacking");
+
             UsageSnapshot snapshot = new UsageSnapshot
             {
                 Primary = new UsageWindowSnapshot { UsedPercent = 45 },

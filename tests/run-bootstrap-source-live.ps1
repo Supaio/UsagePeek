@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $client = [System.Net.WebClient]::new()
-$client.Headers['User-Agent'] = 'UsagePeek/1.2.0'
+$client.Headers['User-Agent'] = 'UsagePeek/1.2.1'
 try {
     $content = $client.DownloadString('https://chatgpt.com/codex/install.ps1')
 } finally {

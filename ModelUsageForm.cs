@@ -39,7 +39,6 @@ namespace UsagePeek
             StartPosition = FormStartPosition.Manual;
             BackColor = Color.FromArgb(9, 14, 22);
             ForeColor = Color.FromArgb(233, 239, 247);
-            TopMost = true;
             AutoScaleMode = AutoScaleMode.None;
 
             BrandMarkControl brandMark = new BrandMarkControl();

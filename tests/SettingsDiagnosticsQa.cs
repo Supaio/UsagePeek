@@ -66,6 +66,8 @@ internal static class SettingsDiagnosticsQa
             "unknown diagnostic text cannot leak secrets");
         Check(report.Contains("UP-CX-999"),
             "unknown errors become a safe diagnostic code");
+        Check(report.Contains("桌宠置顶: 已开启"),
+            "diagnostics reports the optional pet topmost setting");
         Check(report.Contains("未包含登录令牌"),
             "report states its privacy boundary");
     }
@@ -78,6 +80,7 @@ internal static class SettingsDiagnosticsQa
             PetAppearance = PetAppearance.PhoebeChibi,
             PetUsageDisplayMode = PetUsageDisplayMode.Remaining,
             PetScalePercent = 137,
+            PetAlwaysOnTop = true,
             StartupEnabled = true
         };
         using (SettingsForm form = new SettingsForm(initial,
@@ -95,8 +98,15 @@ internal static class SettingsDiagnosticsQa
                 "settings keeps remaining usage mode");
             Check(selected.PetScalePercent == 137,
                 "settings keeps custom pet scale");
+            Check(selected.PetAlwaysOnTop,
+                "settings keeps the optional pet topmost choice");
             Check(selected.StartupEnabled,
                 "settings keeps startup choice");
+            Check(!form.TopMost,
+                "the settings window is not forced above other apps");
+            form.PrepareForDisplay();
+            Check(form.VisibleControlsReadyForTesting,
+                "settings controls are created before the window is shown");
 
             form.SelectDisplayModeForTesting(UsageDisplayMode.Pet);
             Check(settingsChanges == 1 &&
@@ -106,6 +116,14 @@ internal static class SettingsDiagnosticsQa
             Check(settingsChanges == 1 &&
                     form.Selection.DisplayMode == UsageDisplayMode.Classic,
                 "restoring a failed choice does not raise another request");
+            form.SetPetAlwaysOnTopForTesting(false);
+            Check(settingsChanges == 2 &&
+                    !form.Selection.PetAlwaysOnTop,
+                "changing pet topmost applies immediately");
+            form.SetSelection(initial);
+            Check(settingsChanges == 2 &&
+                    form.Selection.PetAlwaysOnTop,
+                "restoring pet topmost does not raise another request");
 
             form.ShowDiagnosticsForTesting();
             Check(form.DiagnosticsTextForTesting.Contains(
@@ -131,6 +149,7 @@ internal static class SettingsDiagnosticsQa
             preference.SetPetUsageDisplayMode(
                 PetUsageDisplayMode.Remaining);
             preference.SetPetScalePercent(137);
+            preference.SetPetAlwaysOnTop(true);
             Check(settings.TrySave(preference),
                 "settings reports a successful persisted save");
 
@@ -139,7 +158,8 @@ internal static class SettingsDiagnosticsQa
                 restored.GetPetAppearance() == PetAppearance.PhoebeChibi &&
                 restored.GetPetUsageDisplayMode() ==
                     PetUsageDisplayMode.Remaining &&
-                restored.GetPetScalePercent() == 137,
+                restored.GetPetScalePercent() == 137 &&
+                restored.GetPetAlwaysOnTop(),
                 "central settings round-trip through the existing format");
             Check(!settings.TrySave(null),
                 "null settings cannot be reported as saved");
@@ -161,7 +181,7 @@ internal static class SettingsDiagnosticsQa
         return new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.2.0",
+            AppVersion = "v1.2.1",
             OperatingSystem = "Windows QA",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Program Files\UsagePeek\UsagePeek.exe",
@@ -174,6 +194,7 @@ internal static class SettingsDiagnosticsQa
             PetAppearance = "鲸鱼娘趴趴",
             PetUsageMode = "显示已用百分比",
             PetScalePercent = 100,
+            PetAlwaysOnTop = true,
             StartupEnabled = true,
             UpdateConfigured = true,
             CodexStatus = "已找到本地组件",

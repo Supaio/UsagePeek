@@ -24,6 +24,7 @@ namespace UsagePeek
         private readonly MainForm form;
         private readonly PetForm petForm;
         private readonly ContextMenuStrip menu;
+        private readonly ToolStripMenuItem petAlwaysOnTopMenuItem;
         private readonly NotifyIcon trayIcon;
         private readonly TaskbarCreatedListener taskbarCreatedListener;
         private readonly Timer refreshTimer;
@@ -62,6 +63,8 @@ namespace UsagePeek
                 displayPreference.GetPetUsageDisplayMode());
             petForm.SetScalePercent(
                 displayPreference.GetPetScalePercent());
+            petForm.SetAlwaysOnTop(
+                displayPreference.GetPetAlwaysOnTop());
             form.RefreshRequested += async delegate { await RefreshAsync(); };
             form.CurrencyToggleRequested += async delegate { await ToggleCurrencyAsync(); };
             form.RepairRequested += async delegate { await RepairCodexAsync(); };
@@ -84,6 +87,14 @@ namespace UsagePeek
             ToolStripMenuItem modelUsageItem =
                 new ToolStripMenuItem("查看模型用量占比");
             modelUsageItem.Click += delegate { ShowModelUsage(); };
+            petAlwaysOnTopMenuItem =
+                new ToolStripMenuItem("桌宠保持置顶");
+            petAlwaysOnTopMenuItem.Checked =
+                displayPreference.GetPetAlwaysOnTop();
+            petAlwaysOnTopMenuItem.Click += delegate
+            {
+                TogglePetAlwaysOnTopFromMenu();
+            };
             ToolStripMenuItem settingsItem =
                 new ToolStripMenuItem("设置与诊断…");
             settingsItem.Click += delegate { ShowSettings(); };
@@ -96,6 +107,7 @@ namespace UsagePeek
             menu.Items.Add(openItem);
             menu.Items.Add(refreshItem);
             menu.Items.Add(modelUsageItem);
+            menu.Items.Add(petAlwaysOnTopMenuItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(settingsItem);
             menu.Items.Add(updateItem);
@@ -512,6 +524,7 @@ namespace UsagePeek
                     }
                 };
                 dialog.PlaceNearCursor();
+                dialog.PrepareForDisplay();
                 dialog.ShowDialog();
             }
         }
@@ -525,6 +538,8 @@ namespace UsagePeek
                 PetUsageDisplayMode =
                     displayPreference.GetPetUsageDisplayMode(),
                 PetScalePercent = displayPreference.GetPetScalePercent(),
+                PetAlwaysOnTop =
+                    displayPreference.GetPetAlwaysOnTop(),
                 StartupEnabled = startupManager.IsEnabled()
             };
         }
@@ -540,10 +555,12 @@ namespace UsagePeek
                 previous.PetUsageDisplayMode;
             bool scaleChanged = selected.PetScalePercent !=
                 previous.PetScalePercent;
+            bool alwaysOnTopChanged = selected.PetAlwaysOnTop !=
+                previous.PetAlwaysOnTop;
             bool startupChanged = selected.StartupEnabled !=
                 previous.StartupEnabled;
             bool displayChanged = modeChanged || appearanceChanged ||
-                usageModeChanged || scaleChanged;
+                usageModeChanged || scaleChanged || alwaysOnTopChanged;
 
             if (!displayChanged && !startupChanged)
             {
@@ -559,6 +576,8 @@ namespace UsagePeek
                     selected.PetUsageDisplayMode);
                 displayPreference.SetPetScalePercent(
                     selected.PetScalePercent);
+                displayPreference.SetPetAlwaysOnTop(
+                    selected.PetAlwaysOnTop);
                 if (!displayModeSettings.TrySave(displayPreference))
                 {
                     RestoreDisplayPreference(previous);
@@ -619,6 +638,10 @@ namespace UsagePeek
             {
                 SetPetScalePercent(selected.PetScalePercent);
             }
+            if (alwaysOnTopChanged)
+            {
+                ApplyPetAlwaysOnTop(selected.PetAlwaysOnTop);
+            }
             if (modeChanged)
             {
                 SetDisplayMode(selected.DisplayMode);
@@ -633,6 +656,8 @@ namespace UsagePeek
             displayPreference.SetPetUsageDisplayMode(
                 previous.PetUsageDisplayMode);
             displayPreference.SetPetScalePercent(previous.PetScalePercent);
+            displayPreference.SetPetAlwaysOnTop(
+                previous.PetAlwaysOnTop);
         }
 
         private DiagnosticsSnapshot BuildDiagnosticsSnapshot()
@@ -675,6 +700,8 @@ namespace UsagePeek
                     : "显示已用百分比";
             diagnostics.PetScalePercent =
                 displayPreference.GetPetScalePercent();
+            diagnostics.PetAlwaysOnTop =
+                displayPreference.GetPetAlwaysOnTop();
             diagnostics.StartupEnabled = startupManager.IsEnabled();
             diagnostics.UpdateConfigured = updateService.IsConfigured;
             diagnostics.LastRefreshAttemptUtc = lastRefreshAttemptUtc;
@@ -859,6 +886,32 @@ namespace UsagePeek
                 displayPreference.SetPetLocation(petForm.Location);
             }
             displayModeSettings.Save(displayPreference);
+        }
+
+        private void TogglePetAlwaysOnTopFromMenu()
+        {
+            bool previous = displayPreference.GetPetAlwaysOnTop();
+            bool enabled = !previous;
+            displayPreference.SetPetAlwaysOnTop(enabled);
+            if (!displayModeSettings.TrySave(displayPreference))
+            {
+                displayPreference.SetPetAlwaysOnTop(previous);
+                petAlwaysOnTopMenuItem.Checked = previous;
+                MessageBox.Show(
+                    "无法保存桌宠置顶设置，请检查本机数据目录的写入权限。",
+                    "UsagePeek", MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            ApplyPetAlwaysOnTop(enabled);
+        }
+
+        private void ApplyPetAlwaysOnTop(bool enabled)
+        {
+            displayPreference.SetPetAlwaysOnTop(enabled);
+            petForm.SetAlwaysOnTop(enabled);
+            petAlwaysOnTopMenuItem.Checked = enabled;
         }
 
         private static void ShowAbout()

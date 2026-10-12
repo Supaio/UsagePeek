@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
-  "url": "https://github.com/Supaio/UsagePeek/releases/download/v1.2.0/UsagePeek.exe",
-  "sha256": "56E15C3561AA8D9DB298742EFE43D8871F65F10F1BCDB3EBBEEBBA09B681024D",
-  "notes": "v1.2.0：新增集中设置与诊断、桌宠额度状态表情和 EXE SHA-256 展示；自动更新采用启动确认和失败回滚，避免更新失败后无法启动。"
+  "version": "1.2.1",
+  "url": "https://github.com/Supaio/UsagePeek/releases/download/v1.2.1/UsagePeek.exe",
+  "sha256": "89F6A33DADEC774A65436B048D3F7D110E164058009FB1CE759ECBF5C265B17D",
+  "notes": "v1.2.1：普通窗口不再强制置顶；桌宠置顶改为默认关闭的可选项，并新增右键快捷开关；优化设置窗口首次显示时的绘制速度。"
 }

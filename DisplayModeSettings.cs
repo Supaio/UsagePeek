@@ -35,6 +35,7 @@ namespace UsagePeek
         public string PetAppearanceId { get; set; }
         public string PetUsageMode { get; set; }
         public int? PetScalePercent { get; set; }
+        public bool? PetAlwaysOnTop { get; set; }
 
         public UsageDisplayMode GetDisplayMode()
         {
@@ -94,6 +95,16 @@ namespace UsagePeek
                 Math.Min(MaximumPetScalePercent, value));
         }
 
+        public bool GetPetAlwaysOnTop()
+        {
+            return PetAlwaysOnTop.HasValue && PetAlwaysOnTop.Value;
+        }
+
+        public void SetPetAlwaysOnTop(bool value)
+        {
+            PetAlwaysOnTop = value;
+        }
+
         public Point? GetPetLocation()
         {
             if (!PetLeft.HasValue || !PetTop.HasValue)
@@ -147,6 +158,8 @@ namespace UsagePeek
                             value.GetPetUsageDisplayMode());
                         value.SetPetScalePercent(
                             value.GetPetScalePercent());
+                        value.SetPetAlwaysOnTop(
+                            value.GetPetAlwaysOnTop());
                         return value;
                     }
                 }
@@ -161,6 +174,7 @@ namespace UsagePeek
             fallback.SetPetAppearance(PetAppearance.WhaleMaid);
             fallback.SetPetUsageDisplayMode(PetUsageDisplayMode.Used);
             fallback.SetPetScalePercent(100);
+            fallback.SetPetAlwaysOnTop(false);
             return fallback;
         }
 
