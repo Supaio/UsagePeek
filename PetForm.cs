@@ -6,6 +6,7 @@ using System.Drawing.Imaging;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 
 namespace UsagePeek
@@ -17,6 +18,13 @@ namespace UsagePeek
         Happy
     }
 
+    internal enum PetActivity
+    {
+        Watching,
+        Resting,
+        Walking
+    }
+
     internal sealed class PetForm : DpiAwareForm
     {
         private const string WhalePetResourceName =
@@ -25,6 +33,10 @@ namespace UsagePeek
             "UsagePeek.Assets.PetPhoebeChibi.png";
         private const string ChatGptPetResourceName =
             "UsagePeek.Assets.PetChatGptGirl.png";
+        private const string ClaudePetResourceName =
+            "UsagePeek.Assets.PetClaudeGirl.png";
+        private const string MilkFrogPetResourceName =
+            "UsagePeek.Assets.PetMilkFrog.png";
         private const string PettingHandResourceName =
             "UsagePeek.Assets.PetpetHandV2.png";
         private const int WmNcHitTest = 0x0084;
@@ -53,6 +65,8 @@ namespace UsagePeek
         private const int HappyMoodDurationMilliseconds = 6000;
         private const int MoodTimerIntervalMilliseconds = 50;
         private const int ResetFallbackMinimumDropPercent = 50;
+        private const int DesktopMotionIntervalMilliseconds = 40;
+        private const double RoamingDesignPixelsPerSecond = 30d;
         private static readonly Rectangle WhaleContentBounds =
             new Rectangle(26, 31, 1223, 1197);
         private static readonly Rectangle PhoebeContentBounds =
@@ -63,15 +77,29 @@ namespace UsagePeek
         private readonly Bitmap whaleImage;
         private readonly Bitmap phoebeImage;
         private readonly Bitmap chatGptImage;
+        private readonly Bitmap claudeImage;
+        private readonly Bitmap milkFrogImage;
         private readonly Bitmap pettingHandImage;
         private readonly Color whaleAverageColor;
         private readonly Color phoebeAverageColor;
         private readonly Color chatGptAverageColor;
+        private readonly Color claudeAverageColor;
+        private readonly Color milkFrogAverageColor;
         private readonly Timer pettingTimer;
         private readonly Timer displayRecoveryTimer;
         private readonly Timer moodTimer;
+        private readonly Timer desktopMotionTimer;
         private readonly Stopwatch pettingStopwatch;
         private readonly Stopwatch moodStopwatch;
+        private readonly Stopwatch desktopMotionStopwatch;
+        private readonly Random desktopMotionRandom;
+        private PetActivity desktopActivity;
+        private bool facingLeft;
+        private double walkingPhase;
+        private double roamingFractionalX;
+        private double roamingSecondsRemaining;
+        private double roamingRestSeconds;
+        private float watchingTilt;
         private Bitmap sourceImage;
         private Rectangle sourceContentBounds;
         private Bitmap renderedImage;
@@ -143,15 +171,32 @@ namespace UsagePeek
         [DllImport("gdi32.dll")]
         private static extern bool DeleteObject(IntPtr graphicsObject);
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetDesktopWindow();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetShellWindow();
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassName(
+            IntPtr window, StringBuilder className, int maximumLength);
+
         public PetForm()
         {
             whaleImage = LoadPetImage(PetAppearance.WhaleMaid);
             phoebeImage = LoadPetImage(PetAppearance.PhoebeChibi);
             chatGptImage = LoadPetImage(PetAppearance.ChatGptGirl);
+            claudeImage = LoadPetImage(PetAppearance.ClaudeGirl);
+            milkFrogImage = LoadPetImage(PetAppearance.MilkFrog);
             pettingHandImage = LoadPettingHandImage();
             whaleAverageColor = CalculateArtworkAverageColor(whaleImage);
             phoebeAverageColor = CalculateArtworkAverageColor(phoebeImage);
             chatGptAverageColor = CalculateArtworkAverageColor(chatGptImage);
+            claudeAverageColor = CalculateArtworkAverageColor(claudeImage);
+            milkFrogAverageColor = CalculateArtworkAverageColor(milkFrogImage);
             sourceImage = whaleImage;
             sourceContentBounds = WhaleContentBounds;
             petAppearance = PetAppearance.WhaleMaid;
@@ -170,6 +215,11 @@ namespace UsagePeek
             moodTimer = new Timer();
             moodTimer.Interval = MoodTimerIntervalMilliseconds;
             moodTimer.Tick += AdvanceMoodAnimation;
+            desktopMotionRandom = new Random();
+            desktopMotionStopwatch = new Stopwatch();
+            desktopMotionTimer = new Timer();
+            desktopMotionTimer.Interval = DesktopMotionIntervalMilliseconds;
+            desktopMotionTimer.Tick += AdvanceDesktopMotion;
             mood = PetMood.Normal;
             Text = "UsagePeek 桌宠";
             ClientSize = new Size(WindowDesignWidth, WindowDesignHeight);
@@ -255,16 +305,29 @@ namespace UsagePeek
         public void SetAppearance(PetAppearance value)
         {
             petAppearance = value;
-            sourceImage = value == PetAppearance.ChatGptGirl
-                ? chatGptImage
-                : value == PetAppearance.PhoebeChibi
-                ? phoebeImage
-                : whaleImage;
-            sourceContentBounds = value == PetAppearance.ChatGptGirl
-                ? new Rectangle(Point.Empty, chatGptImage.Size)
+            switch (value)
+            {
+                case PetAppearance.ClaudeGirl:
+                    sourceImage = claudeImage;
+                    break;
+                case PetAppearance.MilkFrog:
+                    sourceImage = milkFrogImage;
+                    break;
+                case PetAppearance.ChatGptGirl:
+                    sourceImage = chatGptImage;
+                    break;
+                case PetAppearance.PhoebeChibi:
+                    sourceImage = phoebeImage;
+                    break;
+                default:
+                    sourceImage = whaleImage;
+                    break;
+            }
+            sourceContentBounds = value == PetAppearance.WhaleMaid
+                ? WhaleContentBounds
                 : value == PetAppearance.PhoebeChibi
                 ? PhoebeContentBounds
-                : WhaleContentBounds;
+                : new Rectangle(Point.Empty, sourceImage.Size);
             ApplyLayeredImage();
         }
 
@@ -400,6 +463,30 @@ namespace UsagePeek
             get { return mood; }
         }
 
+        internal PetActivity ActivityForTesting
+        {
+            get { return desktopActivity; }
+        }
+
+        internal bool FacingLeftForTesting
+        {
+            get { return facingLeft; }
+        }
+
+        internal bool DesktopMotionTimerEnabledForTesting
+        {
+            get { return desktopMotionTimer.Enabled; }
+        }
+
+        internal void AdvanceDesktopMotionForTesting(
+            bool desktopIsActive, Point cursor, Rectangle workArea,
+            double elapsedSeconds, bool interactionPaused)
+        {
+            UpdateDesktopMotion(desktopIsActive, cursor,
+                workArea, elapsedSeconds,
+                interactionPaused || pettingActive || mood == PetMood.Happy);
+        }
+
         internal string MoodHintForTesting
         {
             get { return GetMoodHint(); }
@@ -497,6 +584,25 @@ namespace UsagePeek
             ApplyLayeredImage();
         }
 
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (desktopMotionTimer == null || Disposing || IsDisposed)
+            {
+                return;
+            }
+
+            desktopMotionTimer.Stop();
+            desktopMotionStopwatch.Reset();
+            ResetDesktopMotion();
+            if (Visible)
+            {
+                desktopMotionStopwatch.Start();
+                desktopMotionTimer.Start();
+                ApplyLayeredImage();
+            }
+        }
+
         protected override void OnDpiScaleChanged()
         {
             base.OnDpiScaleChanged();
@@ -540,6 +646,9 @@ namespace UsagePeek
         {
             if (disposing)
             {
+                desktopMotionTimer.Stop();
+                desktopMotionTimer.Dispose();
+                desktopMotionStopwatch.Stop();
                 moodTimer.Stop();
                 moodTimer.Dispose();
                 moodStopwatch.Stop();
@@ -556,6 +665,8 @@ namespace UsagePeek
                 whaleImage.Dispose();
                 phoebeImage.Dispose();
                 chatGptImage.Dispose();
+                claudeImage.Dispose();
+                milkFrogImage.Dispose();
                 pettingHandImage.Dispose();
             }
             base.Dispose(disposing);
@@ -563,11 +674,25 @@ namespace UsagePeek
 
         private static Bitmap LoadPetImage(PetAppearance appearance)
         {
-            string resourceName = appearance == PetAppearance.ChatGptGirl
-                ? ChatGptPetResourceName
-                : appearance == PetAppearance.PhoebeChibi
-                ? PhoebePetResourceName
-                : WhalePetResourceName;
+            string resourceName;
+            switch (appearance)
+            {
+                case PetAppearance.ClaudeGirl:
+                    resourceName = ClaudePetResourceName;
+                    break;
+                case PetAppearance.MilkFrog:
+                    resourceName = MilkFrogPetResourceName;
+                    break;
+                case PetAppearance.ChatGptGirl:
+                    resourceName = ChatGptPetResourceName;
+                    break;
+                case PetAppearance.PhoebeChibi:
+                    resourceName = PhoebePetResourceName;
+                    break;
+                default:
+                    resourceName = WhalePetResourceName;
+                    break;
+            }
             return LoadEmbeddedBitmap(resourceName,
                 "桌宠资源未嵌入程序。请重新下载完整版本。");
         }
@@ -640,6 +765,171 @@ namespace UsagePeek
                 (int)Math.Round(first.R + (second.R - first.R) * amount),
                 (int)Math.Round(first.G + (second.G - first.G) * amount),
                 (int)Math.Round(first.B + (second.B - first.B) * amount));
+        }
+
+        internal static bool IsDesktopForegroundClass(string className)
+        {
+            return string.Equals(className, "Progman",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(className, "WorkerW",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(className, "Shell_TrayWnd",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(className, "Shell_SecondaryTrayWnd",
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsDesktopActive()
+        {
+            IntPtr foreground = GetForegroundWindow();
+            if (foreground == IntPtr.Zero)
+            {
+                return false;
+            }
+            if ((IsHandleCreated && foreground == Handle) ||
+                foreground == GetDesktopWindow() || foreground == GetShellWindow())
+            {
+                return true;
+            }
+
+            StringBuilder className = new StringBuilder(128);
+            return GetClassName(foreground, className, className.Capacity) > 0 &&
+                IsDesktopForegroundClass(className.ToString());
+        }
+
+        private void ResetDesktopMotion()
+        {
+            desktopActivity = PetActivity.Watching;
+            walkingPhase = 0d;
+            watchingTilt = 0f;
+            roamingFractionalX = 0d;
+            roamingSecondsRemaining = 0d;
+            roamingRestSeconds = 0d;
+        }
+
+        private void AdvanceDesktopMotion(object sender, EventArgs e)
+        {
+            if (!Visible)
+            {
+                desktopMotionTimer.Stop();
+                desktopMotionStopwatch.Reset();
+                return;
+            }
+
+            double elapsed = desktopMotionStopwatch.Elapsed.TotalSeconds;
+            desktopMotionStopwatch.Restart();
+            Point cursor = Cursor.Position;
+            bool paused = dragging || pettingActive || mood == PetMood.Happy ||
+                Bounds.Contains(cursor) ||
+                (ContextMenuStrip != null && ContextMenuStrip.Visible);
+            foreach (Form openForm in Application.OpenForms)
+            {
+                if (openForm != this && openForm.Visible)
+                {
+                    paused = true;
+                    break;
+                }
+            }
+
+            UpdateDesktopMotion(IsDesktopActive(), cursor,
+                Screen.FromRectangle(Bounds).WorkingArea, elapsed, paused);
+        }
+
+        private void UpdateDesktopMotion(
+            bool desktopIsActive, Point cursor, Rectangle workArea,
+            double elapsedSeconds, bool interactionPaused)
+        {
+            double elapsed = Math.Max(0d, Math.Min(0.1d, elapsedSeconds));
+            float scale = Height / (float)WindowDesignHeight;
+            Point oldLocation = Location;
+            PetActivity previousActivity = desktopActivity;
+            bool previousFacing = facingLeft;
+            float previousTilt = watchingTilt;
+            float targetTilt = 0f;
+            bool roomToWalk = workArea.Width > Width + 16 &&
+                workArea.Height >= Height + 16;
+
+            if (!desktopIsActive ||
+                interactionPaused || !roomToWalk)
+            {
+                desktopActivity = PetActivity.Watching;
+                walkingPhase = 0d;
+                roamingFractionalX = 0d;
+                roamingSecondsRemaining = 0d;
+                roamingRestSeconds = 0d;
+                if (!interactionPaused)
+                {
+                    double horizontal = cursor.X - (Left + Width / 2d);
+                    if (Math.Abs(horizontal) > 16d * scale)
+                    {
+                        facingLeft = horizontal < 0d;
+                    }
+                    targetTilt = (float)Math.Max(-2.5d,
+                        Math.Min(2.5d, horizontal / Math.Max(1d, Width * 1.2d)));
+                }
+            }
+            else
+            {
+                if (desktopActivity != PetActivity.Walking)
+                {
+                    desktopActivity = PetActivity.Resting;
+                    roamingRestSeconds -= elapsed;
+                    if (roamingRestSeconds <= 0d)
+                    {
+                        int minimumLeft = workArea.Left + 8;
+                        int maximumLeft = workArea.Right - Width - 8;
+                        facingLeft = Left >= maximumLeft - 8 ||
+                            (Left > minimumLeft + 8 &&
+                                desktopMotionRandom.Next(2) == 0);
+                        roamingSecondsRemaining =
+                            3d + desktopMotionRandom.NextDouble() * 3d;
+                        walkingPhase = 0d;
+                        desktopActivity = PetActivity.Walking;
+                    }
+                }
+
+                if (desktopActivity == PetActivity.Walking)
+                {
+                    double direction = facingLeft ? -1d : 1d;
+                    roamingFractionalX += direction *
+                        RoamingDesignPixelsPerSecond * scale * elapsed;
+                    int step = (int)roamingFractionalX;
+                    roamingFractionalX -= step;
+                    Point requested = new Point(Left + step, Top);
+                    Point bounded = ClampToWorkArea(requested, workArea);
+                    Location = bounded;
+                    walkingPhase = (walkingPhase + elapsed * Math.PI * 4d) %
+                        (Math.PI * 2d);
+                    roamingSecondsRemaining -= elapsed;
+                    bool hitEdge = bounded.X != requested.X;
+                    if (hitEdge || roamingSecondsRemaining <= 0d)
+                    {
+                        if (hitEdge)
+                        {
+                            facingLeft = !facingLeft;
+                        }
+                        desktopActivity = PetActivity.Resting;
+                        walkingPhase = 0d;
+                        roamingFractionalX = 0d;
+                        roamingRestSeconds =
+                            1.5d + desktopMotionRandom.NextDouble() * 2d;
+                    }
+                }
+            }
+
+            watchingTilt += (targetTilt - watchingTilt) *
+                (float)Math.Min(1d, elapsed * 10d);
+            if (Math.Abs(targetTilt - watchingTilt) < 0.01f)
+            {
+                watchingTilt = targetTilt;
+            }
+            if (Location != oldLocation || desktopActivity != previousActivity ||
+                facingLeft != previousFacing ||
+                Math.Abs(watchingTilt - previousTilt) > 0.01f ||
+                desktopActivity == PetActivity.Walking)
+            {
+                ApplyLayeredImage();
+            }
         }
 
         private void ApplyLayeredImage()
@@ -743,6 +1033,13 @@ namespace UsagePeek
                 PettingPose pose = pettingActive
                     ? CalculatePettingPose(pettingProgress)
                     : PettingPose.Resting;
+                if (!pettingActive && desktopActivity == PetActivity.Walking)
+                {
+                    float stride = (float)Math.Sin(walkingPhase);
+                    pose = new PettingPose(1f + stride * 0.012f,
+                        1f - Math.Abs(stride) * 0.02f,
+                        -(int)Math.Round(Math.Abs(stride) * 3f));
+                }
                 petWidth = Math.Max(1, (int)Math.Round(
                     petWidth * pose.ScaleX,
                     MidpointRounding.AwayFromZero));
@@ -757,6 +1054,15 @@ namespace UsagePeek
                     petTop += ScaleDesign(
                         CalculateHappyBounce(moodAnimationProgress), scale);
                 }
+                GraphicsState characterState = graphics.Save();
+                float pivotX = width / 2f;
+                float rotation = desktopActivity == PetActivity.Walking
+                    ? (float)Math.Sin(walkingPhase) * 2f
+                    : watchingTilt;
+                graphics.TranslateTransform(pivotX, petBottom);
+                graphics.RotateTransform(rotation);
+                graphics.ScaleTransform(facingLeft ? -1f : 1f, 1f);
+                graphics.TranslateTransform(-pivotX, -petBottom);
                 graphics.DrawImage(sourceImage,
                     new Rectangle(petLeft, petTop, petWidth, petHeight),
                     sourceContentBounds.X, sourceContentBounds.Y,
@@ -775,6 +1081,8 @@ namespace UsagePeek
                     DrawHappyMood(graphics, petBounds,
                         scale, moodAnimationProgress);
                 }
+                graphics.Restore(characterState);
+                graphics.CompositingMode = CompositingMode.SourceOver;
                 if (pettingActive)
                 {
                     DrawPettingHand(graphics,
@@ -949,10 +1257,14 @@ namespace UsagePeek
         {
             bool whale = petAppearance == PetAppearance.WhaleMaid;
             bool chatGpt = petAppearance == PetAppearance.ChatGptGirl;
+            bool claude = petAppearance == PetAppearance.ClaudeGirl;
+            bool frog = petAppearance == PetAppearance.MilkFrog;
             float centerX = petBounds.Left + petBounds.Width *
-                (whale ? 0.66f : chatGpt ? 0.71f : 0.83f);
+                (whale ? 0.66f : chatGpt ? 0.71f :
+                    claude ? 0.67f : frog ? 0.64f : 0.83f);
             float top = petBounds.Top + petBounds.Height *
-                (whale ? 0.31f : chatGpt ? 0.36f : 0.34f);
+                (whale ? 0.31f : chatGpt ? 0.36f :
+                    claude ? 0.26f : frog ? 0.18f : 0.34f);
             float width = Math.Max(4f, 12f * scale);
             float height = Math.Max(6f, 18f * scale);
 
@@ -1172,7 +1484,11 @@ namespace UsagePeek
         private void DrawUsageBubble(
             Graphics graphics, int width, float scale)
         {
-            Color average = petAppearance == PetAppearance.ChatGptGirl
+            Color average = petAppearance == PetAppearance.ClaudeGirl
+                ? claudeAverageColor
+                : petAppearance == PetAppearance.MilkFrog
+                ? milkFrogAverageColor
+                : petAppearance == PetAppearance.ChatGptGirl
                 ? chatGptAverageColor
                 : petAppearance == PetAppearance.PhoebeChibi
                 ? phoebeAverageColor
@@ -1635,6 +1951,7 @@ namespace UsagePeek
 
         private void StartHappyMood()
         {
+            ResetDesktopMotion();
             mood = PetMood.Happy;
             moodAnimationProgress = 0f;
             moodStopwatch.Restart();
@@ -1666,6 +1983,7 @@ namespace UsagePeek
 
         private void StartPettingAnimation(int contactX)
         {
+            ResetDesktopMotion();
             float ratio = Width > 0 ? contactX / (float)Width : 0.62f;
             pettingContactXRatio = Math.Max(0.32f,
                 Math.Min(0.72f, ratio));
@@ -1712,6 +2030,8 @@ namespace UsagePeek
 
             StopPettingAnimation(true);
             ResetPettingGesture();
+            ResetDesktopMotion();
+            ApplyLayeredImage();
             dragging = true;
             moved = false;
             dragStartCursor = Cursor.Position;

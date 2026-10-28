@@ -54,3 +54,9 @@ The ChatGPT-girl desktop pet artwork embedded as
 `assets/pet-chatgpt-girl.png` was generated for UsagePeek with the built-in
 imagegen tool using a user-supplied character reference. Its generation
 prompt is saved in `assets/pet-chatgpt-girl.prompt.txt`.
+
+The Claude-girl and milk-frog desktop pet artworks embedded as
+`assets/pet-claude-girl.png` and `assets/pet-milk-frog.png` were generated for
+UsagePeek with the built-in imagegen tool using user-supplied visual references.
+Their generation prompts are saved alongside the PNG files as
+`assets/pet-claude-girl.prompt.txt` and `assets/pet-milk-frog.prompt.txt`.

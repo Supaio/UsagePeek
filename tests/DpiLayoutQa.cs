@@ -194,7 +194,7 @@ internal static class DpiLayoutQa
             return new DiagnosticsSnapshot
             {
                 GeneratedAtUtc = DateTime.UtcNow,
-                AppVersion = "v1.3.0",
+                AppVersion = "v1.3.1",
                 OperatingSystem = "Windows QA",
                 ProcessArchitecture = "64 位",
                 DisplayCount = 1,

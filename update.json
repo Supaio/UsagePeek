@@ -1,6 +1,6 @@
 {
-  "version": "1.3.0",
-  "url": "https://github.com/Supaio/UsagePeek/releases/download/v1.3.0/UsagePeek.exe",
-  "sha256": "0F70A3F11D0C97315BA3D747A230E59088FC086A67D1BEAB7479DA49FCF26218",
-  "notes": "v1.3.0：新增持久化累计账本，逐条指纹核对避免重复入账，已记录用量不再因 Codex 清理日志而下降；新增 ChatGPT 娘桌宠；用量下显示 5 小时与 7 天额度的恢复日期和本地时间；气泡背景直接使用图片平均色，文字自动适配明暗；移除常驻摸头说明，保留摸头互动；设置窗口启动预热并复用，减少打开时的渲染延迟。"
+  "version": "1.3.1",
+  "url": "https://github.com/Supaio/UsagePeek/releases/download/v1.3.1/UsagePeek.exe",
+  "sha256": "D3EB534873109FDBC40AA7171A99482B42B455C102769DD0FEF17284F62E5FB0",
+  "notes": "v1.3.1：新增桌面散步与忙碌注视，切回桌面即开始走动，前台有应用窗口时停下并朝向鼠标，不再使用键鼠空闲倒计时；散步配合朝向切换和轻微步态起伏，顶部气泡保持正向；新增 Claude 娘、奶蛙两种桌宠；拖动、摸头、菜单和面板打开时暂停散步，隐藏桌宠后停止动画计时；保留屏幕边界限制、状态表情、恢复日期和图片平均色气泡。"
 }

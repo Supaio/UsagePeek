@@ -29,6 +29,8 @@ if not "%~1"=="" set "OUTPUT=%~1"
   /resource:"assets\pet-whale-maid-curled.png",UsagePeek.Assets.PetWhaleMaidCurled.png ^
   /resource:"assets\pet-phoebe-chibi.png",UsagePeek.Assets.PetPhoebeChibi.png ^
   /resource:"assets\pet-chatgpt-girl.png",UsagePeek.Assets.PetChatGptGirl.png ^
+  /resource:"assets\pet-claude-girl.png",UsagePeek.Assets.PetClaudeGirl.png ^
+  /resource:"assets\pet-milk-frog.png",UsagePeek.Assets.PetMilkFrog.png ^
   /resource:"assets\petpet-hand-v2.png",UsagePeek.Assets.PetpetHandV2.png ^
   /reference:System.dll ^
   /reference:System.Core.dll ^

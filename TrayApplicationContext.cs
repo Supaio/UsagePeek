@@ -728,6 +728,10 @@ namespace UsagePeek
             diagnostics.DisplayMode = displayPreference.GetDisplayMode() ==
                 UsageDisplayMode.Pet ? "桌宠模式" : "经典面板";
             diagnostics.PetAppearance = displayPreference.GetPetAppearance() ==
+                PetAppearance.ClaudeGirl ? "Claude 娘" :
+                displayPreference.GetPetAppearance() ==
+                PetAppearance.MilkFrog ? "奶蛙" :
+                displayPreference.GetPetAppearance() ==
                 PetAppearance.ChatGptGirl ? "ChatGPT 娘" :
                 displayPreference.GetPetAppearance() ==
                 PetAppearance.PhoebeChibi ? "菲比啾比" : "鲸鱼娘趴趴";

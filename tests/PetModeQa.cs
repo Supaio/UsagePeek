@@ -19,6 +19,8 @@ internal static class PetModeQa
             VerifyLayeredWindowRendering();
             VerifyResetDatesAndBubbleThemes();
             VerifyChatGptPet();
+            VerifyNewPets();
+            VerifyDesktopActivity();
             VerifyMoodStates();
         }
         finally
@@ -97,6 +99,16 @@ internal static class PetModeQa
         settings.Save(restored);
         Check(settings.Load().GetPetAppearance() == PetAppearance.ChatGptGirl,
             "the ChatGPT girl appearance survives restart");
+        foreach (PetAppearance appearance in new[]
+        {
+            PetAppearance.ClaudeGirl, PetAppearance.MilkFrog
+        })
+        {
+            restored.SetPetAppearance(appearance);
+            settings.Save(restored);
+            Check(settings.Load().GetPetAppearance() == appearance,
+                "new pet selection survives restart: " + appearance);
+        }
     }
 
     private static void VerifyEmbeddedArtwork()
@@ -321,7 +333,9 @@ internal static class PetModeQa
             {
                 PetAppearance.WhaleMaid,
                 PetAppearance.PhoebeChibi,
-                PetAppearance.ChatGptGirl
+                PetAppearance.ChatGptGirl,
+                PetAppearance.ClaudeGirl,
+                PetAppearance.MilkFrog
             })
             {
                 form.SetAppearance(appearance);
@@ -421,6 +435,164 @@ internal static class PetModeQa
                 }
             }
         }
+    }
+
+    private static void VerifyNewPets()
+    {
+        foreach (PetAppearance appearance in new[]
+        {
+            PetAppearance.ClaudeGirl, PetAppearance.MilkFrog
+        })
+        {
+            using (Bitmap artwork = PetForm.LoadPetImageForTesting(appearance))
+            {
+                Check(artwork.Width == 1254 && artwork.Height == 1254 &&
+                        artwork.GetPixel(0, 0).A == 0 &&
+                        artwork.GetPixel(artwork.Width / 2,
+                            artwork.Height / 2).A > 200,
+                    "new pet is embedded with genuine transparency: " + appearance);
+            }
+            using (PetForm form = new PetForm())
+            {
+                form.SetAppearance(appearance);
+                using (Bitmap calm = form.RenderImageForTesting())
+                {
+                    form.SetPettingProgressForTesting(0.15f);
+                    using (Bitmap petted = form.RenderImageForTesting())
+                    {
+                        Check(CountChangedPixels(calm, petted) > 1000,
+                            "new pet supports the petpet animation: " + appearance);
+                    }
+                    form.SetPettingProgressForTesting(null);
+                    form.SetMoodForTesting(PetMood.Nervous, 0f);
+                    using (Bitmap nervous = form.RenderImageForTesting())
+                    {
+                        Check(CountChangedPixels(calm, nervous) > 40,
+                            "new pet supports nervous sweat: " + appearance);
+                    }
+                    form.SetMoodForTesting(PetMood.Happy, 0.45f);
+                    using (Bitmap happy = form.RenderImageForTesting())
+                    {
+                        Check(CountChangedPixels(calm, happy) > 80,
+                            "new pet supports quota-reset celebration: " + appearance);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void VerifyDesktopActivity()
+    {
+        Rectangle workArea = new Rectangle(0, 0, 1920, 1080);
+        Point cursorRight = new Point(1800, 200);
+        Point cursorLeft = new Point(50, 200);
+        using (PetForm form = new PetForm())
+        {
+            form.Location = new Point(700, 400);
+            int committedLocations = 0;
+            form.LocationCommitted += delegate { committedLocations++; };
+            Point original = form.Location;
+            form.AdvanceDesktopMotionForTesting(false, cursorRight, workArea, 0.1d, false);
+            Check(form.ActivityForTesting == PetActivity.Watching &&
+                    form.Location == original && !form.FacingLeftForTesting,
+                "an active application keeps the pet stationary and facing the cursor");
+            using (Bitmap lookingRight = form.RenderImageForTesting())
+            {
+                form.AdvanceDesktopMotionForTesting(false, cursorLeft, workArea, 0.1d, false);
+                using (Bitmap lookingLeft = form.RenderImageForTesting())
+                {
+                    Check(form.FacingLeftForTesting &&
+                            CountChangedPixels(lookingRight, lookingLeft) > 1000,
+                        "watching changes the character orientation toward the cursor");
+                    Check(lookingRight.GetPixel(35, 40).ToArgb() ==
+                            lookingLeft.GetPixel(35, 40).ToArgb(),
+                        "cursor-facing transforms keep the usage bubble upright");
+                }
+            }
+
+            form.AdvanceDesktopMotionForTesting(true, cursorLeft, workArea, 0.1d, false);
+            Check(form.ActivityForTesting == PetActivity.Walking &&
+                    form.Location != original,
+                "returning to the desktop starts a walk without an idle countdown");
+            for (int frame = 0; frame < 25; frame++)
+            {
+                form.AdvanceDesktopMotionForTesting(true, cursorRight,
+                    workArea, 0.1d, false);
+            }
+            Check(form.ActivityForTesting == PetActivity.Walking &&
+                    form.Location != original && form.Top == original.Y,
+                "pets walk horizontally while the desktop is active");
+            Check(committedLocations == 0,
+                "autonomous movement does not save preferences every frame");
+            using (Bitmap stride = form.RenderImageForTesting())
+            {
+                form.AdvanceDesktopMotionForTesting(true, cursorRight,
+                    workArea, 0.07d, false);
+                using (Bitmap nextStride = form.RenderImageForTesting())
+                {
+                    Check(CountChangedPixels(stride, nextStride) > 1000,
+                        "walking animates the character instead of only sliding its window");
+                }
+            }
+            Point beforeLongTick = form.Location;
+            form.AdvanceDesktopMotionForTesting(true, cursorRight,
+                workArea, 30d, false);
+            Check(Math.Abs(form.Left - beforeLongTick.X) <= 4,
+                "a delayed animation tick cannot fling the pet across the screen");
+
+            Point stopped = form.Location;
+            for (int frame = 0; frame < 30; frame++)
+            {
+                form.AdvanceDesktopMotionForTesting(false, cursorRight,
+                    workArea, 0.1d, false);
+            }
+            Check(form.ActivityForTesting == PetActivity.Watching &&
+                    form.Location == stopped,
+                "activating an application immediately stops a walk");
+            for (int frame = 0; frame < 30; frame++)
+            {
+                form.AdvanceDesktopMotionForTesting(true, cursorRight,
+                    workArea, 0.1d, true);
+            }
+            Check(form.Location == stopped,
+                "dragging, open menus and panels pause autonomous movement");
+            form.SetPettingProgressForTesting(0.15f);
+            form.AdvanceDesktopMotionForTesting(true, cursorRight,
+                workArea, 0.1d, false);
+            Check(form.Location == stopped &&
+                    form.ActivityForTesting == PetActivity.Watching,
+                "petting keeps the pet in place");
+            form.SetPettingProgressForTesting(null);
+            Check(!form.DesktopMotionTimerEnabledForTesting,
+                "a hidden pet has no running desktop motion timer");
+        }
+
+        using (PetForm form = new PetForm())
+        {
+            Rectangle leftMonitor = new Rectangle(-1600, 0, 1600, 1000);
+            form.Location = new Point(-1592, 300);
+            bool stayedInside = true;
+            for (int frame = 0; frame < 1600; frame++)
+            {
+                form.AdvanceDesktopMotionForTesting(true,
+                    new Point(-3000, 200), leftMonitor, 0.1d, false);
+                stayedInside = stayedInside &&
+                    form.Left >= leftMonitor.Left + 8 &&
+                    form.Right <= leftMonitor.Right - 8 &&
+                    form.Top >= leftMonitor.Top + 8 &&
+                    form.Bottom <= leftMonitor.Bottom - 8;
+            }
+            Check(stayedInside,
+                "long walks and turns stay inside a negative-coordinate monitor");
+        }
+        Check(PetForm.IsDesktopForegroundClass("Progman") &&
+                PetForm.IsDesktopForegroundClass("WorkerW") &&
+                PetForm.IsDesktopForegroundClass("Shell_TrayWnd"),
+            "Explorer desktop and taskbar windows are treated as the desktop");
+        Check(!PetForm.IsDesktopForegroundClass("CabinetWClass") &&
+                !PetForm.IsDesktopForegroundClass("Chrome_WidgetWin_1") &&
+                !PetForm.IsDesktopForegroundClass(null),
+            "File Explorer and browser application windows are not mistaken for the desktop");
     }
 
     private static void VerifyMoodStates()

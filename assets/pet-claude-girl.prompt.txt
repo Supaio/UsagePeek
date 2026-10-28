@@ -1,0 +1,9 @@
+Use case: stylized-concept.
+Asset type: one transparent PNG sprite for UsagePeek, a small Windows desktop companion rendered roughly 210 pixels tall.
+Input image 1 is a character-design reference. Generate one new compact chibi Claude girl inspired by this same design, not a reference sheet.
+Preserve her long warm copper-orange hair, soft amber eyes, dark ribbon and small sunflower hair ornament, modest ivory long dress with orange and dark-brown panels, tiny sunflower ornaments, and the little dark book with a sun emblem held to her chest.
+Pose: full-body compact chibi standing pose with an oversized head, short body, both small shoes visible under the dress, hands naturally holding the book. A gentle friendly expression, eyes open, looking toward the viewer with a slight three-quarter turn toward image right. Clear simple body silhouette suitable for a gently bobbing and turning walking animation.
+Style: polished Japanese anime chibi illustration, clean thin warm-brown linework and soft cel shading. Readable at small desktop size, matching a cute high-quality mascot rather than a tall character illustration.
+Composition: square canvas, exactly one complete centered character with about 7% transparent padding; all hair tips, dress hem, ribbon and both shoes fully inside the frame.
+Background: genuine transparent alpha. No ground plane, cast shadow, backdrop, white rectangle, or drawn checkerboard.
+Constraints: no captions, words, labels, watermark, reference-sheet borders, speech bubble, app UI, extra characters, or petting hand. Do not reproduce the reference watermark.

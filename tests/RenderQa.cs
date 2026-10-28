@@ -45,6 +45,8 @@ internal static class RenderQa
 
         bool pet = string.Equals(mode, "pet", StringComparison.OrdinalIgnoreCase) ||
             mode.StartsWith("pet-chatgpt", StringComparison.OrdinalIgnoreCase) ||
+            mode.StartsWith("pet-claude", StringComparison.OrdinalIgnoreCase) ||
+            mode.StartsWith("pet-milk-frog", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-phoebe", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-remaining", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-small", StringComparison.OrdinalIgnoreCase) ||
@@ -100,14 +102,24 @@ internal static class RenderQa
                         petForm.SetPettingProgressForTesting(0.15f);
                     }
                 }
+                if (mode.StartsWith("pet-claude", StringComparison.OrdinalIgnoreCase) ||
+                    mode.StartsWith("pet-milk-frog", StringComparison.OrdinalIgnoreCase))
+                {
+                    petForm.SetAppearance(mode.StartsWith("pet-claude",
+                        StringComparison.OrdinalIgnoreCase)
+                        ? PetAppearance.ClaudeGirl
+                        : PetAppearance.MilkFrog);
+                    if (mode.EndsWith("-rua", StringComparison.OrdinalIgnoreCase))
+                    {
+                        petForm.SetPettingProgressForTesting(0.15f);
+                    }
+                }
                 petForm.SetUsage(new UsageSnapshot
                 {
                     Primary = new UsageWindowSnapshot
                     {
-                        UsedPercent = string.Equals(mode, "pet-nervous",
-                            StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(mode, "pet-chatgpt-nervous",
-                                StringComparison.OrdinalIgnoreCase) ? 88 : 45,
+                        UsedPercent = mode.EndsWith("-nervous",
+                            StringComparison.OrdinalIgnoreCase) ? 88 : 45,
                         ResetsAtUtc = DateTime.UtcNow.AddHours(2).AddMinutes(14)
                     },
                     Secondary = new UsageWindowSnapshot
@@ -116,12 +128,24 @@ internal static class RenderQa
                         ResetsAtUtc = DateTime.UtcNow.AddDays(3).AddHours(9)
                     }
                 });
-                if (string.Equals(mode, "pet-happy",
-                    StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(mode, "pet-chatgpt-happy",
-                        StringComparison.OrdinalIgnoreCase))
+                if (mode.EndsWith("-happy", StringComparison.OrdinalIgnoreCase))
                 {
                     petForm.SetMoodForTesting(PetMood.Happy, 0.45f);
+                }
+                if (mode.EndsWith("-walking", StringComparison.OrdinalIgnoreCase))
+                {
+                    for (int frame = 0; frame < 6; frame++)
+                    {
+                        petForm.AdvanceDesktopMotionForTesting(true,
+                            new Point(1500, 400), new Rectangle(0, 0, 1920, 1080),
+                            0.1d, false);
+                    }
+                }
+                if (mode.EndsWith("-looking-left", StringComparison.OrdinalIgnoreCase))
+                {
+                    petForm.AdvanceDesktopMotionForTesting(false,
+                        new Point(-1000, 200), new Rectangle(0, 0, 1920, 1080),
+                        0.1d, false);
                 }
                 using (Bitmap petImage = petForm.RenderImageForTesting())
                 {
@@ -254,7 +278,7 @@ internal static class RenderQa
         return new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.3.0",
+            AppVersion = "v1.3.1",
             OperatingSystem = "Microsoft Windows 11",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Users\Tester\Apps\UsagePeek.exe",

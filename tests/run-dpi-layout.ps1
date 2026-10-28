@@ -18,6 +18,8 @@ $output = Join-Path $outputDirectory 'DpiLayoutQa.exe'
     "/resource:$(Join-Path $root 'assets\pet-whale-maid-curled.png'),UsagePeek.Assets.PetWhaleMaidCurled.png" `
     "/resource:$(Join-Path $root 'assets\pet-phoebe-chibi.png'),UsagePeek.Assets.PetPhoebeChibi.png" `
     "/resource:$(Join-Path $root 'assets\pet-chatgpt-girl.png'),UsagePeek.Assets.PetChatGptGirl.png" `
+    "/resource:$(Join-Path $root 'assets\pet-claude-girl.png'),UsagePeek.Assets.PetClaudeGirl.png" `
+    "/resource:$(Join-Path $root 'assets\pet-milk-frog.png'),UsagePeek.Assets.PetMilkFrog.png" `
     "/resource:$(Join-Path $root 'assets\petpet-hand-v2.png'),UsagePeek.Assets.PetpetHandV2.png" `
     "/out:$output" `
     (Join-Path $root 'UsageModels.cs') `

@@ -17,6 +17,8 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
   <img src="assets/pet-whale-maid-curled.png" alt="UsagePeek curled whale girl desktop pet" height="260">
   <img src="assets/pet-phoebe-chibi.png" alt="UsagePeek Phoebe Chibi desktop pet" height="260">
   <img src="assets/pet-chatgpt-girl.png" alt="UsagePeek ChatGPT-inspired dragon girl desktop pet" height="260">
+  <img src="assets/pet-claude-girl.png" alt="UsagePeek Claude-inspired desktop pet" height="260">
+  <img src="assets/pet-milk-frog.png" alt="UsagePeek yellow milk frog desktop pet" height="260">
 </p>
 
 ## 下载
@@ -45,14 +47,23 @@ Release 页面同时提供 SHA-256，程序“关于”页可查看并复制当�
 - **模型用量占比**：按本机持久账本统计每个模型的累计 Token、数量和百分比；
   可从主面板底部或托盘菜单打开。
 - **双显示模式**：通过集中设置，可在“一页看完”的经典面板与
-  三种桌宠外形之间切换；圆形紧凑轮廓减少屏幕占用，桌宠支持拖动并
+  五种桌宠外形之间切换；紧凑轮廓减少屏幕占用，桌宠支持拖动并
   记住位置，左键点击后在旁边打开
   完整用量详情。新安装默认使用桌宠模式。
-- **桌宠自定义**：在“设置与诊断”中可切换鲸鱼娘趴趴、菲比啾比与 ChatGPT 娘，选择
+- **桌宠自定义**：在“设置与诊断”中可切换鲸鱼娘趴趴、菲比啾比、ChatGPT 娘、
+  Claude 娘与奶蛙，选择
   显示 `5h` / `7d` 的已用或剩余百分比，并使用 75% / 100% / 125% 快捷尺寸
   或 50%–200% 自定义缩放；外形、口径和大小都会在重启后保留。
 - **ChatGPT 娘外形**：根据参考形象制作的透明背景 Q 版白发龙娘，保留龙角、
   淡紫色翅膀和盘绕龙尾；同样支持摸头、状态表情、恢复日期和图片平均色气泡。
+- **桌面散步与忙碌注视**：切回桌面后，桌宠立即在当前显示器的可用区域内
+  小步走动、停留和转向，并配合轻微起伏摇摆；浏览器、编辑器等应用窗口
+  处于前台时，桌宠停下并朝向鼠标，不再使用键鼠空闲倒计时。
+  顶部用量气泡保持正向，不随角色翻转。
+  拖动、摸头、打开菜单或面板时暂停散步，切换到经典模式或隐藏桌宠后停止
+  动画计时。只读取前台窗口类型和鼠标位置，不读取窗口内容或调用摄像头。
+- **新增 Claude 娘、奶蛙**：分别采用橙发抱书的 Q 版造型与黄色 3D 奶蛙造型，
+  同样支持散步、朝向鼠标、摸头、状态表情及图片平均色气泡。
 - **集中设置与诊断**：右键“设置与诊断…”可在一个窗口内统一调整显示模式、
   桌宠外形、气泡口径、缩放、桌宠置顶与开机自启。普通窗口默认不强制置顶，
   桌宠置顶也默认关闭，并可直接从右键菜单切换；切换后立即生效并自动保存。
@@ -209,7 +220,7 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```json
 {
-  "version": "1.3.0",
+  "version": "1.3.1",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"

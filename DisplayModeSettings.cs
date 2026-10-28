@@ -16,7 +16,9 @@ namespace UsagePeek
     {
         WhaleMaid,
         PhoebeChibi,
-        ChatGptGirl
+        ChatGptGirl,
+        ClaudeGirl,
+        MilkFrog
     }
 
     internal enum PetUsageDisplayMode
@@ -53,6 +55,16 @@ namespace UsagePeek
 
         public PetAppearance GetPetAppearance()
         {
+            if (string.Equals(PetAppearanceId, "claude-girl",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return PetAppearance.ClaudeGirl;
+            }
+            if (string.Equals(PetAppearanceId, "milk-frog",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return PetAppearance.MilkFrog;
+            }
             if (string.Equals(PetAppearanceId, "chatgpt-girl",
                 StringComparison.OrdinalIgnoreCase))
             {
@@ -66,7 +78,11 @@ namespace UsagePeek
 
         public void SetPetAppearance(PetAppearance value)
         {
-            PetAppearanceId = value == PetAppearance.ChatGptGirl
+            PetAppearanceId = value == PetAppearance.MilkFrog
+                ? "milk-frog"
+                : value == PetAppearance.ClaudeGirl
+                ? "claude-girl"
+                : value == PetAppearance.ChatGptGirl
                 ? "chatgpt-girl"
                 : value == PetAppearance.PhoebeChibi
                 ? "phoebe-chibi"

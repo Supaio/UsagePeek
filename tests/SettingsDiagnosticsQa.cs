@@ -170,6 +170,18 @@ internal static class SettingsDiagnosticsQa
             Check(form.Selection.PetAppearance == PetAppearance.ChatGptGirl,
                 "the reusable settings dialog retains the ChatGPT girl selection");
         }
+        foreach (PetAppearance appearance in new[]
+        {
+            PetAppearance.ClaudeGirl, PetAppearance.MilkFrog
+        })
+        {
+            initial.PetAppearance = appearance;
+            using (SettingsForm form = new SettingsForm(initial, CreateDiagnostics))
+            {
+                Check(form.Selection.PetAppearance == appearance,
+                    "settings retains the new appearance: " + appearance);
+            }
+        }
     }
 
     private static bool ShowAndHide(SettingsForm form, bool useClose)
@@ -235,7 +247,7 @@ internal static class SettingsDiagnosticsQa
         return new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.3.0",
+            AppVersion = "v1.3.1",
             OperatingSystem = "Windows QA",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Program Files\UsagePeek\UsagePeek.exe",

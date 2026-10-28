@@ -1,0 +1,8 @@
+Use case: stylized-concept.
+Asset type: one transparent PNG character sprite for UsagePeek, a Windows desktop pet.
+Input image 1 is an identity and material reference for the yellow milk-frog mascot. Make a faithful clean desktop-pet cutout of this same character, preserving its distinctive appearance.
+Subject: a friendly comically pear-shaped yellow 3D frog creature with a very large round belly, pale cream belly patch, smooth soft yellow body, large protruding round green eyes and dark pupils, tiny short straight mouth, short rounded arms resting with small dark olive fingers on the belly, short chunky legs, and big flat dark olive three-toed feet. Preserve these features and natural proportions from the reference.
+Pose and orientation: upright relaxed full body in a slight three-quarter turn facing image right; both feet completely visible and grounded on a common baseline; arms resting on belly, calm gentle expression. Do not add clothing, accessories, fur, teeth, or make it human.
+Style: clean high-quality soft 3D clay/rubber render with the same smooth matte yellow surface and gentle diffuse shading as the reference; readable small-game mascot silhouette.
+Composition: square canvas, one complete centered character with about 7% transparent padding, no clipped head, fingers or feet.
+Background: genuine transparent alpha outside the character, no white background, checkerboard, horizon, floor, ground shadow, text, watermark, speech bubble, UI, or other subjects. Keep only the character.

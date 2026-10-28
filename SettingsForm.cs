@@ -141,13 +141,14 @@ namespace UsagePeek
             {
                 "鲸鱼娘趴趴",
                 "菲比啾比",
-                "ChatGPT 娘"
+                "ChatGPT 娘",
+                "Claude 娘",
+                "奶蛙"
             });
-            appearanceInput.SelectedIndex = safe.PetAppearance ==
-                PetAppearance.ChatGptGirl ? 2 : safe.PetAppearance ==
-                PetAppearance.PhoebeChibi ? 1 : 0;
+            appearanceInput.SelectedIndex = Math.Max(0,
+                Math.Min(appearanceInput.Items.Count - 1, (int)safe.PetAppearance));
             AddSettingRow(settingsPage, 102, "桌宠外形",
-                "三种形象共用摸头和状态表情", appearanceInput);
+                "五种外形，支持散步、摸头", appearanceInput);
 
             usageModeInput = CreateComboBox();
             usageModeInput.Items.AddRange(new object[]
@@ -343,11 +344,8 @@ namespace UsagePeek
                     DisplayMode = displayModeInput.SelectedIndex == 1
                         ? UsageDisplayMode.Pet
                         : UsageDisplayMode.Classic,
-                    PetAppearance = appearanceInput.SelectedIndex == 2
-                        ? PetAppearance.ChatGptGirl
-                        : appearanceInput.SelectedIndex == 1
-                        ? PetAppearance.PhoebeChibi
-                        : PetAppearance.WhaleMaid,
+                    PetAppearance = (PetAppearance)Math.Max(0,
+                        appearanceInput.SelectedIndex),
                     PetUsageDisplayMode = usageModeInput.SelectedIndex == 1
                         ? PetUsageDisplayMode.Remaining
                         : PetUsageDisplayMode.Used,
@@ -440,9 +438,9 @@ namespace UsagePeek
             {
                 displayModeInput.SelectedIndex = value.DisplayMode ==
                     UsageDisplayMode.Pet ? 1 : 0;
-                appearanceInput.SelectedIndex = value.PetAppearance ==
-                    PetAppearance.ChatGptGirl ? 2 : value.PetAppearance ==
-                    PetAppearance.PhoebeChibi ? 1 : 0;
+                appearanceInput.SelectedIndex = Math.Max(0,
+                    Math.Min(appearanceInput.Items.Count - 1,
+                        (int)value.PetAppearance));
                 usageModeInput.SelectedIndex = value.PetUsageDisplayMode ==
                     PetUsageDisplayMode.Remaining ? 1 : 0;
                 scaleInput.Value = Math.Max((int)scaleInput.Minimum,
