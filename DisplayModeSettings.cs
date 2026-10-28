@@ -12,6 +12,13 @@ namespace UsagePeek
         Pet
     }
 
+    internal enum UsageThemeMode
+    {
+        System,
+        Light,
+        Dark
+    }
+
     internal enum PetAppearance
     {
         WhaleMaid,
@@ -39,6 +46,22 @@ namespace UsagePeek
         public string PetUsageMode { get; set; }
         public int? PetScalePercent { get; set; }
         public bool? PetAlwaysOnTop { get; set; }
+        public string ThemeMode { get; set; }
+
+        public UsageThemeMode GetThemeMode()
+        {
+            if (string.Equals(ThemeMode, "light", StringComparison.OrdinalIgnoreCase))
+                return UsageThemeMode.Light;
+            if (string.Equals(ThemeMode, "dark", StringComparison.OrdinalIgnoreCase))
+                return UsageThemeMode.Dark;
+            return UsageThemeMode.System;
+        }
+
+        public void SetThemeMode(UsageThemeMode value)
+        {
+            ThemeMode = value == UsageThemeMode.Light ? "light" :
+                value == UsageThemeMode.Dark ? "dark" : "system";
+        }
 
         public UsageDisplayMode GetDisplayMode()
         {
@@ -184,6 +207,7 @@ namespace UsagePeek
                             value.GetPetScalePercent());
                         value.SetPetAlwaysOnTop(
                             value.GetPetAlwaysOnTop());
+                        value.SetThemeMode(value.GetThemeMode());
                         return value;
                     }
                 }
@@ -199,6 +223,7 @@ namespace UsagePeek
             fallback.SetPetUsageDisplayMode(PetUsageDisplayMode.Used);
             fallback.SetPetScalePercent(100);
             fallback.SetPetAlwaysOnTop(false);
+            fallback.SetThemeMode(UsageThemeMode.System);
             return fallback;
         }
 

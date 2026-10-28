@@ -18,6 +18,7 @@ namespace UsagePeek
             "鲸鱼娘形象 · ZipZipPipe";
 
         internal string ExecutableSha256 { get; private set; }
+        private readonly LinkLabel hashLabel;
 
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
@@ -38,33 +39,35 @@ namespace UsagePeek
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            BackColor = Color.FromArgb(9, 14, 22);
-            ForeColor = Color.FromArgb(233, 239, 247);
+            BackColor = UiColors.Background;
+            ForeColor = UiColors.Text;
+            KeyPreview = true;
             AutoScaleMode = AutoScaleMode.None;
+            AutoScroll = true;
 
             BrandMarkControl brandMark = new BrandMarkControl();
-            brandMark.Location = new Point(20, 16);
+            brandMark.Location = new Point(20, 21);
 
             Label titleLabel = CreateLabel(
-                "UsagePeek", new Point(70, 12), new Size(240, 30),
+                "UsagePeek", new Point(72, 18), new Size(240, 30),
                 14.2f, FontStyle.Bold, ForeColor);
             Label subtitleLabel = CreateLabel(
-                "ChatGPT / Codex 用量监控", new Point(72, 42),
+                "ChatGPT / Codex 用量监控", new Point(74, 47),
                 new Size(250, 20), 8f, FontStyle.Regular,
-                Color.FromArgb(120, 139, 163));
+                UiColors.Muted);
 
             GlyphButtonControl closeButton =
                 new GlyphButtonControl("×", false);
             closeButton.Size = new Size(30, 30);
-            closeButton.Location = new Point(342, 20);
+            closeButton.Location = new Point(342, 25);
             closeButton.Font = new Font("Segoe UI", 13f, FontStyle.Regular);
-            closeButton.ForeColor = Color.FromArgb(164, 179, 198);
+            closeButton.ForeColor = UiColors.Muted;
             closeButton.Click += delegate { Close(); };
 
             Label versionLabel = CreateLabel(
-                "版本 " + ReadVersion(), new Point(20, 78),
-                new Size(350, 22), 8.4f, FontStyle.Bold,
-                Color.FromArgb(45, 212, 191));
+                "版本 " + ReadVersion(), new Point(16, 8),
+                new Size(170, 24), 9.3f, FontStyle.Bold,
+                UiColors.Text);
             try
             {
                 ExecutableSha256 = ExecutableIntegrity.ComputeSha256(
@@ -74,19 +77,17 @@ namespace UsagePeek
             {
                 ExecutableSha256 = null;
             }
-            LinkLabel hashLabel = new LinkLabel();
+            hashLabel = new LinkLabel();
             hashLabel.AutoSize = false;
             hashLabel.BackColor = Color.Transparent;
-            hashLabel.Font = new Font("Consolas", 7.8f, FontStyle.Regular);
+            hashLabel.Font = new Font("Microsoft YaHei UI", 8f, FontStyle.Regular);
             hashLabel.LinkBehavior = LinkBehavior.HoverUnderline;
-            hashLabel.LinkColor = Color.FromArgb(117, 159, 202);
-            hashLabel.ActiveLinkColor = Color.FromArgb(155, 209, 239);
-            hashLabel.Location = new Point(20, 100);
-            hashLabel.Size = new Size(350, 22);
-            hashLabel.Text = "SHA-256  " +
-                ExecutableIntegrity.FormatShortHash(ExecutableSha256) +
-                (ExecutableSha256 == null ? string.Empty : "  · 复制");
-            hashLabel.TextAlign = ContentAlignment.MiddleLeft;
+            hashLabel.LinkColor = UiColors.Accent;
+            hashLabel.ActiveLinkColor = Color.FromArgb(0, 98, 204);
+            hashLabel.Location = new Point(190, 9);
+            hashLabel.Size = new Size(144, 22);
+            hashLabel.Text = ExecutableSha256 == null ? "校验值不可用" : "复制 SHA-256";
+            hashLabel.TextAlign = ContentAlignment.MiddleRight;
             hashLabel.Enabled = ExecutableSha256 != null;
             hashLabel.LinkClicked += delegate
             {
@@ -94,23 +95,28 @@ namespace UsagePeek
             };
             Label descriptionLabel = CreateLabel(
                 "轻量、只读的 Windows 用量查看器。不会上传本机会话内容。",
-                new Point(20, 123), new Size(350, 38),
-                8.1f, FontStyle.Regular, Color.FromArgb(150, 169, 193));
+                new Point(16, 36), new Size(318, 36),
+                8.1f, FontStyle.Regular, UiColors.Secondary);
+            SurfacePanel appInfoCard = new SurfacePanel();
+            appInfoCard.Location = new Point(20, 80);
+            appInfoCard.Size = new Size(350, 80);
+            appInfoCard.Controls.Add(versionLabel);
+            appInfoCard.Controls.Add(hashLabel);
+            appInfoCard.Controls.Add(descriptionLabel);
 
             Label creditsLabel = CreateLabel(
                 "特别鸣谢", new Point(20, 165), new Size(350, 24),
                 9.5f, FontStyle.Bold, ForeColor);
 
-            Panel openUsageCard = CreateCreditCard(
-                new Point(20, 196), Color.FromArgb(45, 212, 191));
+            Panel openUsageCard = CreateCreditCard(new Point(20, 196));
             LinkLabel openUsageName = new LinkLabel();
             openUsageName.AutoSize = false;
             openUsageName.BackColor = Color.Transparent;
             openUsageName.Font = new Font("Microsoft YaHei UI", 9.2f,
                 FontStyle.Bold);
             openUsageName.LinkBehavior = LinkBehavior.HoverUnderline;
-            openUsageName.LinkColor = Color.FromArgb(104, 222, 235);
-            openUsageName.ActiveLinkColor = Color.FromArgb(155, 240, 247);
+            openUsageName.LinkColor = UiColors.Accent;
+            openUsageName.ActiveLinkColor = Color.FromArgb(0, 98, 204);
             openUsageName.Location = new Point(16, 8);
             openUsageName.Size = new Size(320, 24);
             openUsageName.Text = "OpenUsage";
@@ -120,34 +126,31 @@ namespace UsagePeek
             };
             Label openUsageDescription = CreateLabel(
                 OpenUsageCredit, new Point(16, 31), new Size(320, 22),
-                7.9f, FontStyle.Regular, Color.FromArgb(135, 155, 180));
+                7.9f, FontStyle.Regular, UiColors.Muted);
             openUsageCard.Controls.Add(openUsageName);
             openUsageCard.Controls.Add(openUsageDescription);
 
-            Panel characterCard = CreateCreditCard(
-                new Point(20, 262), Color.FromArgb(251, 113, 133));
+            Panel characterCard = CreateCreditCard(new Point(20, 262));
             Label characterName = CreateLabel(
                 "ZipZipPipe", new Point(16, 8), new Size(320, 24),
-                9.2f, FontStyle.Bold, Color.FromArgb(255, 160, 179));
+                9.2f, FontStyle.Bold, UiColors.Text);
             Label characterDescription = CreateLabel(
                 "鲸鱼娘形象", new Point(16, 31), new Size(320, 22),
-                7.9f, FontStyle.Regular, Color.FromArgb(135, 155, 180));
+                7.9f, FontStyle.Regular, UiColors.Muted);
             characterCard.Controls.Add(characterName);
             characterCard.Controls.Add(characterDescription);
 
             Label footerLabel = CreateLabel(
                 "独立社区实现 · 感谢每一位测试和反馈的朋友",
                 new Point(20, 334), new Size(350, 20),
-                7.4f, FontStyle.Regular, Color.FromArgb(88, 106, 128));
+                7.4f, FontStyle.Regular, UiColors.Muted);
             footerLabel.TextAlign = ContentAlignment.MiddleCenter;
 
             Controls.Add(brandMark);
             Controls.Add(titleLabel);
             Controls.Add(subtitleLabel);
             Controls.Add(closeButton);
-            Controls.Add(versionLabel);
-            Controls.Add(hashLabel);
-            Controls.Add(descriptionLabel);
+            Controls.Add(appInfoCard);
             Controls.Add(creditsLabel);
             Controls.Add(openUsageCard);
             Controls.Add(characterCard);
@@ -157,6 +160,14 @@ namespace UsagePeek
             brandMark.MouseDown += DragWindow;
             titleLabel.MouseDown += DragWindow;
             subtitleLabel.MouseDown += DragWindow;
+            KeyDown += delegate(object sender, KeyEventArgs args)
+            {
+                if (args.KeyCode == Keys.Escape)
+                {
+                    args.SuppressKeyPress = true;
+                    Close();
+                }
+            };
             Resize += delegate { UpdateRoundedRegion(); };
             UpdateRoundedRegion();
             InitializeDpiLayout();
@@ -179,7 +190,7 @@ namespace UsagePeek
             using (GraphicsPath path = RoundedRectangle(
                 new Rectangle(0, 0, Width - 1, Height - 1),
                 ScaleLogical(18)))
-            using (Pen border = new Pen(Color.FromArgb(42, 61, 82),
+            using (Pen border = new Pen(UiColors.Border,
                 Math.Max(1f, DpiScaleFactor)))
             {
                 e.Graphics.DrawPath(border, path);
@@ -212,18 +223,11 @@ namespace UsagePeek
             return label;
         }
 
-        private static Panel CreateCreditCard(Point location, Color accent)
+        private static Panel CreateCreditCard(Point location)
         {
-            Panel panel = new Panel();
-            panel.BackColor = Color.FromArgb(18, 27, 39);
+            Panel panel = new SurfacePanel();
             panel.Location = location;
             panel.Size = new Size(350, 58);
-
-            Panel accentBar = new Panel();
-            accentBar.BackColor = accent;
-            accentBar.Location = new Point(0, 0);
-            accentBar.Size = new Size(4, 58);
-            panel.Controls.Add(accentBar);
             return panel;
         }
 
@@ -258,6 +262,7 @@ namespace UsagePeek
             try
             {
                 Clipboard.SetText(ExecutableSha256);
+                hashLabel.Text = "校验值已复制";
             }
             catch (Exception ex)
             {

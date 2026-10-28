@@ -25,7 +25,9 @@ $output = Join-Path $outputDirectory 'SettingsDiagnosticsQa.exe'
     (Join-Path $root 'DisplayModeSettings.cs') `
     (Join-Path $root 'DiagnosticsSnapshot.cs') `
     (Join-Path $root 'DpiAwareForm.cs') `
+    (Join-Path $root 'UiTheme.cs') `
     (Join-Path $root 'UiControls.cs') `
+    (Join-Path $root 'SelectionControls.cs') `
     (Join-Path $root 'SettingsForm.cs') `
     (Join-Path $PSScriptRoot 'SettingsDiagnosticsQa.cs')
 

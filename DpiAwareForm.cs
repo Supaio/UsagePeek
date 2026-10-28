@@ -19,6 +19,24 @@ namespace UsagePeek
         private bool layoutInitialized;
         private bool initialScaleApplied;
 
+        public DpiAwareForm()
+        {
+            UiTheme.Changed += HandleThemeChanged;
+        }
+
+        private void HandleThemeChanged(object sender, ThemeChangedEventArgs args)
+        {
+            if (IsDisposed || Disposing) return;
+            SuspendLayout();
+            try
+            {
+                UiTheme.Apply(this, args.WasDark);
+                UiTheme.ApplyTitleBar(this);
+            }
+            finally { ResumeLayout(true); }
+            Invalidate(true);
+        }
+
         internal int CurrentDpi
         {
             get { return currentDpi; }
@@ -32,6 +50,24 @@ namespace UsagePeek
         protected int ScaleLogical(int value)
         {
             return ScaleDimension(value, DpiScaleFactor);
+        }
+
+        public void BringToForeground()
+        {
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            bool keepOnTop = TopMost;
+            try
+            {
+                if (!Visible) Show();
+                if (!keepOnTop) TopMost = true;
+                BringToFront();
+                Activate();
+                DpiNative.ActivateWindow(Handle);
+            }
+            finally
+            {
+                if (!keepOnTop && !IsDisposed) TopMost = false;
+            }
         }
 
         protected void InitializeDpiLayout()
@@ -71,6 +107,12 @@ namespace UsagePeek
             }
 
             SynchronizeDpiWithWindow();
+            FitToWorkingArea(area);
+        }
+
+        internal void FitToWorkingAreaForTesting(Rectangle area)
+        {
+            FitToWorkingArea(area);
         }
 
         internal void ApplyDpiForTesting(int dpi)
@@ -94,10 +136,21 @@ namespace UsagePeek
                 ApplyDpi(DpiNative.GetWindowDpi(Handle), null);
                 initialScaleApplied = true;
             }
+            UiTheme.ApplyTitleBar(this);
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            FitToWorkingArea(Screen.FromControl(this).WorkingArea);
         }
 
         protected override void WndProc(ref Message message)
         {
+            if (message.Msg == 0x001A || message.Msg == 0x031A)
+            {
+                UiTheme.RefreshSystemTheme();
+            }
             if (message.Msg == WmDpiChanged)
             {
                 int newDpi = (int)(message.WParam.ToInt64() & 0xffff);
@@ -117,12 +170,26 @@ namespace UsagePeek
             Invalidate(true);
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) UiTheme.Changed -= HandleThemeChanged;
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                foreach (ControlLayout layout in designLayouts)
+                {
+                    layout.DisposeFont();
+                }
+            }
+        }
+
         private void CaptureLayouts(Control.ControlCollection controls)
         {
             foreach (Control control in controls)
             {
                 designLayouts.Add(new ControlLayout(control));
-                if (control.HasChildren)
+                // Native inputs manage the geometry and fonts of their internal controls.
+                if (control.HasChildren && !(control is UpDownBase))
                 {
                     CaptureLayouts(control.Controls);
                 }
@@ -153,6 +220,11 @@ namespace UsagePeek
             try
             {
                 currentDpi = newDpi;
+                if (AutoScroll)
+                {
+                    AutoScrollPosition = Point.Empty;
+                    AutoScrollMinSize = Size.Empty;
+                }
 
                 if (suggestedBounds.HasValue)
                 {
@@ -170,7 +242,37 @@ namespace UsagePeek
                 ResumeLayout(true);
             }
 
+            if (Visible || suggestedBounds.HasValue)
+            {
+                FitToWorkingArea(Screen.FromControl(this).WorkingArea);
+            }
             OnDpiScaleChanged();
+        }
+
+        private void FitToWorkingArea(Rectangle area)
+        {
+            if (!AutoScroll || !layoutInitialized || area.Width <= 0 || area.Height <= 0)
+            {
+                return;
+            }
+
+            Size content = ScaleSize(designClientSize, DpiScaleFactor);
+            int availableWidth = Math.Max(1, area.Width - 16 - (Width - ClientSize.Width));
+            int availableHeight = Math.Max(1, area.Height - 16 - (Height - ClientSize.Height));
+            Size viewport = new Size(Math.Min(content.Width, availableWidth),
+                Math.Min(content.Height, availableHeight));
+            SuspendLayout();
+            try
+            {
+                AutoScrollPosition = Point.Empty;
+                AutoScrollMinSize = viewport.Height < content.Height
+                    ? new Size(0, content.Height) : Size.Empty;
+                ClientSize = viewport;
+            }
+            finally
+            {
+                ResumeLayout(true);
+            }
         }
 
         private static Rectangle ReadSuggestedBounds(IntPtr pointer)
@@ -219,6 +321,7 @@ namespace UsagePeek
             private readonly Padding margin;
             private readonly Padding padding;
             private readonly FontLayout font;
+            private Font ownedFont;
 
             public ControlLayout(Control value)
             {
@@ -226,24 +329,36 @@ namespace UsagePeek
                 bounds = value.Bounds;
                 margin = value.Margin;
                 padding = value.Padding;
-                Label label = value as Label;
-                font = label == null ? null : new FontLayout(label.Font);
+                bool nativeText = value is Label || value is ButtonBase ||
+                    value is ListControl || value is UpDownBase || value is TextBoxBase;
+                font = nativeText ? new FontLayout(value.Font) : null;
             }
 
             public void Apply(float geometryScale, float fontScale)
             {
-                Label label = control as Label;
-                if (label != null && font != null)
+                if (font != null)
                 {
-                    Font oldFont = label.Font;
-                    label.Font = font.Create(fontScale);
-                    oldFont.Dispose();
+                    Font previous = ownedFont;
+                    ownedFont = font.Create(fontScale);
+                    control.Font = ownedFont;
+                    // A control's initial font may be borrowed by another control.
+                    // Dispose only the replacement fonts created by this layout.
+                    if (previous != null) previous.Dispose();
                 }
 
                 control.Bounds = ScaleRectangle(bounds, geometryScale);
                 control.Margin = ScalePadding(margin, geometryScale);
                 control.Padding = ScalePadding(padding, geometryScale);
                 control.Invalidate();
+            }
+
+            public void DisposeFont()
+            {
+                if (ownedFont != null)
+                {
+                    ownedFont.Dispose();
+                    ownedFont = null;
+                }
             }
         }
 
@@ -284,6 +399,48 @@ namespace UsagePeek
 
     internal static class DpiNative
     {
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr windowHandle, out uint processId);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(uint from, uint to, bool attach);
+
+        [DllImport("user32.dll")]
+        private static extern bool BringWindowToTop(IntPtr windowHandle);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetFocus(IntPtr windowHandle);
+
+        internal static bool ActivateWindow(IntPtr windowHandle)
+        {
+            if (SetForegroundWindow(windowHandle)) return true;
+            uint foregroundProcess;
+            uint foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out foregroundProcess);
+            uint currentThread = GetCurrentThreadId();
+            bool attached = foregroundThread != 0 && foregroundThread != currentThread &&
+                AttachThreadInput(currentThread, foregroundThread, true);
+            try
+            {
+                BringWindowToTop(windowHandle);
+                bool activated = SetForegroundWindow(windowHandle);
+                if (activated) SetFocus(windowHandle);
+                return activated;
+            }
+            finally
+            {
+                if (attached) AttachThreadInput(currentThread, foregroundThread, false);
+            }
+        }
+
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr windowHandle);
 

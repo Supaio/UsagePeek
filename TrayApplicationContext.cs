@@ -57,6 +57,7 @@ namespace UsagePeek
             bootstrapService = new CodexBootstrapService();
             displayModeSettings = new DisplayModeSettings();
             displayPreference = displayModeSettings.Load();
+            UiTheme.SetMode(displayPreference.GetThemeMode());
             form = new MainForm();
             petForm = new PetForm();
             petForm.SetAppearance(displayPreference.GetPetAppearance());
@@ -81,6 +82,12 @@ namespace UsagePeek
             };
 
             menu = new ContextMenuStrip();
+            menu.Renderer = new ToolStripProfessionalRenderer(new UsageMenuColors());
+            menu.BackColor = UiColors.Surface;
+            menu.ForeColor = UiColors.Text;
+            menu.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular);
+            menu.Padding = new Padding(4);
+            UiTheme.Changed += HandleThemeChanged;
             ToolStripMenuItem openItem = new ToolStripMenuItem("打开用量详情");
             openItem.Click += delegate { ShowDetails(); };
             ToolStripMenuItem refreshItem = new ToolStripMenuItem("立即刷新");
@@ -265,6 +272,8 @@ namespace UsagePeek
             {
                 refreshing = false;
                 form.SetLoading(false);
+                if (settingsDialog != null && !settingsDialog.IsDisposed)
+                    settingsDialog.RefreshDiagnosticsIfVisible();
             }
         }
 
@@ -467,16 +476,18 @@ namespace UsagePeek
                 return;
             }
 
+            bool returnToDetails = form.Visible ||
+                displayPreference.GetDisplayMode() == UsageDisplayMode.Classic;
             form.Hide();
+            DialogResult result;
             using (ModelUsageForm dialog = new ModelUsageForm(lastSnapshot))
             {
                 dialog.PlaceNearTray();
-                dialog.ShowDialog();
+                result = dialog.ShowDialog();
             }
-            if (!exiting && displayPreference.GetDisplayMode() ==
-                UsageDisplayMode.Classic)
+            if (!exiting && (returnToDetails || result == DialogResult.OK))
             {
-                form.ShowNearTray();
+                ShowDetails();
             }
         }
 
@@ -502,7 +513,13 @@ namespace UsagePeek
 
         private void ShowSettings()
         {
-            ShowSettingsDialog();
+            // Run after the tray/pet menu has finished restoring its previous focus.
+            if (menu.Visible) menu.Close();
+            IntPtr unused = form.Handle;
+            form.BeginInvoke(new MethodInvoker(delegate
+            {
+                if (!exiting) ShowSettingsDialog();
+            }));
         }
 
         private void ShowSettingsDialog()
@@ -510,16 +527,14 @@ namespace UsagePeek
             SettingsForm dialog = EnsureSettingsDialog();
             if (dialog.Visible)
             {
-                dialog.Activate();
+                dialog.BringToForeground();
                 return;
             }
 
             dialog.SetSelection(ReadSettingsSelection());
             dialog.ShowGeneralSettings();
             dialog.PlaceNearCursor();
-            dialog.Show();
-            dialog.BringToFront();
-            dialog.Activate();
+            dialog.BringToForeground();
         }
 
         private SettingsForm EnsureSettingsDialog()
@@ -548,10 +563,6 @@ namespace UsagePeek
                 try
                 {
                     await RefreshAsync();
-                    if (!dialog.IsDisposed)
-                    {
-                        dialog.RefreshDiagnostics();
-                    }
                 }
                 finally
                 {
@@ -576,7 +587,8 @@ namespace UsagePeek
                 PetScalePercent = displayPreference.GetPetScalePercent(),
                 PetAlwaysOnTop =
                     displayPreference.GetPetAlwaysOnTop(),
-                StartupEnabled = startupManager.IsEnabled()
+                StartupEnabled = startupManager.IsEnabled(),
+                ThemeMode = displayPreference.GetThemeMode()
             };
         }
 
@@ -595,8 +607,9 @@ namespace UsagePeek
                 previous.PetAlwaysOnTop;
             bool startupChanged = selected.StartupEnabled !=
                 previous.StartupEnabled;
+            bool themeChanged = selected.ThemeMode != previous.ThemeMode;
             bool displayChanged = modeChanged || appearanceChanged ||
-                usageModeChanged || scaleChanged || alwaysOnTopChanged;
+                usageModeChanged || scaleChanged || alwaysOnTopChanged || themeChanged;
 
             if (!displayChanged && !startupChanged)
             {
@@ -614,6 +627,7 @@ namespace UsagePeek
                     selected.PetScalePercent);
                 displayPreference.SetPetAlwaysOnTop(
                     selected.PetAlwaysOnTop);
+                displayPreference.SetThemeMode(selected.ThemeMode);
                 if (!displayModeSettings.TrySave(displayPreference))
                 {
                     RestoreDisplayPreference(previous);
@@ -662,6 +676,7 @@ namespace UsagePeek
                 return;
             }
 
+            if (themeChanged) UiTheme.SetMode(selected.ThemeMode);
             if (appearanceChanged)
             {
                 SetPetAppearance(selected.PetAppearance);
@@ -694,6 +709,15 @@ namespace UsagePeek
             displayPreference.SetPetScalePercent(previous.PetScalePercent);
             displayPreference.SetPetAlwaysOnTop(
                 previous.PetAlwaysOnTop);
+            displayPreference.SetThemeMode(previous.ThemeMode);
+        }
+
+        private void HandleThemeChanged(object sender, ThemeChangedEventArgs args)
+        {
+            menu.BackColor = UiColors.Surface;
+            menu.ForeColor = UiColors.Text;
+            foreach (ToolStripItem item in menu.Items) item.ForeColor = UiColors.Text;
+            menu.Invalidate();
         }
 
         private DiagnosticsSnapshot BuildDiagnosticsSnapshot()
@@ -720,7 +744,8 @@ namespace UsagePeek
                 diagnostics.ExecutableSha256 = null;
             }
             diagnostics.DisplayCount = Screen.AllScreens.Length;
-            diagnostics.CurrentDpi = petForm.Visible
+            diagnostics.CurrentDpi = settingsDialog != null && settingsDialog.Visible
+                ? settingsDialog.CurrentDpi : petForm.Visible
                 ? petForm.CurrentDpi
                 : form.Visible
                     ? form.CurrentDpi
@@ -774,6 +799,7 @@ namespace UsagePeek
             UsageSnapshot snapshot = lastSnapshot;
             if (snapshot == null)
             {
+                diagnostics.HasLocalUsage = false;
                 diagnostics.UsageStatus = lastRefreshErrorCode == null
                     ? "尚未读取"
                     : "离线";
@@ -790,7 +816,24 @@ namespace UsagePeek
             {
                 diagnostics.LocalFilesScanned =
                     snapshot.LocalTokenUsage.FilesScanned;
+                TokenPeriodSnapshot lifetime = snapshot.LocalTokenUsage.Lifetime;
+                bool hasData = lifetime != null && lifetime.HasData && lifetime.TotalTokens > 0;
+                diagnostics.HasLocalUsage = hasData;
+                if (hasData)
+                {
+                    diagnostics.HasCompletePriceCoverage = lifetime.HasCompleteCostEstimate;
+                    diagnostics.PriceCoveragePercent = lifetime.HasCompleteCostEstimate ? 100 :
+                        Math.Max(0, Math.Min(100, (int)Math.Round(
+                            lifetime.PricedTokens * 100d / lifetime.TotalTokens,
+                            MidpointRounding.AwayFromZero)));
+                    int unknown = 0;
+                    if (snapshot.LocalTokenUsage.ModelUsage != null)
+                        foreach (ModelTokenUsageSnapshot model in snapshot.LocalTokenUsage.ModelUsage)
+                            if (model != null && model.HasPriceEstimate == false) unknown++;
+                    diagnostics.UnpricedModelCount = unknown;
+                }
             }
+            else diagnostics.HasLocalUsage = false;
             diagnostics.PriceCoverage = DescribePriceCoverage(snapshot);
             return diagnostics;
         }
@@ -988,6 +1031,7 @@ namespace UsagePeek
             }
 
             exiting = true;
+            UiTheme.Changed -= HandleThemeChanged;
             refreshTimer.Stop();
             initialRefreshTimer.Stop();
             initialRefreshTimer.Dispose();

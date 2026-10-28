@@ -28,6 +28,7 @@ $output = Join-Path $outputDirectory 'PetModeQa.exe'
     "/resource:$(Join-Path $root 'assets\petpet-hand-v2.png'),UsagePeek.Assets.PetpetHandV2.png" `
     "/out:$output" `
     (Join-Path $root 'DpiAwareForm.cs') `
+    (Join-Path $root 'UiTheme.cs') `
     (Join-Path $root 'DisplayModeSettings.cs') `
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'PetForm.cs') `

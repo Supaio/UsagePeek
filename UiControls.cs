@@ -42,17 +42,33 @@ namespace UsagePeek
             float pointSize,
             FontStyle style)
         {
-            return new Font(family,
-                Math.Max(1f, pointSize / GetScale(control)),
-                style, GraphicsUnit.Point);
+            // The graphics transform handles DPI; pixel fonts avoid a second
+            // conversion through the drawing surface's own DPI.
+            return new Font(family, Math.Max(1f, pointSize * 96f / 72f),
+                style, GraphicsUnit.Pixel);
         }
 
         public static Font LogicalFont(Control control, Font source)
         {
             return new Font(source.FontFamily,
-                Math.Max(1f, source.SizeInPoints / GetScale(control)),
-                source.Style, GraphicsUnit.Point,
+                Math.Max(1f, source.SizeInPoints * 96f / 72f),
+                source.Style, GraphicsUnit.Pixel,
                 source.GdiCharSet, source.GdiVerticalFont);
+        }
+
+        public static void StyleButton(Button button, bool primary)
+        {
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 0;
+            button.Tag = primary;
+            button.BackColor = primary ? UiColors.Primary : UiColors.Surface;
+            button.ForeColor = primary ? Color.White : UiColors.Secondary;
+            button.FlatAppearance.MouseOverBackColor = primary
+                ? UiColors.PrimaryHover : UiColors.Selection;
+            button.FlatAppearance.MouseDownBackColor = primary
+                ? UiColors.PrimaryPressed : UiColors.FieldHover;
+            button.UseVisualStyleBackColor = false;
+            button.Cursor = Cursors.Hand;
         }
 
         public static GraphicsPath RoundedRectangle(Rectangle bounds, int radius)
@@ -108,6 +124,191 @@ namespace UsagePeek
             return (int)Math.Round(value / Math.Max(1f, scale),
                 MidpointRounding.AwayFromZero);
         }
+    }
+
+    internal sealed class RoundedButton : Button
+    {
+        private bool hovered;
+        private bool pressed;
+
+        public RoundedButton()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            Color background = Parent == null ? UiColors.Background : Parent.BackColor;
+            e.Graphics.Clear(background.A == 0 ? UiColors.Background : background);
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            hovered = true;
+            base.OnMouseEnter(e);
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            hovered = false;
+            pressed = false;
+            base.OnMouseLeave(e);
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            pressed = e.Button == MouseButtons.Left;
+            base.OnMouseDown(e);
+            Invalidate();
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            pressed = false;
+            base.OnMouseUp(e);
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            System.Drawing.Drawing2D.GraphicsState state = e.Graphics.Save();
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle bounds = new Rectangle(0, 0,
+                UiDrawing.LogicalWidth(this) - 1, UiDrawing.LogicalHeight(this) - 1);
+            Color fill = !Enabled ? UiColors.Border : pressed
+                ? FlatAppearance.MouseDownBackColor : hovered
+                    ? FlatAppearance.MouseOverBackColor : BackColor;
+            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 8))
+            using (SolidBrush background = new SolidBrush(fill))
+            {
+                e.Graphics.FillPath(background, path);
+                if (Focused && ShowFocusCues)
+                {
+                    using (Pen focus = new Pen(UiColors.Accent))
+                        e.Graphics.DrawPath(focus, path);
+                }
+            }
+            e.Graphics.Restore(state);
+            Rectangle textBounds = new Rectangle(Padding.Left, Padding.Top,
+                Math.Max(1, Width - Padding.Horizontal), Math.Max(1, Height - Padding.Vertical));
+            TextFormatFlags flags = TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
+            flags |= TextAlign == ContentAlignment.MiddleLeft
+                ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter;
+            TextRenderer.DrawText(e.Graphics, Text, Font, textBounds,
+                Enabled ? ForeColor : UiColors.Muted, flags);
+        }
+    }
+
+    internal sealed class SurfacePanel : Panel
+    {
+        public SurfacePanel()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw |
+                ControlStyles.SupportsTransparentBackColor |
+                ControlStyles.UserPaint, true);
+            BackColor = Color.Transparent;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            base.OnPaintBackground(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle bounds = new Rectangle(0, 0,
+                UiDrawing.LogicalWidth(this) - 1, UiDrawing.LogicalHeight(this) - 1);
+            if (bounds.Width <= 0 || bounds.Height <= 0) return;
+            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 10))
+            using (SolidBrush fill = new SolidBrush(UiColors.Surface))
+            using (Pen border = new Pen(UiColors.Border))
+            {
+                e.Graphics.FillPath(fill, path);
+                e.Graphics.DrawPath(border, path);
+            }
+        }
+    }
+
+    internal sealed class SwitchCheckBox : CheckBox
+    {
+        public SwitchCheckBox()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint |
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.ResizeRedraw |
+                ControlStyles.Opaque |
+                ControlStyles.UserPaint, true);
+            AutoSize = false;
+            BackColor = UiColors.Surface;
+            Cursor = Cursors.Hand;
+        }
+
+        protected override void OnCheckedChanged(EventArgs e)
+        {
+            base.OnCheckedChanged(e);
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int width = UiDrawing.LogicalWidth(this);
+            int height = UiDrawing.LogicalHeight(this);
+            using (SolidBrush background = new SolidBrush(BackColor))
+            {
+                e.Graphics.FillRectangle(background, 0, 0, width, height);
+            }
+            Rectangle track = new Rectangle(width - 43, (height - 24) / 2, 42, 24);
+            using (GraphicsPath path = UiDrawing.RoundedRectangle(track, 12))
+            using (SolidBrush fill = new SolidBrush(!Enabled ? UiColors.Border :
+                Checked ? UiColors.Accent : UiColors.SwitchOff))
+            using (SolidBrush knob = new SolidBrush(Color.White))
+            using (Font font = UiDrawing.LogicalFont(this,
+                "Microsoft YaHei UI", 8.5f, FontStyle.Regular))
+            using (SolidBrush text = new SolidBrush(Enabled ? UiColors.Text : UiColors.Muted))
+            using (StringFormat format = new StringFormat())
+            {
+                e.Graphics.FillPath(fill, path);
+                e.Graphics.FillEllipse(knob,
+                    Checked ? track.Right - 22 : track.Left + 2, track.Top + 2, 20, 20);
+                format.LineAlignment = StringAlignment.Center;
+                format.FormatFlags = StringFormatFlags.NoWrap;
+                format.Trimming = StringTrimming.EllipsisCharacter;
+                e.Graphics.DrawString(Text, font, text,
+                    new RectangleF(0, 0, Math.Max(1, width - 54), height), format);
+                if (Focused && ShowFocusCues)
+                {
+                    using (Pen focus = new Pen(UiColors.Accent))
+                    {
+                        focus.DashStyle = DashStyle.Dot;
+                        e.Graphics.DrawRectangle(focus, 0, 0, width - 1, height - 1);
+                    }
+                }
+            }
+        }
+    }
+
+    internal sealed class UsageMenuColors : ProfessionalColorTable
+    {
+        public override Color ToolStripDropDownBackground { get { return UiColors.Surface; } }
+        public override Color ImageMarginGradientBegin { get { return UiColors.Surface; } }
+        public override Color ImageMarginGradientMiddle { get { return UiColors.Surface; } }
+        public override Color ImageMarginGradientEnd { get { return UiColors.Surface; } }
+        public override Color MenuItemSelected { get { return UiColors.Selection; } }
+        public override Color MenuItemBorder { get { return UiColors.Selection; } }
+        public override Color MenuBorder { get { return UiColors.Border; } }
+        public override Color SeparatorDark { get { return UiColors.Border; } }
+        public override Color SeparatorLight { get { return UiColors.Surface; } }
+        public override Color CheckBackground { get { return UiColors.Selection; } }
+        public override Color CheckSelectedBackground { get { return UiColors.Selection; } }
+        public override Color CheckPressedBackground { get { return UiColors.Selection; } }
     }
 
     internal sealed class BrandMarkControl : Control
@@ -172,7 +373,7 @@ namespace UsagePeek
                 ControlStyles.UserPaint, true);
             BackColor = Color.Transparent;
             Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-            ForeColor = Color.FromArgb(204, 251, 241);
+            ForeColor = UiColors.Secondary;
             Size = new Size(76, 28);
             Text = "--";
         }
@@ -202,11 +403,9 @@ namespace UsagePeek
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(
                 bounds, logicalHeight / 2))
-            using (SolidBrush background = new SolidBrush(UiDrawing.WithAlpha(accent, 32)))
-            using (Pen border = new Pen(UiDrawing.WithAlpha(accent, 82)))
+            using (SolidBrush background = new SolidBrush(UiColors.Track))
             {
                 e.Graphics.FillPath(background, path);
-                e.Graphics.DrawPath(border, path);
             }
 
             using (SolidBrush dot = new SolidBrush(accent))
@@ -215,9 +414,14 @@ namespace UsagePeek
             {
                 e.Graphics.FillEllipse(dot,
                     11, logicalHeight / 2 - 3, 6, 6);
-                SizeF textSize = e.Graphics.MeasureString(Text, logicalFont);
-                e.Graphics.DrawString(Text, logicalFont, textBrush,
-                    24, (logicalHeight - textSize.Height) / 2f - 0.5f);
+                using (StringFormat format = new StringFormat())
+                {
+                    format.LineAlignment = StringAlignment.Center;
+                    format.Trimming = StringTrimming.EllipsisCharacter;
+                    format.FormatFlags = StringFormatFlags.NoWrap;
+                    e.Graphics.DrawString(Text, logicalFont, textBrush,
+                        new RectangleF(24, 0, logicalWidth - 29, logicalHeight), format);
+                }
             }
         }
     }
@@ -236,14 +440,19 @@ namespace UsagePeek
                 ControlStyles.UserPaint, true);
             BackColor = Color.Transparent;
             Cursor = Cursors.Hand;
-            TabStop = false;
+            TabStop = true;
+            AccessibleRole = AccessibleRole.PushButton;
             Primary = primary;
+            Flat = !primary;
             displayText = text;
-            Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Bold);
-            ForeColor = Color.FromArgb(209, 250, 229);
+            Text = text;
+            AccessibleName = text;
+            Font = new Font("Microsoft YaHei UI", 8.5f, FontStyle.Regular);
+            ForeColor = primary ? Color.White : UiColors.Secondary;
         }
 
         public bool Primary { get; private set; }
+        public bool Flat { get; set; }
 
         public string DisplayText
         {
@@ -251,7 +460,61 @@ namespace UsagePeek
             set
             {
                 displayText = value ?? string.Empty;
+                Text = displayText;
+                AccessibleName = displayText;
                 Invalidate();
+            }
+        }
+
+        public void PerformClick()
+        {
+            if (Enabled) OnClick(EventArgs.Empty);
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (Enabled && (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space))
+            {
+                e.SuppressKeyPress = true;
+                PerformClick();
+            }
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            base.OnGotFocus(e);
+            Invalidate();
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            base.OnLostFocus(e);
+            Invalidate();
+        }
+
+        protected override AccessibleObject CreateAccessibilityInstance()
+        {
+            return new ButtonAccessibleObject(this);
+        }
+
+        private sealed class ButtonAccessibleObject : ControlAccessibleObject
+        {
+            private readonly GlyphButtonControl button;
+
+            public ButtonAccessibleObject(GlyphButtonControl owner) : base(owner)
+            {
+                button = owner;
+            }
+
+            public override string DefaultAction { get { return "按下"; } }
+
+            public override void DoDefaultAction()
+            {
+                if (button.IsHandleCreated)
+                    button.BeginInvoke(new MethodInvoker(button.PerformClick));
+                else
+                    button.PerformClick();
             }
         }
 
@@ -303,33 +566,12 @@ namespace UsagePeek
             Rectangle bounds = new Rectangle(
                 0, 0, logicalWidth - 1, logicalHeight - 1);
 
-            Color background;
-            Color border;
-            if (!Enabled)
-            {
-                background = Color.FromArgb(23, 31, 42);
-                border = Color.FromArgb(38, 49, 64);
-            }
-            else if (Primary)
-            {
-                background = pressed
-                    ? Color.FromArgb(24, 132, 120)
-                    : hovered
-                        ? Color.FromArgb(20, 116, 106)
-                        : Color.FromArgb(17, 94, 89);
-                border = Color.FromArgb(38, 166, 154);
-            }
-            else
-            {
-                background = pressed
-                    ? Color.FromArgb(38, 49, 63)
-                    : hovered
-                        ? Color.FromArgb(31, 42, 55)
-                        : Color.FromArgb(22, 30, 41);
-                border = hovered
-                    ? Color.FromArgb(62, 77, 96)
-                    : Color.FromArgb(39, 50, 65);
-            }
+            Color border = Color.Transparent;
+            Color background = !Enabled ? (Flat ? Color.Transparent : UiColors.Track)
+                : Primary ? (pressed ? UiColors.PrimaryPressed : hovered
+                    ? UiColors.PrimaryHover : UiColors.Primary)
+                : pressed ? UiColors.FieldHover : hovered ? UiColors.Track
+                    : Flat ? Color.Transparent : UiColors.Surface;
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds,
                 Math.Min(10, logicalHeight / 2)))
@@ -338,11 +580,18 @@ namespace UsagePeek
             {
                 e.Graphics.FillPath(backgroundBrush, path);
                 e.Graphics.DrawPath(borderPen, path);
+                if (Focused && ShowFocusCues)
+                {
+                    using (Pen focus = new Pen(UiColors.Accent))
+                    {
+                        e.Graphics.DrawPath(focus, path);
+                    }
+                }
             }
 
             Color textColor = Enabled
                 ? ForeColor
-                : Color.FromArgb(94, 108, 126);
+                : UiColors.Muted;
             using (SolidBrush textBrush = new SolidBrush(textColor))
             using (Font logicalFont = UiDrawing.LogicalFont(this, Font))
             {
@@ -359,8 +608,8 @@ namespace UsagePeek
     {
         private string headline = "准备读取额度";
         private string detail = "正在连接 Codex 本地接口";
-        private string badge = "SYNC";
-        private Color accent = Color.FromArgb(56, 189, 248);
+        private string badge = "同步中";
+        private Color accent = UiColors.Accent;
 
         public StatusBannerControl()
         {
@@ -376,8 +625,8 @@ namespace UsagePeek
         {
             headline = "正在同步额度";
             detail = "通过 Codex 本地只读接口获取最新数据";
-            badge = "SYNC";
-            accent = Color.FromArgb(56, 189, 248);
+            badge = "同步中";
+            accent = UiColors.Accent;
             Invalidate();
         }
 
@@ -387,8 +636,8 @@ namespace UsagePeek
             {
                 headline = "正在显示最近缓存";
                 detail = "实时刷新暂时失败，额度数据仍可查看";
-                badge = "CACHE";
-                accent = Color.FromArgb(251, 191, 36);
+                badge = "缓存";
+                accent = UiColors.Warning;
                 Invalidate();
                 return;
             }
@@ -407,22 +656,22 @@ namespace UsagePeek
             {
                 headline = "额度接近上限";
                 detail = "建议留意最近的额度重置时间";
-                accent = Color.FromArgb(251, 113, 133);
+                accent = UiColors.Danger;
             }
             else if (highest >= 75)
             {
                 headline = "额度使用较高";
                 detail = "仍可继续使用，注意长期窗口余量";
-                accent = Color.FromArgb(251, 191, 36);
+                accent = UiColors.Warning;
             }
             else
             {
                 headline = "额度状态良好";
                 detail = "短期与长期窗口均可正常使用";
-                accent = Color.FromArgb(45, 212, 191);
+                accent = UiColors.Success;
             }
 
-            badge = "LIVE";
+            badge = "实时";
             Invalidate();
         }
 
@@ -451,8 +700,8 @@ namespace UsagePeek
             {
                 detail = "请确认 Codex 已安装、已登录且版本较新";
             }
-            badge = "OFFLINE";
-            accent = Color.FromArgb(251, 113, 133);
+            badge = "离线";
+            accent = UiColors.Danger;
             Invalidate();
         }
 
@@ -462,45 +711,33 @@ namespace UsagePeek
             UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int logicalWidth = UiDrawing.LogicalWidth(this);
-            int logicalHeight = UiDrawing.LogicalHeight(this);
-            Rectangle bounds = new Rectangle(
-                0, 0, logicalWidth - 1, logicalHeight - 1);
-
-            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 14))
-            using (LinearGradientBrush background = new LinearGradientBrush(
-                bounds,
-                UiDrawing.WithAlpha(accent, 30),
-                Color.FromArgb(19, 27, 38),
-                8f))
-            using (Pen border = new Pen(UiDrawing.WithAlpha(accent, 70)))
+            using (SolidBrush dot = new SolidBrush(UiColors.Normalize(accent)))
             {
-                e.Graphics.FillPath(background, path);
-                e.Graphics.DrawPath(border, path);
-            }
-
-            using (SolidBrush halo = new SolidBrush(UiDrawing.WithAlpha(accent, 40)))
-            using (SolidBrush dot = new SolidBrush(accent))
-            {
-                e.Graphics.FillEllipse(halo, 16, 20, 24, 24);
-                e.Graphics.FillEllipse(dot, 24, 28, 8, 8);
+                e.Graphics.FillEllipse(dot, 2, 7, 6, 6);
             }
 
             using (Font titleFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 10f, FontStyle.Bold))
+                this, "Microsoft YaHei UI", 9f, FontStyle.Bold))
             using (Font detailFont = UiDrawing.LogicalFont(
                 this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
             using (Font badgeFont = UiDrawing.LogicalFont(
-                this, "Segoe UI", 7f, FontStyle.Bold))
-            using (SolidBrush titleBrush = new SolidBrush(Color.FromArgb(235, 241, 248)))
-            using (SolidBrush detailBrush = new SolidBrush(Color.FromArgb(139, 155, 176)))
-            using (SolidBrush badgeBrush = new SolidBrush(accent))
+                this, "Microsoft YaHei UI", 7.5f, FontStyle.Regular))
+            using (SolidBrush titleBrush = new SolidBrush(UiColors.Secondary))
+            using (SolidBrush detailBrush = new SolidBrush(UiColors.Muted))
+            using (SolidBrush badgeBrush = new SolidBrush(UiColors.Normalize(accent)))
             {
-                e.Graphics.DrawString(headline, titleFont, titleBrush, 52, 11);
-                e.Graphics.DrawString(detail, detailFont, detailBrush, 52, 35);
+                e.Graphics.DrawString(headline, titleFont, titleBrush, 16, 0);
+                using (StringFormat format = new StringFormat())
+                {
+                    format.FormatFlags = StringFormatFlags.NoWrap;
+                    format.Trimming = StringTrimming.EllipsisCharacter;
+                    e.Graphics.DrawString(detail, detailFont, detailBrush,
+                        new RectangleF(16, 24, logicalWidth - 20, 18), format);
+                }
 
                 SizeF badgeSize = e.Graphics.MeasureString(badge, badgeFont);
                 e.Graphics.DrawString(badge, badgeFont, badgeBrush,
-                    logicalWidth - badgeSize.Width - 17, 24);
+                    logicalWidth - badgeSize.Width - 2, 2);
             }
         }
     }

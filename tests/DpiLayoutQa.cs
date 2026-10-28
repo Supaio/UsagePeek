@@ -11,6 +11,7 @@ internal static class DpiLayoutQa
     [STAThread]
     private static int Main()
     {
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
@@ -20,6 +21,9 @@ internal static class DpiLayoutQa
         VerifySettingsForm();
         VerifyPetSizeDialog();
         VerifyPetForm();
+        VerifySharedFonts();
+        VerifyAccessibleButtons();
+        VerifyThemeChanges();
 
         if (failures > 0)
         {
@@ -48,7 +52,7 @@ internal static class DpiLayoutQa
                 "main form scales to 150 percent");
 
             UsageCardControl card = FindControl<UsageCardControl>(form);
-            AssertEqual(new Rectangle(30, 257, 582, 168), card.Bounds,
+            AssertEqual(new Rectangle(33, 204, 279, 261), card.Bounds,
                 "main usage card geometry scales to 150 percent");
 
             form.ApplyDpiForTesting(192);
@@ -58,8 +62,20 @@ internal static class DpiLayoutQa
             form.ApplyDpiForTesting(96);
             AssertEqual(new Size(428, 708), form.ClientSize,
                 "main form returns exactly to 100 percent");
-            AssertEqual(new Rectangle(20, 171, 388, 112), card.Bounds,
+            AssertEqual(new Rectangle(22, 136, 186, 174), card.Bounds,
                 "main usage card returns without rounding drift");
+
+            IntPtr unused = form.Handle;
+            form.ApplyDpiForTesting(192);
+            form.FitToWorkingAreaForTesting(new Rectangle(-1000, 0, 1000, 800));
+            AssertEqual(true, form.Width <= 984 && form.Height <= 784,
+                "large popup fits within a small monitor working area (window " +
+                form.Size + ", client " + form.ClientSize + ")");
+            AssertEqual(true, form.AutoScrollMinSize.Height >= 1416,
+                "content below a scaled popup remains available by scrolling");
+            form.ApplyDpiForTesting(96);
+            AssertEqual(Size.Empty, form.AutoScrollMinSize,
+                "normal DPI clears the temporary scroll extent");
         }
     }
 
@@ -194,7 +210,7 @@ internal static class DpiLayoutQa
             return new DiagnosticsSnapshot
             {
                 GeneratedAtUtc = DateTime.UtcNow,
-                AppVersion = "v1.3.1",
+                AppVersion = "v2.0.0",
                 OperatingSystem = "Windows QA",
                 ProcessArchitecture = "64 位",
                 DisplayCount = 1,
@@ -211,17 +227,131 @@ internal static class DpiLayoutQa
         {
             AssertEqual(false, form.TopMost,
                 "settings form is not forced above other apps");
-            AssertEqual(new Size(560, 480), form.ClientSize,
+            AssertEqual(new Size(560, 530), form.ClientSize,
                 "settings form uses the expected design size");
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(840, 720), form.ClientSize,
+            AssertEqual(new Size(840, 795), form.ClientSize,
                 "settings form scales to 150 percent");
             form.ApplyDpiForTesting(192);
-            AssertEqual(new Size(1120, 960), form.ClientSize,
+            AssertEqual(new Size(1120, 1060), form.ClientSize,
                 "settings form scales to 200 percent");
             form.ApplyDpiForTesting(96);
-            AssertEqual(new Size(560, 480), form.ClientSize,
+            AssertEqual(new Size(560, 530), form.ClientSize,
                 "settings form returns exactly to 100 percent");
+        }
+    }
+
+    private static void VerifySharedFonts()
+    {
+        using (Font shared = new Font("Segoe UI", 10f))
+        using (NativeFontForm form = new NativeFontForm(shared))
+        {
+            IntPtr unused = form.Handle;
+            for (int pass = 0; pass < 4; pass++)
+            {
+                foreach (int dpi in new[] { 96, 144, 192, 96 })
+                {
+                    form.ApplyDpiForTesting(dpi);
+                    using (Bitmap bitmap = new Bitmap(form.Width, form.Height))
+                    {
+                        form.DrawToBitmap(bitmap,
+                            new Rectangle(Point.Empty, bitmap.Size));
+                    }
+                }
+            }
+            AssertEqual(true, shared.GetHeight() > 0,
+                "repeated DPI changes do not dispose a shared input font");
+            form.ApplyDpiForTesting(144);
+            AssertEqual(true, Math.Abs(form.Input.Font.SizeInPoints -
+                10f * 144f / DpiNative.GetSystemDpi()) < 0.1f,
+                "native dropdown font follows monitor DPI");
+        }
+    }
+
+    private static void VerifyAccessibleButtons()
+    {
+        using (GlyphButtonControl button = new GlyphButtonControl("测试操作", false))
+        {
+            int clicks = 0;
+            button.Click += delegate { clicks++; };
+            button.AccessibilityObject.DoDefaultAction();
+            Application.DoEvents();
+            AssertEqual(1, clicks, "accessible button action invokes its command");
+            button.Enabled = false;
+            button.AccessibilityObject.DoDefaultAction();
+            Application.DoEvents();
+            AssertEqual(1, clicks, "disabled button ignores accessible invocation");
+            AssertEqual(true, button.TabStop, "toolbar buttons support keyboard navigation");
+        }
+    }
+
+    private static void VerifyThemeChanges()
+    {
+        UsageThemeMode original = UiTheme.Mode;
+        try
+        {
+            UiTheme.SetMode(UsageThemeMode.Light);
+            using (MainForm form = new MainForm())
+            using (SettingsForm settings = new SettingsForm(null, null))
+            {
+                Color day = form.BackColor;
+                for (int pass = 0; pass < 3; pass++)
+                {
+                    UiTheme.SetMode(UsageThemeMode.Dark);
+                    AssertEqual(UiColors.Background, form.BackColor,
+                        "existing main window follows dark theme");
+                    AssertEqual(UiColors.Background, settings.BackColor,
+                        "existing settings window follows dark theme");
+                    UsageCardControl card = FindControl<UsageCardControl>(form);
+                    using (Bitmap bitmap = new Bitmap(card.Width, card.Height))
+                    {
+                        card.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+                        AssertEqual(UiColors.Surface.ToArgb(), bitmap.GetPixel(8, 80).ToArgb(),
+                            "usage card paints the dark surface rather than a white box");
+                    }
+                    UiTheme.SetMode(UsageThemeMode.Light);
+                    AssertEqual(day, form.BackColor,
+                        "switching back restores the original light palette");
+                }
+            }
+            UiTheme.SetMode(UsageThemeMode.Light);
+            UiTheme.UpdateSystemTheme(true);
+            AssertEqual(false, UiTheme.IsDark, "fixed light theme ignores a dark system");
+            UiTheme.SetMode(UsageThemeMode.Dark);
+            UiTheme.UpdateSystemTheme(false);
+            AssertEqual(true, UiTheme.IsDark, "fixed dark theme ignores a light system");
+            UiTheme.SetMode(UsageThemeMode.System);
+            UiTheme.UpdateSystemTheme(true);
+            AssertEqual(true, UiTheme.IsDark, "system theme tracks dark mode changes");
+            UiTheme.UpdateSystemTheme(false);
+            AssertEqual(false, UiTheme.IsDark, "system theme tracks light mode changes");
+        }
+        finally { UiTheme.SetMode(original); }
+    }
+
+    private sealed class NativeFontForm : DpiAwareForm
+    {
+        public readonly ComboBox Input;
+
+        public NativeFontForm(Font shared)
+        {
+            ClientSize = new Size(400, 200);
+            FormBorderStyle = FormBorderStyle.None;
+            AutoScaleMode = AutoScaleMode.None;
+            Controls.Add(new Label { Font = shared, Text = "Shared A",
+                Location = new Point(10, 10), Size = new Size(120, 24) });
+            Controls.Add(new Label { Font = shared, Text = "Shared B",
+                Location = new Point(150, 10), Size = new Size(120, 24) });
+            Input = new ComboBox { Font = shared,
+                Location = new Point(10, 50), Size = new Size(170, 28) };
+            Input.Items.Add("Native dropdown");
+            Input.SelectedIndex = 0;
+            Controls.Add(Input);
+            Controls.Add(new NumericUpDown { Font = shared,
+                Location = new Point(200, 50), Size = new Size(100, 28) });
+            Controls.Add(new Button { Font = shared, Text = "Native button",
+                Location = new Point(10, 100), Size = new Size(160, 32) });
+            InitializeDpiLayout();
         }
     }
 

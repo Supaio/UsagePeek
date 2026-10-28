@@ -33,6 +33,32 @@ namespace UsagePeek
         public string LastRefreshError { get; set; }
         public int? LocalFilesScanned { get; set; }
         public string PriceCoverage { get; set; }
+        public bool? HasLocalUsage { get; set; }
+        public bool? HasCompletePriceCoverage { get; set; }
+        public int? PriceCoveragePercent { get; set; }
+        public int? UnpricedModelCount { get; set; }
+
+        internal string CodexSourceDisplay
+        {
+            get { return SafeCodexSource(CodexSource); }
+        }
+
+        internal string ConnectionGuidance
+        {
+            get
+            {
+                string error = LastRefreshError ?? string.Empty;
+                if (error.StartsWith("UP-CX-001", StringComparison.Ordinal))
+                    return "未找到本地组件，请先完成 Codex 安装。";
+                if (error.StartsWith("UP-CX-003", StringComparison.Ordinal))
+                    return "自定义组件路径不可用，请检查诊断详情。";
+                if (error.StartsWith("UP-CX-004", StringComparison.Ordinal))
+                    return "请先完成 Codex 登录，再测试连接。";
+                if (error.StartsWith("UP-CX-006", StringComparison.Ordinal))
+                    return "连接超时，可点击测试连接重试。";
+                return "确认 Codex 已安装并登录后，测试连接。";
+            }
+        }
 
         public string BuildReport()
         {
@@ -185,22 +211,23 @@ namespace UsagePeek
                 return "--";
             }
 
-            string[] allowedCodes =
+            string[] allowedMessages =
             {
-                "UP-CX-001 ",
-                "UP-CX-003 ",
-                "UP-CX-004 ",
-                "UP-CX-005 ",
-                "UP-CX-006 ",
-                "UP-CX-007 ",
-                "UP-CX-999 "
+                "UP-CX-001 未找到 Codex 本地组件",
+                "UP-CX-003 自定义 Codex 路径无效",
+                "UP-CX-004 Codex 登录状态不可用",
+                "UP-CX-005 Codex 本地组件无法启动",
+                "UP-CX-006 连接 Codex 超时",
+                "UP-CX-007 Codex 返回的数据无法解析",
+                "UP-CX-999 读取失败（详细信息已隐藏）"
             };
-            foreach (string code in allowedCodes)
+            foreach (string message in allowedMessages)
             {
+                string code = message.Substring(0, 9) + " ";
                 if (value.StartsWith(code,
                     StringComparison.OrdinalIgnoreCase))
                 {
-                    return value;
+                    return message;
                 }
             }
             return "UP-CX-999 读取失败（详细信息已隐藏）";

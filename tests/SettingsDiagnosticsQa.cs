@@ -11,12 +11,17 @@ internal static class SettingsDiagnosticsQa
     [STAThread]
     private static int Main()
     {
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
         VerifySafeReport();
         VerifySettingsSelection();
         VerifyTrySave();
+        VerifySwitchRepaint();
+        VerifyModernInputs();
+        VerifySelectorPopupLifecycle();
+        VerifyDiagnosticsOverview();
 
         if (failures > 0)
         {
@@ -70,6 +75,170 @@ internal static class SettingsDiagnosticsQa
             "diagnostics reports the optional pet topmost setting");
         Check(report.Contains("未包含登录令牌"),
             "report states its privacy boundary");
+        snapshot.LastRefreshError = "UP-CX-006 Authorization: Bearer DO_NOT_COPY";
+        report = snapshot.BuildReport();
+        Check(report.Contains("UP-CX-006 连接 Codex 超时") && !report.Contains("DO_NOT_COPY"),
+            "recognized error codes cannot copy arbitrary secret-bearing payloads");
+    }
+
+    private static void VerifyDiagnosticsOverview()
+    {
+        DiagnosticsSnapshot snapshot = CreateDiagnostics();
+        using (SettingsForm form = new SettingsForm(null, delegate { return snapshot; }))
+        {
+            form.ShowDiagnosticsForTesting();
+            Check(!form.DiagnosticsDetailsExpandedForTesting &&
+                form.DiagnosticsOverviewForTesting.Contains("实时用量已同步") &&
+                form.DiagnosticsOverviewForTesting.Contains("完整覆盖"),
+                "diagnostics opens with readable health checks instead of the raw report");
+            snapshot.UsageStatus = "缓存数据";
+            snapshot.HasCompletePriceCoverage = false;
+            snapshot.PriceCoveragePercent = 82;
+            snapshot.UnpricedModelCount = 2;
+            form.RefreshDiagnostics();
+            Check(form.DiagnosticsOverviewForTesting.Contains("缓存数据") &&
+                form.DiagnosticsOverviewForTesting.Contains("已覆盖 82%") &&
+                form.DiagnosticsOverviewForTesting.Contains("2 个模型待补价"),
+                "cached data and incomplete pricing remain distinct diagnostic results");
+            form.ShowDiagnosticsDetailsForTesting(true);
+            Check(form.DiagnosticsDetailsExpandedForTesting &&
+                form.DiagnosticsTextForTesting.Contains("[Codex 连接]") &&
+                form.DiagnosticsTextForTesting.Contains("EXE SHA-256:"),
+                "technical details preserve the full shareable report");
+            form.ShowDiagnosticsDetailsForTesting(false);
+            Check(!form.DiagnosticsDetailsExpandedForTesting,
+                "technical details return to the health overview");
+            snapshot.UsageStatus = "离线";
+            snapshot.LastRefreshError = "UP-CX-004 Codex 登录状态不可用";
+            snapshot.HasLocalUsage = false;
+            snapshot.CodexCandidateCount = 0;
+            form.RefreshDiagnostics();
+            Check(form.DiagnosticsOverviewForTesting.Contains("请先完成 Codex 登录") &&
+                form.DiagnosticsOverviewForTesting.Contains("尚无统计"),
+                "offline diagnostics suggests the next step without claiming pricing failure");
+        }
+        using (SettingsForm unavailable = new SettingsForm(null, delegate
+        {
+            throw new InvalidOperationException("DO_NOT_COPY private provider details");
+        }))
+        {
+            unavailable.ShowDiagnosticsForTesting();
+            Check(unavailable.DiagnosticsOverviewForTesting.Contains("暂时无法检查") &&
+                !unavailable.DiagnosticsTextForTesting.Contains("DO_NOT_COPY"),
+                "provider failure produces a readable safe state without an error dialog");
+        }
+    }
+
+    private static void VerifySwitchRepaint()
+    {
+        using (SwitchCheckBox control = new SwitchCheckBox())
+        using (Bitmap reused = new Bitmap(354, 30))
+        using (Bitmap fresh = new Bitmap(354, 30))
+        using (Graphics previousFrame = Graphics.FromImage(reused))
+        using (Graphics cleanFrame = Graphics.FromImage(fresh))
+        {
+            control.Size = reused.Size;
+            previousFrame.Clear(UiColors.Surface);
+            cleanFrame.Clear(UiColors.Surface);
+            System.Reflection.MethodInfo paint = typeof(SwitchCheckBox).GetMethod(
+                "OnPaint", System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic);
+            Rectangle bounds = new Rectangle(Point.Empty, reused.Size);
+            control.Text = "登录 Windows 后自动启动 UsagePeek";
+            control.Checked = true;
+            paint.Invoke(control, new object[] { new PaintEventArgs(previousFrame, bounds) });
+            control.Text = "桌宠保持置顶";
+            control.Checked = false;
+            paint.Invoke(control, new object[] { new PaintEventArgs(previousFrame, bounds) });
+            paint.Invoke(control, new object[] { new PaintEventArgs(cleanFrame, bounds) });
+            bool equal = true;
+            for (int y = 0; y < reused.Height && equal; y++)
+            {
+                for (int x = 0; x < reused.Width; x++)
+                {
+                    if (reused.GetPixel(x, y) != fresh.GetPixel(x, y))
+                    {
+                        equal = false;
+                        break;
+                    }
+                }
+            }
+            Check(equal, "switch repaint clears the previous label and knob without ghosting");
+        }
+    }
+
+    private static void VerifyModernInputs()
+    {
+        using (ModernSelectControl select = new ModernSelectControl())
+        {
+            select.Items.AddRange(new object[] { "跟随系统", "浅色模式", "深色模式" });
+            int changes = 0;
+            select.SelectedIndexChanged += delegate { changes++; };
+            select.SelectedIndex = 0;
+            select.SelectedIndex = 0;
+            select.SelectedIndex = 2;
+            Check(changes == 2 && select.Text == "深色模式",
+                "modern selector raises one event for each actual change");
+            select.SelectedIndex = 0;
+            int beforeKey = changes;
+            typeof(ModernSelectControl).GetMethod("OnKeyDown",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .Invoke(select, new object[] { new KeyEventArgs(Keys.Up) });
+            Check(changes == beforeKey && select.SelectedIndex == 0,
+                "up key at the first choice does not apply a blank selection");
+            Check(select.AccessibilityObject.Value == "跟随系统",
+                "modern selector exposes its selected value to accessibility");
+        }
+        using (ModernNumberControl number = new ModernNumberControl())
+        {
+            int changes = 0;
+            number.ValueChanged += delegate { changes++; };
+            number.Step(1);
+            Check(number.Value == 105 && changes == 1,
+                "modern size control applies a single five-percent step");
+            number.Value = 1000;
+            number.Step(1);
+            Check(number.Value == 200 && changes == 2,
+                "modern size control clamps at 200 percent without duplicate changes");
+            number.Value = 0;
+            number.Step(-1);
+            Check(number.Value == 50 && changes == 3,
+                "modern size control clamps at 50 percent");
+        }
+    }
+
+    private static void VerifySelectorPopupLifecycle()
+    {
+        UsageThemeMode original = UiTheme.Mode;
+        try
+        {
+            using (DpiAwareForm form = new DpiAwareForm())
+            using (ModernSelectControl select = new ModernSelectControl())
+            {
+                form.StartPosition = FormStartPosition.Manual;
+                form.Location = new Point(-10000, -10000);
+                select.Items.AddRange(new object[] { "跟随系统", "浅色模式", "深色模式" });
+                form.Controls.Add(select);
+                form.Show();
+                System.Reflection.MethodInfo open = typeof(ModernSelectControl).GetMethod(
+                    "OpenList", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                System.Reflection.FieldInfo popup = typeof(ModernSelectControl).GetField(
+                    "popup", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                for (int pass = 0; pass < 9; pass++)
+                {
+                    open.Invoke(select, null);
+                    ContextMenuStrip menu = (ContextMenuStrip)popup.GetValue(select);
+                    menu.Items[pass % 3].PerformClick();
+                    menu.Close(ToolStripDropDownCloseReason.ItemClicked);
+                    Application.DoEvents();
+                    Check(!menu.IsDisposed && select.SelectedIndex == pass % 3,
+                        "selector popup survives selection and close cycle " + pass);
+                    UiTheme.SetMode(pass % 2 == 0 ? UsageThemeMode.Dark : UsageThemeMode.Light);
+                }
+                form.Hide();
+            }
+        }
+        finally { UiTheme.SetMode(original); }
     }
 
     private static void VerifySettingsSelection()
@@ -134,6 +303,12 @@ internal static class SettingsDiagnosticsQa
                     !form.Selection.PetAlwaysOnTop,
                 "external topmost changes synchronize without looping");
             form.SetPetAlwaysOnTopState(true);
+
+            int beforeTheme = settingsChanges;
+            form.SelectThemeForTesting(UsageThemeMode.Dark);
+            Check(settingsChanges == beforeTheme + 1 &&
+                form.Selection.ThemeMode == UsageThemeMode.Dark,
+                "theme choice immediately participates in auto-save");
 
             form.ShowDiagnosticsForTesting();
             Check(form.DiagnosticsTextForTesting.Contains(
@@ -210,12 +385,15 @@ internal static class SettingsDiagnosticsQa
         {
             DisplayModeSettings settings = new DisplayModeSettings(path);
             DisplayModePreference preference = settings.Load();
+            Check(preference.GetThemeMode() == UsageThemeMode.System,
+                "preferences without a theme follow the system by default");
             preference.SetDisplayMode(UsageDisplayMode.Classic);
             preference.SetPetAppearance(PetAppearance.PhoebeChibi);
             preference.SetPetUsageDisplayMode(
                 PetUsageDisplayMode.Remaining);
             preference.SetPetScalePercent(137);
             preference.SetPetAlwaysOnTop(true);
+            preference.SetThemeMode(UsageThemeMode.Dark);
             Check(settings.TrySave(preference),
                 "settings reports a successful persisted save");
 
@@ -225,7 +403,7 @@ internal static class SettingsDiagnosticsQa
                 restored.GetPetUsageDisplayMode() ==
                     PetUsageDisplayMode.Remaining &&
                 restored.GetPetScalePercent() == 137 &&
-                restored.GetPetAlwaysOnTop(),
+                restored.GetPetAlwaysOnTop() && restored.GetThemeMode() == UsageThemeMode.Dark,
                 "central settings round-trip through the existing format");
             Check(!settings.TrySave(null),
                 "null settings cannot be reported as saved");
@@ -247,7 +425,7 @@ internal static class SettingsDiagnosticsQa
         return new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.3.1",
+            AppVersion = "v2.0.0",
             OperatingSystem = "Windows QA",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Program Files\UsagePeek\UsagePeek.exe",
@@ -273,7 +451,11 @@ internal static class SettingsDiagnosticsQa
             LastRefreshAttemptUtc = DateTime.UtcNow,
             LastRefreshSuccessUtc = DateTime.UtcNow,
             LocalFilesScanned = 12,
-            PriceCoverage = "完整（已扫描模型均可计价）"
+            PriceCoverage = "完整（已扫描模型均可计价）",
+            HasLocalUsage = true,
+            HasCompletePriceCoverage = true,
+            PriceCoveragePercent = 100,
+            UnpricedModelCount = 0
         };
     }
 

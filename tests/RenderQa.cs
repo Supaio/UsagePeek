@@ -11,14 +11,18 @@ internal static class RenderQa
     private static void Main(string[] args)
     {
         string output = args.Length > 0 ? args[0] : "preview.png";
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
         string mode = args.Length > 1 ? args[1] : string.Empty;
+        bool dark = mode.EndsWith("-dark", StringComparison.OrdinalIgnoreCase);
+        if (dark) mode = mode.Substring(0, mode.Length - 5);
+        UiTheme.SetMode(dark ? UsageThemeMode.Dark : UsageThemeMode.Light);
+        int dpi = args.Length > 2 ? int.Parse(args[2]) : 0;
         bool settings = string.Equals(mode, "settings",
             StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(mode, "diagnostics",
-                StringComparison.OrdinalIgnoreCase);
+            mode.StartsWith("diagnostics", StringComparison.OrdinalIgnoreCase);
         if (settings)
         {
             SettingsSelection selection = new SettingsSelection
@@ -28,17 +32,19 @@ internal static class RenderQa
                 PetUsageDisplayMode = PetUsageDisplayMode.Remaining,
                 PetScalePercent = 110,
                 PetAlwaysOnTop = false,
-                StartupEnabled = true
+                StartupEnabled = true,
+                ThemeMode = UiTheme.Mode
             };
             using (SettingsForm settingsForm = new SettingsForm(
-                selection, CreateDiagnosticsPreview))
+                selection, delegate { return CreateDiagnosticsPreview(mode); }))
             {
-                if (string.Equals(mode, "diagnostics",
-                    StringComparison.OrdinalIgnoreCase))
+                if (mode.StartsWith("diagnostics", StringComparison.OrdinalIgnoreCase))
                 {
                     settingsForm.ShowDiagnosticsForTesting();
+                    if (string.Equals(mode, "diagnostics-details", StringComparison.OrdinalIgnoreCase))
+                        settingsForm.ShowDiagnosticsDetailsForTesting(true);
                 }
-                Render(settingsForm, output);
+                Render(settingsForm, output, dpi);
             }
             return;
         }
@@ -157,24 +163,24 @@ internal static class RenderQa
             return;
         }
 
-        bool about = args.Length > 1 && string.Equals(args[1], "about",
+        bool about = string.Equals(mode, "about",
             StringComparison.OrdinalIgnoreCase);
         if (about)
         {
             using (AboutForm aboutForm = new AboutForm())
             {
-                Render(aboutForm, output);
+                Render(aboutForm, output, dpi);
             }
             return;
         }
 
-        bool petSize = args.Length > 1 && string.Equals(args[1], "pet-size",
+        bool petSize = string.Equals(mode, "pet-size",
             StringComparison.OrdinalIgnoreCase);
         if (petSize)
         {
             using (PetSizeDialog sizeForm = new PetSizeDialog(137))
             {
-                Render(sizeForm, output);
+                Render(sizeForm, output, dpi);
             }
             return;
         }
@@ -235,13 +241,41 @@ internal static class RenderQa
             DailyTokens = new Dictionary<string, long>()
         };
 
-        bool models = args.Length > 1 && string.Equals(args[1], "models",
-            StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(mode, "warning", StringComparison.OrdinalIgnoreCase))
+        {
+            snapshot.Primary.UsedPercent = 92;
+            snapshot.Secondary.UsedPercent = 78;
+        }
+        if (string.Equals(mode, "exhausted", StringComparison.OrdinalIgnoreCase))
+        {
+            snapshot.Primary.UsedPercent = 100;
+            snapshot.Secondary.UsedPercent = 100;
+        }
+        if (string.Equals(mode, "large-values", StringComparison.OrdinalIgnoreCase))
+        {
+            snapshot.AccountTokenUsage.LifetimeTokens = 12345678901234;
+            snapshot.LocalTokenUsage.Lifetime.EstimatedCostUsd = 1234567.89m;
+        }
+
+        if (string.Equals(mode, "models-empty", StringComparison.OrdinalIgnoreCase))
+        {
+            snapshot.LocalTokenUsage.ModelUsage.Clear();
+        }
+        if (string.Equals(mode, "models-many", StringComparison.OrdinalIgnoreCase))
+        {
+            snapshot.LocalTokenUsage.ModelUsage.Clear();
+            for (int index = 0; index < 20; index++)
+            {
+                snapshot.LocalTokenUsage.ModelUsage.Add(Model(
+                    "preview-model-with-a-long-name-" + index, 1000000, 5d));
+            }
+        }
+        bool models = mode.StartsWith("models", StringComparison.OrdinalIgnoreCase);
         if (models)
         {
             using (ModelUsageForm modelForm = new ModelUsageForm(snapshot))
             {
-                Render(modelForm, output);
+                Render(modelForm, output, dpi);
             }
             return;
         }
@@ -254,12 +288,18 @@ internal static class RenderQa
             {
                 form.ShowError("检测到 Codex Windows 桌面版，但其内置组件受 Windows 保护。");
             }
+            else if (string.Equals(mode, "loading", StringComparison.OrdinalIgnoreCase))
+            {
+                form.SetLoading(true);
+            }
             else
             {
-                form.ShowSnapshot(snapshot, null);
+                form.ShowSnapshot(snapshot,
+                    string.Equals(mode, "stale", StringComparison.OrdinalIgnoreCase)
+                        ? "UP-CX-006 连接 Codex 超时" : null);
             }
-            if (!offline && args.Length > 1 && string.Equals(args[1], "cny",
-                StringComparison.OrdinalIgnoreCase))
+            if (!offline && (string.Equals(mode, "cny", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mode, "large-values", StringComparison.OrdinalIgnoreCase)))
             {
                 form.SetCurrencyState(new CurrencyDisplayState
                 {
@@ -269,16 +309,16 @@ internal static class RenderQa
                 });
             }
             form.TopMost = false;
-            Render(form, output);
+            Render(form, output, dpi);
         }
     }
 
-    private static DiagnosticsSnapshot CreateDiagnosticsPreview()
+    private static DiagnosticsSnapshot CreateDiagnosticsPreview(string mode)
     {
-        return new DiagnosticsSnapshot
+        DiagnosticsSnapshot result = new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.3.1",
+            AppVersion = "v2.0.0",
             OperatingSystem = "Microsoft Windows 11",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Users\Tester\Apps\UsagePeek.exe",
@@ -305,11 +345,31 @@ internal static class RenderQa
             LastRefreshSuccessUtc = DateTime.UtcNow.AddMinutes(-6),
             LastRefreshError = "UP-CX-006 连接 Codex 超时",
             LocalFilesScanned = 48,
-            PriceCoverage = "部分可计价（覆盖 82%），2 个模型暂无公开价格"
+            PriceCoverage = "部分可计价（覆盖 82%），2 个模型暂无公开价格",
+            HasLocalUsage = true,
+            HasCompletePriceCoverage = false,
+            PriceCoveragePercent = 82,
+            UnpricedModelCount = 2
         };
+        if (string.Equals(mode, "diagnostics-live", StringComparison.OrdinalIgnoreCase))
+        {
+            result.UsageStatus = "实时数据";
+            result.LastRefreshError = null;
+            result.HasCompletePriceCoverage = true;
+            result.PriceCoveragePercent = 100;
+            result.UnpricedModelCount = 0;
+        }
+        if (string.Equals(mode, "diagnostics-offline", StringComparison.OrdinalIgnoreCase))
+        {
+            result.UsageStatus = "离线";
+            result.CodexCandidateCount = 0;
+            result.HasLocalUsage = false;
+            result.LastRefreshError = "UP-CX-004 Codex 登录状态不可用";
+        }
+        return result;
     }
 
-    private static void Render(Form form, string output)
+    private static void Render(Form form, string output, int dpi = 0)
     {
         form.TopMost = false;
         form.StartPosition = FormStartPosition.Manual;
@@ -319,6 +379,10 @@ internal static class RenderQa
         form.PerformLayout();
 
         DpiAwareForm dpiForm = form as DpiAwareForm;
+        if (dpiForm != null && dpi > 0)
+        {
+            dpiForm.ApplyDpiForTesting(dpi);
+        }
         Console.WriteLine("DPI={0}; Size={1}x{2}; Client={3}x{4}",
             dpiForm == null ? 96 : dpiForm.CurrentDpi,
             form.Width, form.Height,

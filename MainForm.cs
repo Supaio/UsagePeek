@@ -51,60 +51,63 @@ namespace UsagePeek
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            BackColor = Color.FromArgb(9, 14, 22);
-            ForeColor = Color.FromArgb(233, 239, 247);
+            BackColor = UiColors.Background;
+            ForeColor = UiColors.Text;
+            KeyPreview = true;
             AutoScaleMode = AutoScaleMode.None;
+            AutoScroll = true;
             Padding = new Padding(0);
 
             BrandMarkControl brandMark = new BrandMarkControl();
-            brandMark.Location = new Point(20, 15);
+            brandMark.Location = new Point(22, 21);
 
             Label titleLabel = new Label();
             titleLabel.AutoSize = true;
             titleLabel.BackColor = Color.Transparent;
             titleLabel.Font = new Font("Segoe UI", 15.5f, FontStyle.Bold);
             titleLabel.ForeColor = ForeColor;
-            titleLabel.Location = new Point(70, 12);
+            titleLabel.Location = new Point(72, 18);
             titleLabel.Text = "UsagePeek";
 
             Label subtitleLabel = new Label();
             subtitleLabel.AutoSize = true;
             subtitleLabel.BackColor = Color.Transparent;
             subtitleLabel.Font = new Font("Microsoft YaHei UI", 8f, FontStyle.Regular);
-            subtitleLabel.ForeColor = Color.FromArgb(120, 139, 163);
-            subtitleLabel.Location = new Point(72, 42);
+            subtitleLabel.ForeColor = UiColors.Muted;
+            subtitleLabel.Location = new Point(74, 47);
             subtitleLabel.Text = "ChatGPT / Codex 用量监控";
 
             planPill = new PillLabelControl();
-            planPill.Size = new Size(88, 28);
-            planPill.Location = new Point(284, 21);
+            planPill.Size = new Size(64, 26);
+            planPill.Location = new Point(266, 27);
 
             GlyphButtonControl closeButton = new GlyphButtonControl("×", false);
-            closeButton.Size = new Size(30, 30);
-            closeButton.Location = new Point(380, 20);
+            closeButton.Size = new Size(28, 28);
+            closeButton.Location = new Point(382, 26);
             closeButton.Font = new Font("Segoe UI", 13f, FontStyle.Regular);
-            closeButton.ForeColor = Color.FromArgb(164, 179, 198);
+            closeButton.Flat = true;
+            closeButton.ForeColor = UiColors.Muted;
             closeButton.Click += delegate { Hide(); };
 
-            GlyphButtonControl statusButton = new GlyphButtonControl("系统状态  ↗", false);
-            statusButton.Size = new Size(88, 31);
-            statusButton.Location = new Point(20, 72);
+            GlyphButtonControl statusButton = new GlyphButtonControl("系统状态 ↗", false);
+            statusButton.Size = new Size(94, 32);
+            statusButton.Location = new Point(22, 654);
             statusButton.Click += delegate
             {
                 OpenUrl("https://status.openai.com/");
             };
 
-            GlyphButtonControl dashboardButton = new GlyphButtonControl("用量面板  ↗", false);
-            dashboardButton.Size = new Size(96, 31);
-            dashboardButton.Location = new Point(116, 72);
+            GlyphButtonControl dashboardButton = new GlyphButtonControl("官方用量 ↗", false);
+            dashboardButton.Size = new Size(94, 32);
+            dashboardButton.Location = new Point(124, 654);
             dashboardButton.Click += delegate
             {
                 OpenUrl("https://chatgpt.com/codex/settings/usage");
             };
 
             currencyButton = new GlyphButtonControl("$ USD  ·  换算", false);
-            currencyButton.Size = new Size(118, 31);
-            currencyButton.Location = new Point(220, 72);
+            currencyButton.Size = new Size(124, 30);
+            currencyButton.Location = new Point(282, 321);
             currencyButton.Click += delegate
             {
                 EventHandler handler = CurrencyToggleRequested;
@@ -114,42 +117,46 @@ namespace UsagePeek
                 }
             };
 
-            settingsButton = new GlyphButtonControl("⚙ 设置", false);
-            settingsButton.Size = new Size(62, 31);
-            settingsButton.Location = new Point(346, 72);
+            settingsButton = new GlyphButtonControl("设置", false);
+            settingsButton.Size = new Size(42, 28);
+            settingsButton.Location = new Point(336, 26);
             settingsButton.Click += delegate { RequestSettings(); };
 
             statusBanner = new StatusBannerControl();
-            statusBanner.Size = new Size(388, 52);
-            statusBanner.Location = new Point(20, 109);
+            statusBanner.Size = new Size(384, 44);
+            statusBanner.Location = new Point(22, 82);
 
             primaryCard = new UsageCardControl();
-            primaryCard.Location = new Point(20, 171);
+            primaryCard.Location = new Point(22, 136);
 
             secondaryCard = new UsageCardControl();
-            secondaryCard.Location = new Point(20, 292);
+            secondaryCard.Location = new Point(220, 136);
+
+            Label usageHeading = new Label();
+            usageHeading.AutoSize = true;
+            usageHeading.BackColor = Color.Transparent;
+            usageHeading.Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold);
+            usageHeading.ForeColor = ForeColor;
+            usageHeading.Location = new Point(24, 328);
+            usageHeading.Text = "用量与估值";
 
             detailsPanel = new UsageDetailsControl();
-            detailsPanel.Location = new Point(20, 414);
-
-            Panel divider = new Panel();
-            divider.Location = new Point(20, 644);
-            divider.Size = new Size(388, 1);
-            divider.BackColor = Color.FromArgb(35, 46, 60);
+            detailsPanel.Location = new Point(22, 358);
 
             statusLabel = new Label();
             statusLabel.AutoSize = false;
             statusLabel.BackColor = Color.Transparent;
-            statusLabel.Size = new Size(188, 36);
-            statusLabel.Location = new Point(21, 657);
+            statusLabel.Size = new Size(380, 22);
+            statusLabel.Location = new Point(24, 623);
+            statusLabel.AutoEllipsis = true;
             statusLabel.Font = new Font("Microsoft YaHei UI", 7.8f, FontStyle.Regular);
-            statusLabel.ForeColor = Color.FromArgb(116, 134, 157);
+            statusLabel.ForeColor = UiColors.Muted;
             statusLabel.TextAlign = ContentAlignment.MiddleLeft;
             statusLabel.Text = "正在准备读取…";
 
             refreshButton = new GlyphButtonControl("↻  刷新", true);
-            refreshButton.Size = new Size(82, 34);
-            refreshButton.Location = new Point(326, 658);
+            refreshButton.Size = new Size(74, 32);
+            refreshButton.Location = new Point(332, 654);
             refreshButton.Click += delegate
             {
                 EventHandler handler = RefreshRequested;
@@ -160,8 +167,8 @@ namespace UsagePeek
             };
 
             modelUsageButton = new GlyphButtonControl("模型占比", false);
-            modelUsageButton.Size = new Size(96, 34);
-            modelUsageButton.Location = new Point(218, 658);
+            modelUsageButton.Size = new Size(94, 32);
+            modelUsageButton.Location = new Point(226, 654);
             modelUsageButton.Enabled = false;
             modelUsageButton.Click += delegate
             {
@@ -173,8 +180,8 @@ namespace UsagePeek
             };
 
             repairButton = new GlyphButtonControl("修复连接", false);
-            repairButton.Size = new Size(96, 34);
-            repairButton.Location = new Point(218, 658);
+            repairButton.Size = new Size(94, 32);
+            repairButton.Location = new Point(226, 654);
             repairButton.Visible = false;
             repairButton.Click += delegate
             {
@@ -184,6 +191,19 @@ namespace UsagePeek
                     handler(this, EventArgs.Empty);
                 }
             };
+
+            foreach (GlyphButtonControl button in new[]
+            {
+                statusButton, dashboardButton, currencyButton, settingsButton,
+                modelUsageButton, repairButton, refreshButton
+            })
+            {
+                button.Flat = !button.Primary;
+                button.Font = new Font("Microsoft YaHei UI", 8.3f, FontStyle.Regular);
+                button.ForeColor = button.Primary
+                    ? Color.White
+                    : UiColors.Secondary;
+            }
 
             Controls.Add(brandMark);
             Controls.Add(titleLabel);
@@ -197,8 +217,8 @@ namespace UsagePeek
             Controls.Add(statusBanner);
             Controls.Add(primaryCard);
             Controls.Add(secondaryCard);
+            Controls.Add(usageHeading);
             Controls.Add(detailsPanel);
-            Controls.Add(divider);
             Controls.Add(statusLabel);
             Controls.Add(modelUsageButton);
             Controls.Add(repairButton);
@@ -208,6 +228,14 @@ namespace UsagePeek
             brandMark.MouseDown += DragWindow;
             titleLabel.MouseDown += DragWindow;
             subtitleLabel.MouseDown += DragWindow;
+            KeyDown += delegate(object sender, KeyEventArgs args)
+            {
+                if (args.KeyCode == Keys.Escape)
+                {
+                    args.SuppressKeyPress = true;
+                    Hide();
+                }
+            };
 
             countdownTimer = new Timer();
             countdownTimer.Interval = 30000;
@@ -263,20 +291,9 @@ namespace UsagePeek
             int logicalWidth = UiDrawing.LogicalWidth(this);
             int logicalHeight = UiDrawing.LogicalHeight(this);
             Rectangle bounds = new Rectangle(0, 0, logicalWidth, logicalHeight);
-            using (LinearGradientBrush background = new LinearGradientBrush(
-                bounds,
-                Color.FromArgb(12, 19, 29),
-                Color.FromArgb(7, 12, 19),
-                90f))
+            using (SolidBrush background = new SolidBrush(BackColor))
             {
                 e.Graphics.FillRectangle(background, bounds);
-            }
-
-            using (SolidBrush tealGlow = new SolidBrush(Color.FromArgb(16, 45, 212, 191)))
-            using (SolidBrush blueGlow = new SolidBrush(Color.FromArgb(12, 56, 189, 248)))
-            {
-                e.Graphics.FillEllipse(tealGlow, -80, -110, 300, 230);
-                e.Graphics.FillEllipse(blueGlow, logicalWidth - 170, -95, 230, 190);
             }
         }
 
@@ -290,19 +307,9 @@ namespace UsagePeek
             Rectangle borderBounds = new Rectangle(
                 0, 0, logicalWidth - 1, logicalHeight - 1);
             using (GraphicsPath borderPath = UiDrawing.RoundedRectangle(borderBounds, 19))
-            using (Pen border = new Pen(Color.FromArgb(49, 62, 80)))
+            using (Pen border = new Pen(UiColors.Border))
             {
                 e.Graphics.DrawPath(border, borderPath);
-            }
-
-            using (LinearGradientBrush accentLine = new LinearGradientBrush(
-                new Rectangle(22, 65, logicalWidth - 44, 1),
-                Color.FromArgb(0, 45, 212, 191),
-                Color.FromArgb(80, 45, 212, 191),
-                0f))
-            {
-                e.Graphics.FillRectangle(accentLine,
-                    22, 65, logicalWidth - 44, 1);
             }
         }
 
@@ -375,7 +382,7 @@ namespace UsagePeek
             if (loading && currentSnapshot == null)
             {
                 statusBanner.SetLoading();
-                statusLabel.ForeColor = Color.FromArgb(116, 134, 157);
+                statusLabel.ForeColor = UiColors.Muted;
                 statusLabel.Text = "正在通过 Codex 本地接口读取额度…";
             }
         }
@@ -385,8 +392,6 @@ namespace UsagePeek
             if (repairing)
             {
                 repairButton.Visible = true;
-                statusLabel.Size = new Size(
-                    ScaleLogical(188), ScaleLogical(36));
             }
             repairButton.Enabled = !repairing;
             repairButton.DisplayText = repairing ? "安装中…" : "修复连接";
@@ -415,8 +420,8 @@ namespace UsagePeek
         public void ShowTransientStatus(string message, bool isError)
         {
             statusLabel.ForeColor = isError
-                ? Color.FromArgb(251, 191, 36)
-                : Color.FromArgb(94, 234, 212);
+                ? UiColors.Warning
+                : UiColors.Success;
             statusLabel.Text = Shorten(message, 64);
         }
 
@@ -441,12 +446,12 @@ namespace UsagePeek
             statusBanner.SetSnapshot(snapshot, stale);
             if (stale)
             {
-                statusLabel.ForeColor = Color.FromArgb(251, 191, 36);
+                statusLabel.ForeColor = UiColors.Warning;
                 statusLabel.Text = "刷新失败 · " + Shorten(refreshError, 46);
             }
             else
             {
-                statusLabel.ForeColor = Color.FromArgb(116, 134, 157);
+                statusLabel.ForeColor = UiColors.Muted;
                 statusLabel.Text = DisplayFormatting.FormatFetched(snapshot.FetchedAtUtc) +
                     "  ·  Codex 本地只读";
             }
@@ -455,7 +460,7 @@ namespace UsagePeek
         public void ShowError(string message)
         {
             statusBanner.SetError(message);
-            statusLabel.ForeColor = Color.FromArgb(251, 113, 133);
+            statusLabel.ForeColor = UiColors.Danger;
             statusLabel.Text = string.IsNullOrWhiteSpace(message)
                 ? "暂时无法读取用量。"
                 : Shorten(message, 64);
@@ -523,8 +528,6 @@ namespace UsagePeek
             repairButton.Enabled = visible;
             repairButton.DisplayText = "修复连接";
             modelUsageButton.Visible = !visible;
-            statusLabel.Size = new Size(
-                ScaleLogical(188), ScaleLogical(36));
         }
 
         private static bool HasModelUsage(UsageSnapshot snapshot)
@@ -557,7 +560,7 @@ namespace UsagePeek
             }
             catch
             {
-                statusLabel.ForeColor = Color.FromArgb(251, 191, 36);
+                statusLabel.ForeColor = UiColors.Warning;
                 statusLabel.Text = "无法打开链接，请检查默认浏览器设置。";
             }
         }

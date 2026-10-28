@@ -6,7 +6,7 @@ namespace UsagePeek
 {
     internal sealed class PetSizeDialog : DpiAwareForm
     {
-        private readonly NumericUpDown sizeInput;
+        private readonly ModernNumberControl sizeInput;
 
         public PetSizeDialog(int initialPercent)
         {
@@ -17,9 +17,10 @@ namespace UsagePeek
             MinimizeBox = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            BackColor = Color.FromArgb(9, 14, 22);
-            ForeColor = Color.FromArgb(233, 239, 247);
+            BackColor = UiColors.Background;
+            ForeColor = UiColors.Text;
             AutoScaleMode = AutoScaleMode.None;
+            AutoScroll = true;
 
             Label titleLabel = new Label();
             titleLabel.AutoSize = false;
@@ -36,12 +37,12 @@ namespace UsagePeek
             hintLabel.BackColor = Color.Transparent;
             hintLabel.Font = new Font("Microsoft YaHei UI", 7.8f,
                 FontStyle.Regular);
-            hintLabel.ForeColor = Color.FromArgb(128, 148, 173);
+            hintLabel.ForeColor = UiColors.Muted;
             hintLabel.Location = new Point(22, 48);
             hintLabel.Size = new Size(276, 22);
             hintLabel.Text = "可设置 50%–200%，多显示器缩放仍会自动适配";
 
-            sizeInput = new NumericUpDown();
+            sizeInput = new ModernNumberControl();
             sizeInput.Minimum = DisplayModePreference.MinimumPetScalePercent;
             sizeInput.Maximum = DisplayModePreference.MaximumPetScalePercent;
             sizeInput.Increment = 5;
@@ -49,19 +50,19 @@ namespace UsagePeek
                 Math.Min((int)sizeInput.Maximum, initialPercent));
             sizeInput.TextAlign = HorizontalAlignment.Center;
             sizeInput.Font = new Font("Segoe UI", 12f, FontStyle.Bold);
-            sizeInput.BackColor = Color.FromArgb(18, 27, 39);
-            sizeInput.ForeColor = Color.FromArgb(233, 239, 247);
+            sizeInput.BackColor = UiColors.Surface;
+            sizeInput.ForeColor = UiColors.Text;
             sizeInput.Location = new Point(22, 80);
-            sizeInput.Size = new Size(112, 32);
+            sizeInput.Size = new Size(152, 32);
 
             Label percentLabel = new Label();
             percentLabel.AutoSize = false;
             percentLabel.BackColor = Color.Transparent;
             percentLabel.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
-            percentLabel.ForeColor = Color.FromArgb(45, 212, 191);
+            percentLabel.ForeColor = UiColors.Secondary;
             percentLabel.Location = new Point(140, 82);
             percentLabel.Size = new Size(34, 28);
-            percentLabel.Text = "%";
+            percentLabel.Text = string.Empty;
 
             Button cancelButton = CreateButton("取消", false);
             cancelButton.Location = new Point(126, 128);
@@ -100,21 +101,12 @@ namespace UsagePeek
 
         private static Button CreateButton(string text, bool accent)
         {
-            Button button = new Button();
-            button.FlatStyle = FlatStyle.Flat;
-            button.FlatAppearance.BorderSize = 1;
-            button.FlatAppearance.BorderColor = accent
-                ? Color.FromArgb(45, 212, 191)
-                : Color.FromArgb(62, 79, 100);
-            button.BackColor = accent
-                ? Color.FromArgb(14, 104, 96)
-                : Color.FromArgb(18, 27, 39);
-            button.ForeColor = Color.FromArgb(233, 239, 247);
+            Button button = new RoundedButton();
+            UiDrawing.StyleButton(button, accent);
             button.Font = new Font("Microsoft YaHei UI", 8.2f,
-                FontStyle.Bold);
+                FontStyle.Regular);
             button.Size = new Size(80, 32);
             button.Text = text;
-            button.UseVisualStyleBackColor = false;
             return button;
         }
     }

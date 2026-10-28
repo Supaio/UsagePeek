@@ -12,7 +12,12 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 > [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="UsagePeek Windows Codex usage dashboard" width="428">
+  <img src="assets/screenshot.png" alt="UsagePeek 2.0 light usage dashboard" width="340">
+  <img src="assets/screenshot-dark.png" alt="UsagePeek 2.0 dark usage dashboard" width="340">
+  <br>
+  <img src="assets/diagnostics-overview.png" alt="UsagePeek connection, pricing and display health overview" width="560">
+  <br>
+  <sub>浅色、深色与诊断概览，使用示例数据。</sub>
   <br>
   <img src="assets/pet-whale-maid-curled.png" alt="UsagePeek curled whale girl desktop pet" height="260">
   <img src="assets/pet-phoebe-chibi.png" alt="UsagePeek Phoebe Chibi desktop pet" height="260">
@@ -27,7 +32,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 下载单文件版，也可以[直接下载最新版 UsagePeek.exe](https://github.com/Supaio/UsagePeek/releases/latest/download/UsagePeek.exe)。
 无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
 点击“修复连接”即可获取官方 Codex CLI 运行组件。
-Release 页面同时提供 SHA-256，程序“关于”页可查看并复制当前 EXE 的哈希。
+Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈希，诊断技术详情可查看完整值。
 
 ## 当前功能
 
@@ -67,9 +72,12 @@ Release 页面同时提供 SHA-256，程序“关于”页可查看并复制当�
 - **集中设置与诊断**：右键“设置与诊断…”可在一个窗口内统一调整显示模式、
   桌宠外形、气泡口径、缩放、桌宠置顶与开机自启。普通窗口默认不强制置顶，
   桌宠置顶也默认关闭，并可直接从右键菜单切换；切换后立即生效并自动保存。
-  设置窗口会预先完成控件绘制再整体显示。诊断页可
-  重新探测本机组件、测试实时连接并复制脱敏报告，便于定位离线、缓存或部分
-  模型无公开价格的问题。
+  诊断页先显示连接、价格覆盖和屏幕缩放的检查结果；技术详情可展开查看完整
+  脱敏报告。支持重新检测、测试连接和复制报告，离线时会提示下一步处理方式。
+- **主题与现代选择器**：支持浅色、深色、跟随 Windows 应用颜色三种主题，
+  默认跟随系统；切换立即生效并自动保存，已打开的界面和右键菜单同步更新。
+  设置项使用圆角下拉菜单，桌宠大小可直接输入百分比或用加减按钮调整。
+  从桌宠或托盘打开设置时会将窗口激活到前台，普通设置窗口不会持续置顶。
 - 桌宠上方的数字气泡会随后台刷新同步更新；两列百分比下方以 `MM/dd HH:mm`
   显示对应额度的本地恢复日期和时间，时间未知时显示 `--/-- --:--`。
   气泡从当前桌宠图片提取平均色（排除透明区域并按透明度加权），自动生成
@@ -93,7 +101,7 @@ Release 页面同时提供 SHA-256，程序“关于”页可查看并复制当�
   超时会自动恢复旧 EXE，并在托盘提示已经回滚。
 - 托盘菜单的“关于 UsagePeek”会显示版本信息与项目鸣谢：感谢 OpenUsage
   提供产品构思、用量展示与交互思路，鲸鱼娘形象鸣谢 **ZipZipPipe**。
-- “关于 UsagePeek”显示当前 EXE 的 SHA-256 摘要并可一键复制完整值；脱敏
+- “关于 UsagePeek”可一键复制当前 EXE 的完整 SHA-256；脱敏
   诊断报告也包含完整 SHA-256，方便与 Release 附件核对。
 - 如果只检测到受 Windows 保护的桌面版组件，离线界面会显示“修复连接”。
   用户确认后，程序从 OpenAI 官方地址获取 Windows Codex CLI 安装器，安装到
@@ -220,7 +228,7 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```json
 {
-  "version": "1.3.1",
+  "version": "2.0.0",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"

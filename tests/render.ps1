@@ -15,6 +15,7 @@ $preview = if ($args.Count -gt 0) {
     Join-Path $root 'preview.png'
 }
 $mode = if ($args.Count -gt 1) { $args[1] } else { '' }
+$dpi = if ($args.Count -gt 2) { $args[2] } else { '0' }
 
 & $compiler /nologo /utf8output /target:exe /optimize+ `
     "/win32manifest:$(Join-Path $root 'app.manifest')" `
@@ -36,7 +37,9 @@ $mode = if ($args.Count -gt 1) { $args[1] } else { '' }
     (Join-Path $root 'ExecutableIntegrity.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `
     (Join-Path $root 'DpiAwareForm.cs') `
+    (Join-Path $root 'UiTheme.cs') `
     (Join-Path $root 'UiControls.cs') `
+    (Join-Path $root 'SelectionControls.cs') `
     (Join-Path $root 'UsageCardControl.cs') `
     (Join-Path $root 'UsageDetailsControl.cs') `
     (Join-Path $root 'MainForm.cs') `
@@ -51,7 +54,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& $renderer $preview $mode
+& $renderer $preview $mode $dpi
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

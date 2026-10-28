@@ -37,12 +37,14 @@ namespace UsagePeek
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            BackColor = Color.FromArgb(9, 14, 22);
-            ForeColor = Color.FromArgb(233, 239, 247);
+            BackColor = UiColors.Background;
+            ForeColor = UiColors.Text;
+            KeyPreview = true;
             AutoScaleMode = AutoScaleMode.None;
+            AutoScroll = true;
 
             BrandMarkControl brandMark = new BrandMarkControl();
-            brandMark.Location = new Point(20, 15);
+            brandMark.Location = new Point(22, 21);
 
             Label titleLabel = new Label();
             titleLabel.AutoSize = true;
@@ -50,7 +52,7 @@ namespace UsagePeek
             titleLabel.Font = new Font("Microsoft YaHei UI", 14.2f,
                 FontStyle.Bold);
             titleLabel.ForeColor = ForeColor;
-            titleLabel.Location = new Point(70, 12);
+            titleLabel.Location = new Point(72, 18);
             titleLabel.Text = "模型用量占比";
 
             Label subtitleLabel = new Label();
@@ -58,15 +60,15 @@ namespace UsagePeek
             subtitleLabel.BackColor = Color.Transparent;
             subtitleLabel.Font = new Font("Microsoft YaHei UI", 8f,
                 FontStyle.Regular);
-            subtitleLabel.ForeColor = Color.FromArgb(120, 139, 163);
-            subtitleLabel.Location = new Point(72, 42);
+            subtitleLabel.ForeColor = UiColors.Muted;
+            subtitleLabel.Location = new Point(74, 47);
             subtitleLabel.Text = "本机累计 · 按 Token 分组";
 
             GlyphButtonControl closeButton = new GlyphButtonControl("×", false);
             closeButton.Size = new Size(30, 30);
-            closeButton.Location = new Point(380, 20);
+            closeButton.Location = new Point(380, 25);
             closeButton.Font = new Font("Segoe UI", 13f, FontStyle.Regular);
-            closeButton.ForeColor = Color.FromArgb(164, 179, 198);
+            closeButton.ForeColor = UiColors.Muted;
             closeButton.Click += delegate { Close(); };
 
             summaryLabel = new Label();
@@ -74,26 +76,27 @@ namespace UsagePeek
             summaryLabel.BackColor = Color.Transparent;
             summaryLabel.Font = new Font("Microsoft YaHei UI", 8.2f,
                 FontStyle.Regular);
-            summaryLabel.ForeColor = Color.FromArgb(129, 146, 168);
-            summaryLabel.Location = new Point(20, 75);
-            summaryLabel.Size = new Size(388, 22);
+            summaryLabel.ForeColor = UiColors.Secondary;
+            summaryLabel.Location = new Point(24, 81);
+            summaryLabel.Size = new Size(380, 22);
             summaryLabel.TextAlign = ContentAlignment.MiddleLeft;
 
             rowsPanel = new FlowLayoutPanel();
-            rowsPanel.Location = new Point(20, 105);
-            rowsPanel.Size = new Size(388, 320);
-            rowsPanel.BackColor = Color.FromArgb(9, 14, 22);
+            rowsPanel.Location = new Point(22, 114);
+            rowsPanel.Size = new Size(384, 320);
+            rowsPanel.BackColor = UiColors.Background;
             rowsPanel.AutoScroll = true;
             rowsPanel.FlowDirection = FlowDirection.TopDown;
             rowsPanel.WrapContents = false;
             rowsPanel.Padding = new Padding(0);
+            rowsPanel.ClientSizeChanged += delegate { FitModelRows(); };
 
             privacyLabel = new Label();
             privacyLabel.AutoSize = false;
             privacyLabel.BackColor = Color.Transparent;
             privacyLabel.Font = new Font("Microsoft YaHei UI", 7.4f,
                 FontStyle.Regular);
-            privacyLabel.ForeColor = Color.FromArgb(88, 106, 128);
+            privacyLabel.ForeColor = UiColors.Muted;
             privacyLabel.Location = new Point(20, 441);
             privacyLabel.Size = new Size(388, 23);
             privacyLabel.TextAlign = ContentAlignment.MiddleLeft;
@@ -121,6 +124,14 @@ namespace UsagePeek
             brandMark.MouseDown += DragWindow;
             titleLabel.MouseDown += DragWindow;
             subtitleLabel.MouseDown += DragWindow;
+            KeyDown += delegate(object sender, KeyEventArgs args)
+            {
+                if (args.KeyCode == Keys.Escape)
+                {
+                    args.SuppressKeyPress = true;
+                    Close();
+                }
+            };
 
             Resize += delegate { UpdateRoundedRegion(); };
             UpdateRoundedRegion();
@@ -156,23 +167,9 @@ namespace UsagePeek
             int logicalWidth = UiDrawing.LogicalWidth(this);
             int logicalHeight = UiDrawing.LogicalHeight(this);
             Rectangle bounds = new Rectangle(0, 0, logicalWidth, logicalHeight);
-            using (LinearGradientBrush background = new LinearGradientBrush(
-                bounds,
-                Color.FromArgb(12, 19, 29),
-                Color.FromArgb(7, 12, 19),
-                90f))
+            using (SolidBrush background = new SolidBrush(BackColor))
             {
                 e.Graphics.FillRectangle(background, bounds);
-            }
-
-            using (SolidBrush tealGlow = new SolidBrush(
-                Color.FromArgb(15, 45, 212, 191)))
-            using (SolidBrush blueGlow = new SolidBrush(
-                Color.FromArgb(10, 56, 189, 248)))
-            {
-                e.Graphics.FillEllipse(tealGlow, -80, -110, 300, 230);
-                e.Graphics.FillEllipse(blueGlow,
-                    logicalWidth - 170, -95, 230, 190);
             }
         }
 
@@ -187,16 +184,9 @@ namespace UsagePeek
                 0, 0, logicalWidth - 1, logicalHeight - 1);
             using (GraphicsPath borderPath = UiDrawing.RoundedRectangle(
                 borderBounds, 19))
-            using (Pen border = new Pen(Color.FromArgb(49, 62, 80)))
-            using (LinearGradientBrush accentLine = new LinearGradientBrush(
-                new Rectangle(22, 65, logicalWidth - 44, 1),
-                Color.FromArgb(0, 45, 212, 191),
-                Color.FromArgb(80, 45, 212, 191),
-                0f))
+            using (Pen border = new Pen(UiColors.Border))
             {
                 e.Graphics.DrawPath(border, borderPath);
-                e.Graphics.FillRectangle(accentLine,
-                    22, 65, logicalWidth - 44, 1);
             }
         }
 
@@ -220,7 +210,9 @@ namespace UsagePeek
                 ModelTokenUsageSnapshot left,
                 ModelTokenUsageSnapshot right)
             {
-                return right.TotalTokens.CompareTo(left.TotalTokens);
+                int byTokens = right.TotalTokens.CompareTo(left.TotalTokens);
+                return byTokens != 0 ? byTokens : string.Compare(
+                    left.Model, right.Model, StringComparison.OrdinalIgnoreCase);
             });
             ResizeForRows(usage.Count);
 
@@ -240,15 +232,19 @@ namespace UsagePeek
             {
                 Label emptyLabel = new Label();
                 emptyLabel.AutoSize = false;
-                emptyLabel.Size = new Size(366, 86);
-                emptyLabel.Margin = new Padding(0, 0, 0, 8);
-                emptyLabel.BackColor = Color.FromArgb(18, 27, 39);
-                emptyLabel.ForeColor = Color.FromArgb(129, 146, 168);
+                emptyLabel.Dock = DockStyle.Fill;
+                emptyLabel.BackColor = Color.Transparent;
+                emptyLabel.ForeColor = UiColors.Muted;
                 emptyLabel.Font = new Font("Microsoft YaHei UI", 9f,
                     FontStyle.Regular);
                 emptyLabel.TextAlign = ContentAlignment.MiddleCenter;
                 emptyLabel.Text = "刷新后会按模型显示 Token 数量与百分比";
-                rowsPanel.Controls.Add(emptyLabel);
+                SurfacePanel emptyCard = new SurfacePanel();
+                emptyCard.Size = new Size(382, 86);
+                emptyCard.Margin = new Padding(0, 0, 0, 8);
+                emptyCard.Padding = new Padding(10);
+                emptyCard.Controls.Add(emptyLabel);
+                rowsPanel.Controls.Add(emptyCard);
             }
             else
             {
@@ -261,6 +257,16 @@ namespace UsagePeek
                 }
             }
             rowsPanel.ResumeLayout();
+            FitModelRows();
+        }
+
+        private void FitModelRows()
+        {
+            int width = Math.Max(1, rowsPanel.ClientSize.Width - 2);
+            foreach (Control row in rowsPanel.Controls)
+            {
+                if (row.Width != width) row.Width = width;
+            }
         }
 
         private void ResizeForRows(int modelCount)
@@ -270,7 +276,7 @@ namespace UsagePeek
                 : Math.Min(7, modelCount);
             rowsPanel.Height = modelCount <= 0
                 ? 100
-                : visibleRows * 70 + 2;
+                : visibleRows * 74 + 2;
             privacyLabel.Location = new Point(20, rowsPanel.Bottom + 12);
             returnButton.Location = new Point(278, privacyLabel.Bottom + 8);
             ClientSize = new Size(428, returnButton.Bottom + 16);
@@ -327,7 +333,7 @@ namespace UsagePeek
                 ControlStyles.SupportsTransparentBackColor |
                 ControlStyles.UserPaint, true);
             BackColor = Color.Transparent;
-            Size = new Size(366, 62);
+            Size = new Size(382, 66);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -337,32 +343,28 @@ namespace UsagePeek
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
             int logicalWidth = UiDrawing.LogicalWidth(this);
-            Rectangle card = new Rectangle(0, 0, logicalWidth - 1, 56);
+            Rectangle card = new Rectangle(0, 0, logicalWidth - 1, 64);
             using (GraphicsPath path = UiDrawing.RoundedRectangle(card, 11))
-            using (LinearGradientBrush background = new LinearGradientBrush(
-                card,
-                Color.FromArgb(21, 31, 44),
-                Color.FromArgb(15, 23, 34),
-                90f))
-            using (Pen border = new Pen(Color.FromArgb(40, 53, 70)))
+            using (SolidBrush background = new SolidBrush(UiColors.Surface))
+            using (Pen border = new Pen(UiColors.Border))
             using (Font modelFont = UiDrawing.LogicalFont(
-                this, "Segoe UI", 9.2f, FontStyle.Bold))
+                this, "Segoe UI", 9.2f, FontStyle.Regular))
             using (Font percentFont = UiDrawing.LogicalFont(
                 this, "Segoe UI", 9.4f, FontStyle.Bold))
             using (Font tokensFont = UiDrawing.LogicalFont(
                 this, "Microsoft YaHei UI", 7.4f, FontStyle.Regular))
             using (SolidBrush modelBrush = new SolidBrush(
-                Color.FromArgb(219, 230, 242)))
+                UiColors.Text))
             using (SolidBrush percentBrush = new SolidBrush(
-                Color.FromArgb(94, 234, 212)))
+                UiColors.Text))
             using (SolidBrush mutedBrush = new SolidBrush(
-                Color.FromArgb(112, 132, 157)))
+                UiColors.Muted))
             using (SolidBrush warningBrush = new SolidBrush(
-                Color.FromArgb(251, 191, 36)))
+                UiColors.Warning))
             using (SolidBrush trackBrush = new SolidBrush(
-                Color.FromArgb(34, 47, 63)))
+                UiColors.Track))
             using (SolidBrush fillBrush = new SolidBrush(
-                Color.FromArgb(45, 212, 191)))
+                UiColors.Accent))
             using (StringFormat modelFormat = new StringFormat())
             {
                 e.Graphics.FillPath(background, path);
@@ -374,7 +376,7 @@ namespace UsagePeek
                     ? "未知模型"
                     : usage.Model;
                 e.Graphics.DrawString(model, modelFont, modelBrush,
-                    new RectangleF(14, 7,
+                    new RectangleF(14, 9,
                         Math.Max(80, logicalWidth - 112), 20),
                     modelFormat);
 
@@ -383,16 +385,16 @@ namespace UsagePeek
                 SizeF percentSize = e.Graphics.MeasureString(
                     percentage, percentFont);
                 e.Graphics.DrawString(percentage, percentFont, percentBrush,
-                    logicalWidth - percentSize.Width - 14, 6);
+                    logicalWidth - percentSize.Width - 14, 8);
 
                 string tokens = DisplayFormatting.FormatTokens(
                     Math.Max(0L, usage.TotalTokens)) + " tokens" +
                     (usage.HasPriceEstimate == false ? " · 价格待补充" : string.Empty);
                 e.Graphics.DrawString(tokens, tokensFont,
                     usage.HasPriceEstimate == false ? warningBrush : mutedBrush,
-                    14, 27);
+                    14, 31);
 
-                Rectangle track = new Rectangle(14, 47,
+                Rectangle track = new Rectangle(14, 54,
                     Math.Max(1, logicalWidth - 28), 4);
                 e.Graphics.FillRectangle(trackBrush, track);
                 int fillWidth = (int)Math.Round(track.Width *
