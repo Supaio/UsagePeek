@@ -3,22 +3,43 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Web.Script.Serialization;
 
 namespace UsagePeek
 {
     internal sealed class LocalUsageScanner
     {
         private const int MaximumMetadataLineLength = 512 * 1024;
+        private const int LedgerVersion = 1;
+        private const string UnknownHistoricalModel = "历史记录（模型未知）";
+        private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(false);
         private readonly string codexHome;
+        private readonly string ledgerPath;
+        private readonly LocalTokenUsageSnapshot legacySnapshot;
+        private readonly JavaScriptSerializer ledgerSerializer;
 
         public LocalUsageScanner()
-            : this(ResolveCodexHome())
+            : this(ResolveCodexHome(), ResolveLedgerPath(),
+                TryLoadLegacySnapshot())
         {
         }
 
         internal LocalUsageScanner(string root)
+            : this(root, Path.Combine(root, "usage-ledger.json"), null)
+        {
+        }
+
+        internal LocalUsageScanner(
+            string root,
+            string persistentLedgerPath,
+            LocalTokenUsageSnapshot cachedSnapshot)
         {
             codexHome = root;
+            ledgerPath = persistentLedgerPath;
+            legacySnapshot = cachedSnapshot;
+            ledgerSerializer = new JavaScriptSerializer();
+            ledgerSerializer.MaxJsonLength = int.MaxValue;
+            ledgerSerializer.RecursionLimit = 100;
         }
 
         public LocalTokenUsageSnapshot Scan()
@@ -30,6 +51,7 @@ namespace UsagePeek
             Dictionary<string, long> modelTokens =
                 new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             HashSet<string> seenEvents = new HashSet<string>(StringComparer.Ordinal);
+            List<UsageLedgerEvent> observedEvents = new List<UsageLedgerEvent>();
             DateTime localToday = DateTime.Now.Date;
             DateTime last30Start = localToday.AddDays(-29);
             DateTime? firstSeen = null;
@@ -39,7 +61,7 @@ namespace UsagePeek
             {
                 if (ScanFile(path, seenEvents, localToday, last30Start,
                     today, yesterday, last30Days, lifetime, modelTokens,
-                    ref firstSeen))
+                    observedEvents, ref firstSeen))
                 {
                     filesScanned++;
                 }
@@ -53,7 +75,7 @@ namespace UsagePeek
             snapshot.ModelUsage = BuildModelUsage(modelTokens);
             snapshot.FirstSeenAtUtc = firstSeen;
             snapshot.FilesScanned = filesScanned;
-            return snapshot;
+            return MergeWithPersistentLedger(snapshot, observedEvents);
         }
 
         private bool ScanFile(
@@ -66,6 +88,7 @@ namespace UsagePeek
             UsageAccumulator last30Days,
             UsageAccumulator lifetime,
             IDictionary<string, long> modelTokens,
+            ICollection<UsageLedgerEvent> observedEvents,
             ref DateTime? firstSeen)
         {
             try
@@ -172,6 +195,8 @@ namespace UsagePeek
                         DateTime localDate = eventUtc.ToLocalTime().Date;
                         lifetime.Add(delta.TotalTokens, cost);
                         AddModelTokens(modelTokens, model, delta.TotalTokens);
+                        observedEvents.Add(UsageLedgerEvent.From(
+                            fingerprint, eventUtc, NormalizeModelName(model), delta));
                         if (localDate >= last30Start && localDate <= localToday)
                         {
                             last30Days.Add(delta.TotalTokens, cost);
@@ -197,6 +222,505 @@ namespace UsagePeek
             {
                 return false;
             }
+        }
+
+        private LocalTokenUsageSnapshot MergeWithPersistentLedger(
+            LocalTokenUsageSnapshot current,
+            ICollection<UsageLedgerEvent> observedEvents)
+        {
+            bool repairFromBackup;
+            bool unreadableLedger;
+            UsageLedgerState state = LoadLedger(
+                out repairFromBackup, out unreadableLedger);
+            if (unreadableLedger)
+            {
+                // Never overwrite an unreadable ledger. The current scan is safer
+                // than silently replacing history that may still be recoverable.
+                // A larger startup cache can still preserve the last good total.
+                UsageLedgerState fallback = CreateLedgerState(
+                    current, observedEvents);
+                return BuildLedgerSnapshot(fallback, current.FilesScanned);
+            }
+
+            bool changed = repairFromBackup;
+            if (state == null)
+            {
+                state = CreateLedgerState(current, observedEvents);
+                changed = true;
+            }
+            else
+            {
+                changed = NormalizeLedgerState(state) || changed;
+                HashSet<string> known = new HashSet<string>(
+                    StringComparer.Ordinal);
+                foreach (UsageLedgerEvent item in state.Events)
+                {
+                    known.Add(item.Fingerprint);
+                }
+
+                foreach (UsageLedgerEvent item in observedEvents)
+                {
+                    if (IsValidLedgerEvent(item) &&
+                        known.Add(item.Fingerprint))
+                    {
+                        state.Events.Add(item);
+                        changed = true;
+                    }
+                }
+            }
+
+            changed = UpgradeMissingPriceEstimates(state) || changed;
+
+            if (changed)
+            {
+                state.UpdatedAtUtc = DateTime.UtcNow;
+                TrySaveLedger(state, repairFromBackup);
+            }
+
+            return BuildLedgerSnapshot(state, current.FilesScanned);
+        }
+
+        private UsageLedgerState CreateLedgerState(
+            LocalTokenUsageSnapshot current,
+            ICollection<UsageLedgerEvent> observedEvents)
+        {
+            UsageLedgerState state = new UsageLedgerState();
+            state.Version = LedgerVersion;
+            state.Events = new List<UsageLedgerEvent>();
+            foreach (UsageLedgerEvent item in observedEvents)
+            {
+                if (IsValidLedgerEvent(item))
+                {
+                    state.Events.Add(item);
+                }
+            }
+
+            state.BaselineLifetime = BuildLegacyBaseline(current);
+            state.BaselineModelTokens = BuildLegacyModelBaseline(
+                current, state.BaselineLifetime.TotalTokens);
+            state.BaselineFirstSeenAtUtc =
+                state.BaselineLifetime.HasData && legacySnapshot != null
+                    ? legacySnapshot.FirstSeenAtUtc
+                    : null;
+            state.UpdatedAtUtc = DateTime.UtcNow;
+            NormalizeLedgerState(state);
+            return state;
+        }
+
+        private TokenPeriodSnapshot BuildLegacyBaseline(
+            LocalTokenUsageSnapshot current)
+        {
+            TokenPeriodSnapshot cached = legacySnapshot == null
+                ? null
+                : legacySnapshot.Lifetime;
+            TokenPeriodSnapshot scanned = current == null
+                ? null
+                : current.Lifetime;
+            long scannedTokens = scanned == null ? 0L : scanned.TotalTokens;
+            if (cached == null || cached.TotalTokens <= scannedTokens)
+            {
+                return new TokenPeriodSnapshot();
+            }
+
+            long missingTokens = cached.TotalTokens - scannedTokens;
+            long cachedPriced = EffectivePricedTokens(cached);
+            long scannedPriced = EffectivePricedTokens(scanned);
+            long missingPriced = Math.Min(missingTokens,
+                Math.Max(0L, cachedPriced - scannedPriced));
+            decimal scannedCost = scanned == null
+                ? 0m
+                : Math.Max(0m, scanned.EstimatedCostUsd);
+            decimal missingCost = Math.Max(0m,
+                cached.EstimatedCostUsd - scannedCost);
+
+            return new TokenPeriodSnapshot
+            {
+                TotalTokens = missingTokens,
+                PricedTokens = missingPriced,
+                EstimatedCostUsd = missingCost,
+                HasData = missingTokens > 0,
+                HasCompleteCostEstimate =
+                    cached.HasCompleteCostEstimate &&
+                    missingPriced == missingTokens
+            };
+        }
+
+        private Dictionary<string, long> BuildLegacyModelBaseline(
+            LocalTokenUsageSnapshot current,
+            long baselineTokens)
+        {
+            Dictionary<string, long> result = new Dictionary<string, long>(
+                StringComparer.OrdinalIgnoreCase);
+            if (baselineTokens <= 0)
+            {
+                return result;
+            }
+
+            Dictionary<string, long> currentModels = new Dictionary<string, long>(
+                StringComparer.OrdinalIgnoreCase);
+            if (current != null && current.ModelUsage != null)
+            {
+                foreach (ModelTokenUsageSnapshot item in current.ModelUsage)
+                {
+                    if (item != null && item.TotalTokens > 0)
+                    {
+                        AddModelTokens(currentModels, item.Model, item.TotalTokens);
+                    }
+                }
+            }
+
+            long remaining = baselineTokens;
+            if (legacySnapshot != null && legacySnapshot.ModelUsage != null)
+            {
+                foreach (ModelTokenUsageSnapshot item in legacySnapshot.ModelUsage)
+                {
+                    if (item == null || item.TotalTokens <= 0 || remaining <= 0)
+                    {
+                        continue;
+                    }
+
+                    string model = NormalizeModelName(item.Model);
+                    long currentValue;
+                    currentModels.TryGetValue(model, out currentValue);
+                    long missing = Math.Max(0L, item.TotalTokens - currentValue);
+                    long accepted = Math.Min(remaining, missing);
+                    if (accepted > 0)
+                    {
+                        AddModelTokens(result, model, accepted);
+                        remaining -= accepted;
+                    }
+                }
+            }
+
+            if (remaining > 0)
+            {
+                AddModelTokens(result, UnknownHistoricalModel, remaining);
+            }
+            return result;
+        }
+
+        private LocalTokenUsageSnapshot BuildLedgerSnapshot(
+            UsageLedgerState state,
+            int filesScanned)
+        {
+            UsageAccumulator today = new UsageAccumulator();
+            UsageAccumulator yesterday = new UsageAccumulator();
+            UsageAccumulator last30Days = new UsageAccumulator();
+            UsageAccumulator lifetime = new UsageAccumulator();
+            Dictionary<string, long> modelTokens =
+                new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            DateTime localToday = DateTime.Now.Date;
+            DateTime last30Start = localToday.AddDays(-29);
+            DateTime? firstSeen = state.BaselineFirstSeenAtUtc;
+
+            lifetime.Add(state.BaselineLifetime);
+            foreach (KeyValuePair<string, long> entry in
+                state.BaselineModelTokens)
+            {
+                AddModelTokens(modelTokens, entry.Key, entry.Value);
+            }
+
+            HashSet<string> verified = new HashSet<string>(StringComparer.Ordinal);
+            foreach (UsageLedgerEvent item in state.Events)
+            {
+                if (!IsValidLedgerEvent(item) ||
+                    !verified.Add(item.Fingerprint))
+                {
+                    continue;
+                }
+
+                TokenVector usage = item.ToTokenVector();
+                decimal? cost = item.HasPriceEstimate
+                    ? item.EstimatedCostUsd
+                    : (decimal?)null;
+                lifetime.Add(usage.TotalTokens, cost);
+                AddModelTokens(modelTokens, item.Model, usage.TotalTokens);
+
+                DateTime eventUtc = item.EventUtc.Kind == DateTimeKind.Utc
+                    ? item.EventUtc
+                    : item.EventUtc.ToUniversalTime();
+                if (!firstSeen.HasValue || eventUtc < firstSeen.Value)
+                {
+                    firstSeen = eventUtc;
+                }
+
+                DateTime localDate = eventUtc.ToLocalTime().Date;
+                if (localDate >= last30Start && localDate <= localToday)
+                {
+                    last30Days.Add(usage.TotalTokens, cost);
+                }
+                if (localDate == localToday)
+                {
+                    today.Add(usage.TotalTokens, cost);
+                }
+                else if (localDate == localToday.AddDays(-1))
+                {
+                    yesterday.Add(usage.TotalTokens, cost);
+                }
+            }
+
+            return new LocalTokenUsageSnapshot
+            {
+                Today = today.ToSnapshot(),
+                Yesterday = yesterday.ToSnapshot(),
+                Last30Days = last30Days.ToSnapshot(),
+                Lifetime = lifetime.ToSnapshot(),
+                ModelUsage = BuildModelUsage(modelTokens),
+                FirstSeenAtUtc = firstSeen,
+                FilesScanned = filesScanned
+            };
+        }
+
+        private UsageLedgerState LoadLedger(
+            out bool repairFromBackup,
+            out bool unreadableLedger)
+        {
+            repairFromBackup = false;
+            unreadableLedger = false;
+            UsageLedgerState state;
+            if (TryReadLedgerFile(ledgerPath, out state))
+            {
+                return state;
+            }
+
+            string backupPath = ledgerPath + ".bak";
+            if (TryReadLedgerFile(backupPath, out state))
+            {
+                repairFromBackup = true;
+                return state;
+            }
+
+            unreadableLedger = File.Exists(ledgerPath) || File.Exists(backupPath);
+            return null;
+        }
+
+        private bool TryReadLedgerFile(
+            string path,
+            out UsageLedgerState state)
+        {
+            state = null;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                {
+                    return false;
+                }
+
+                UsageLedgerState parsed = ledgerSerializer.Deserialize<UsageLedgerState>(
+                    File.ReadAllText(path, Encoding.UTF8));
+                if (parsed == null || parsed.Version != LedgerVersion)
+                {
+                    return false;
+                }
+
+                state = parsed;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool TrySaveLedger(
+            UsageLedgerState state,
+            bool preserveExistingBackup)
+        {
+            string tempPath = null;
+            try
+            {
+                string directory = Path.GetDirectoryName(ledgerPath);
+                Directory.CreateDirectory(directory);
+                tempPath = ledgerPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                File.WriteAllText(tempPath,
+                    ledgerSerializer.Serialize(state), Utf8WithoutBom);
+
+                if (!File.Exists(ledgerPath))
+                {
+                    try
+                    {
+                        File.Move(tempPath, ledgerPath);
+                        tempPath = null;
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        File.Copy(tempPath, ledgerPath, true);
+                    }
+                    catch (IOException)
+                    {
+                        File.Copy(tempPath, ledgerPath, true);
+                    }
+                    return true;
+                }
+
+                string backupPath = ledgerPath + ".bak";
+                if (preserveExistingBackup)
+                {
+                    File.Copy(tempPath, ledgerPath, true);
+                }
+                else
+                {
+                    try
+                    {
+                        File.Replace(tempPath, ledgerPath, backupPath, true);
+                        tempPath = null;
+                    }
+                    catch (PlatformNotSupportedException)
+                    {
+                        File.Copy(ledgerPath, backupPath, true);
+                        File.Copy(tempPath, ledgerPath, true);
+                    }
+                    catch (IOException)
+                    {
+                        File.Copy(ledgerPath, backupPath, true);
+                        File.Copy(tempPath, ledgerPath, true);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        File.Copy(ledgerPath, backupPath, true);
+                        File.Copy(tempPath, ledgerPath, true);
+                    }
+                }
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                if (!string.IsNullOrEmpty(tempPath))
+                {
+                    try { File.Delete(tempPath); }
+                    catch { }
+                }
+            }
+        }
+
+        private static bool NormalizeLedgerState(UsageLedgerState state)
+        {
+            bool changed = false;
+            if (state.BaselineLifetime == null)
+            {
+                state.BaselineLifetime = new TokenPeriodSnapshot();
+                changed = true;
+            }
+            NormalizePeriod(state.BaselineLifetime);
+
+            Dictionary<string, long> normalizedModels =
+                new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            if (state.BaselineModelTokens != null)
+            {
+                foreach (KeyValuePair<string, long> entry in
+                    state.BaselineModelTokens)
+                {
+                    if (entry.Value > 0)
+                    {
+                        AddModelTokens(normalizedModels, entry.Key, entry.Value);
+                    }
+                }
+            }
+            if (normalizedModels.Count !=
+                (state.BaselineModelTokens == null
+                    ? 0
+                    : state.BaselineModelTokens.Count))
+            {
+                changed = true;
+            }
+            state.BaselineModelTokens = normalizedModels;
+
+            List<UsageLedgerEvent> normalizedEvents =
+                new List<UsageLedgerEvent>();
+            HashSet<string> fingerprints = new HashSet<string>(
+                StringComparer.Ordinal);
+            if (state.Events != null)
+            {
+                foreach (UsageLedgerEvent item in state.Events)
+                {
+                    if (IsValidLedgerEvent(item) &&
+                        fingerprints.Add(item.Fingerprint))
+                    {
+                        item.Model = NormalizeModelName(item.Model);
+                        normalizedEvents.Add(item);
+                    }
+                    else
+                    {
+                        changed = true;
+                    }
+                }
+            }
+            else
+            {
+                changed = true;
+            }
+            state.Events = normalizedEvents;
+            return changed;
+        }
+
+        private static void NormalizePeriod(TokenPeriodSnapshot period)
+        {
+            period.TotalTokens = Math.Max(0L, period.TotalTokens);
+            period.PricedTokens = Math.Min(period.TotalTokens,
+                Math.Max(0L, period.PricedTokens));
+            period.EstimatedCostUsd = Math.Max(0m, period.EstimatedCostUsd);
+            period.HasData = period.TotalTokens > 0;
+            if (period.PricedTokens < period.TotalTokens)
+            {
+                period.HasCompleteCostEstimate = false;
+            }
+        }
+
+        private static bool IsValidLedgerEvent(UsageLedgerEvent item)
+        {
+            return item != null &&
+                !string.IsNullOrWhiteSpace(item.Fingerprint) &&
+                item.EventUtc != DateTime.MinValue &&
+                item.InputTokens >= 0 &&
+                item.CachedInputTokens >= 0 &&
+                item.CacheWriteInputTokens >= 0 &&
+                item.OutputTokens >= 0 &&
+                item.ReasoningOutputTokens >= 0 &&
+                item.TotalTokens > 0 &&
+                item.EstimatedCostUsd >= 0m;
+        }
+
+        private static bool UpgradeMissingPriceEstimates(
+            UsageLedgerState state)
+        {
+            bool changed = false;
+            if (state == null || state.Events == null)
+            {
+                return false;
+            }
+
+            foreach (UsageLedgerEvent item in state.Events)
+            {
+                if (!IsValidLedgerEvent(item) || item.HasPriceEstimate)
+                {
+                    continue;
+                }
+
+                decimal? estimate = PricingCatalog.Estimate(
+                    item.Model, item.ToTokenVector());
+                if (estimate.HasValue)
+                {
+                    item.EstimatedCostUsd = estimate.Value;
+                    item.HasPriceEstimate = true;
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+
+        private static long EffectivePricedTokens(TokenPeriodSnapshot period)
+        {
+            if (period == null || period.TotalTokens <= 0)
+            {
+                return 0L;
+            }
+            return period.HasCompleteCostEstimate
+                ? period.TotalTokens
+                : Math.Min(period.TotalTokens, Math.Max(0L, period.PricedTokens));
         }
 
         private string TryReadModel(string line)
@@ -439,12 +963,17 @@ namespace UsagePeek
                 return;
             }
 
-            string name = string.IsNullOrWhiteSpace(model)
-                ? "未知模型"
-                : model.Trim();
+            string name = NormalizeModelName(model);
             long current;
             totals.TryGetValue(name, out current);
             totals[name] = current + tokens;
+        }
+
+        private static string NormalizeModelName(string model)
+        {
+            return string.IsNullOrWhiteSpace(model)
+                ? "未知模型"
+                : model.Trim();
         }
 
         private static List<ModelTokenUsageSnapshot> BuildModelUsage(
@@ -507,6 +1036,97 @@ namespace UsagePeek
                 Environment.SpecialFolder.UserProfile), ".codex");
         }
 
+        private static string ResolveLedgerPath()
+        {
+            string root = Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData);
+            return Path.Combine(root, "UsagePeek", "usage-ledger.json");
+        }
+
+        private static LocalTokenUsageSnapshot TryLoadLegacySnapshot()
+        {
+            try
+            {
+                UsageSnapshot cached = new UsageCache().Load();
+                return cached == null ? null : cached.LocalTokenUsage;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private sealed class UsageLedgerState
+        {
+            public UsageLedgerState()
+            {
+            }
+
+            public int Version { get; set; }
+            public TokenPeriodSnapshot BaselineLifetime { get; set; }
+            public Dictionary<string, long> BaselineModelTokens { get; set; }
+            public DateTime? BaselineFirstSeenAtUtc { get; set; }
+            public List<UsageLedgerEvent> Events { get; set; }
+            public DateTime UpdatedAtUtc { get; set; }
+        }
+
+        private sealed class UsageLedgerEvent
+        {
+            public UsageLedgerEvent()
+            {
+            }
+
+            public string Fingerprint { get; set; }
+            public DateTime EventUtc { get; set; }
+            public string Model { get; set; }
+            public long InputTokens { get; set; }
+            public long CachedInputTokens { get; set; }
+            public long CacheWriteInputTokens { get; set; }
+            public long OutputTokens { get; set; }
+            public long ReasoningOutputTokens { get; set; }
+            public long TotalTokens { get; set; }
+            public decimal EstimatedCostUsd { get; set; }
+            public bool HasPriceEstimate { get; set; }
+
+            public static UsageLedgerEvent From(
+                string fingerprint,
+                DateTime eventUtc,
+                string model,
+                TokenVector usage)
+            {
+                decimal? estimatedCost = PricingCatalog.Estimate(model, usage);
+                return new UsageLedgerEvent
+                {
+                    Fingerprint = fingerprint,
+                    EventUtc = eventUtc.Kind == DateTimeKind.Utc
+                        ? eventUtc
+                        : eventUtc.ToUniversalTime(),
+                    Model = model,
+                    InputTokens = usage.InputTokens,
+                    CachedInputTokens = usage.CachedInputTokens,
+                    CacheWriteInputTokens = usage.CacheWriteInputTokens,
+                    OutputTokens = usage.OutputTokens,
+                    ReasoningOutputTokens = usage.ReasoningOutputTokens,
+                    TotalTokens = usage.TotalTokens,
+                    EstimatedCostUsd = estimatedCost ?? 0m,
+                    HasPriceEstimate = estimatedCost.HasValue
+                };
+            }
+
+            public TokenVector ToTokenVector()
+            {
+                return new TokenVector
+                {
+                    InputTokens = InputTokens,
+                    CachedInputTokens = CachedInputTokens,
+                    CacheWriteInputTokens = CacheWriteInputTokens,
+                    OutputTokens = OutputTokens,
+                    ReasoningOutputTokens = ReasoningOutputTokens,
+                    TotalTokens = TotalTokens
+                };
+            }
+        }
+
         private sealed class TokenEvent
         {
             public string TimestampText { get; set; }
@@ -535,6 +1155,23 @@ namespace UsagePeek
                     pricedTokens += value;
                 }
                 else
+                {
+                    completeCost = false;
+                }
+            }
+
+            public void Add(TokenPeriodSnapshot period)
+            {
+                if (period == null || period.TotalTokens <= 0)
+                {
+                    return;
+                }
+
+                tokens += period.TotalTokens;
+                pricedTokens += Math.Min(period.TotalTokens,
+                    Math.Max(0L, period.PricedTokens));
+                cost += Math.Max(0m, period.EstimatedCostUsd);
+                if (!period.HasCompleteCostEstimate)
                 {
                     completeCost = false;
                 }

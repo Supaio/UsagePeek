@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using UsagePeek;
 
 internal static class LocalUsageQa
@@ -15,6 +16,9 @@ internal static class LocalUsageQa
         {
             VerifiesDeltaAccountingAndForkDeduplication(root);
             VerifiesNewModelAndPartialPricing(Path.Combine(root, "pricing"));
+            VerifiesPersistentLedgerAndDuplicateProtection(
+                Path.Combine(root, "persistent"));
+            VerifiesCachedBaselineMigration(Path.Combine(root, "migration"));
         }
         finally
         {
@@ -169,6 +173,129 @@ internal static class LocalUsageQa
             });
         Check(missing.StartsWith("价格待补充", StringComparison.Ordinal),
             "fully unknown periods explain why no price is shown");
+    }
+
+    private static void VerifiesPersistentLedgerAndDuplicateProtection(
+        string root)
+    {
+        string sessions = Path.Combine(root, "sessions", "2026", "10", "15");
+        Directory.CreateDirectory(sessions);
+        string sessionPath = Path.Combine(sessions, "a-session.jsonl");
+        string ledgerPath = Path.Combine(root, "usage-ledger.json");
+        DateTime now = DateTime.UtcNow.AddMinutes(-10);
+        string first = Stamp(now);
+        string second = Stamp(now.AddMinutes(1));
+        string third = Stamp(now.AddMinutes(2));
+        string fourth = Stamp(now.AddMinutes(3));
+
+        File.WriteAllLines(sessionPath, new[]
+        {
+            Context("gpt-6-sol"),
+            Token(first, 100, 20, 10, 110),
+            Token(second, 150, 30, 20, 170)
+        });
+
+        LocalTokenUsageSnapshot initial = new LocalUsageScanner(root).Scan();
+        Check(initial.Lifetime.TotalTokens == 170,
+            "persistent ledger records the initial local history");
+
+        LocalTokenUsageSnapshot repeated = new LocalUsageScanner(root).Scan();
+        Check(repeated.Lifetime.TotalTokens == 170,
+            "repeated scans do not add the same events twice");
+
+        File.Delete(sessionPath);
+        LocalTokenUsageSnapshot afterDeletion = new LocalUsageScanner(root).Scan();
+        Check(afterDeletion.Lifetime.TotalTokens == 170 &&
+            afterDeletion.Today.TotalTokens == 170 &&
+            afterDeletion.FilesScanned == 0,
+            "ledger totals survive removal of Codex rollout files");
+
+        File.WriteAllLines(sessionPath, new[]
+        {
+            Context("gpt-6-sol"),
+            Token(first, 100, 20, 10, 110),
+            Token(second, 150, 30, 20, 170)
+        });
+        LocalTokenUsageSnapshot restored = new LocalUsageScanner(root).Scan();
+        Check(restored.Lifetime.TotalTokens == 170,
+            "restoring an old rollout does not duplicate ledger history");
+
+        File.AppendAllLines(sessionPath, new[]
+        {
+            Token(third, 200, 40, 30, 230)
+        });
+        LocalTokenUsageSnapshot appended = new LocalUsageScanner(root).Scan();
+        Check(appended.Lifetime.TotalTokens == 230,
+            "new usage continues accumulating after a previous log removal");
+
+        File.WriteAllLines(Path.Combine(sessions, "b-fork.jsonl"), new[]
+        {
+            Context("gpt-6-sol"),
+            Token(first, 100, 20, 10, 110),
+            Token(second, 150, 30, 20, 170),
+            Token(third, 200, 40, 30, 230),
+            Token(fourth, 225, 45, 35, 260)
+        });
+        LocalTokenUsageSnapshot forked = new LocalUsageScanner(root).Scan();
+        Check(forked.Lifetime.TotalTokens == 260,
+            "fork replay is ignored while fork-owned usage is added once");
+
+        File.WriteAllText(ledgerPath, "{broken-ledger", Encoding.UTF8);
+        LocalTokenUsageSnapshot recovered = new LocalUsageScanner(root).Scan();
+        Check(recovered.Lifetime.TotalTokens == 260,
+            "ledger backup recovers safely from an interrupted main file");
+        Check(File.Exists(ledgerPath + ".bak"),
+            "ledger keeps a previous-file backup for recovery");
+    }
+
+    private static void VerifiesCachedBaselineMigration(string root)
+    {
+        string sessions = Path.Combine(root, "sessions", "2026", "10", "15");
+        Directory.CreateDirectory(sessions);
+        DateTime now = DateTime.UtcNow.AddMinutes(-5);
+        File.WriteAllLines(Path.Combine(sessions, "current.jsonl"), new[]
+        {
+            Context("gpt-6-sol"),
+            Token(Stamp(now), 100, 20, 10, 110)
+        });
+
+        LocalTokenUsageSnapshot cached = new LocalTokenUsageSnapshot
+        {
+            Lifetime = new TokenPeriodSnapshot
+            {
+                TotalTokens = 310,
+                PricedTokens = 310,
+                EstimatedCostUsd = 1.000264m,
+                HasData = true,
+                HasCompleteCostEstimate = true
+            },
+            ModelUsage = new System.Collections.Generic.List<
+                ModelTokenUsageSnapshot>
+            {
+                new ModelTokenUsageSnapshot
+                {
+                    Model = "gpt-6-sol",
+                    TotalTokens = 310,
+                    HasPriceEstimate = true
+                }
+            },
+            FirstSeenAtUtc = now.AddDays(-20)
+        };
+        string ledgerPath = Path.Combine(root, "usage-ledger.json");
+        LocalTokenUsageSnapshot migrated = new LocalUsageScanner(
+            root, ledgerPath, cached).Scan();
+        Check(migrated.Lifetime.TotalTokens == 310 &&
+            migrated.Lifetime.EstimatedCostUsd == 1.000264m,
+            "first ledger creation preserves a larger cached lifetime baseline");
+
+        File.WriteAllLines(Path.Combine(sessions, "new.jsonl"), new[]
+        {
+            Context("gpt-6-luna"),
+            Token(Stamp(now.AddMinutes(1)), 45, 10, 5, 50)
+        });
+        LocalTokenUsageSnapshot continued = new LocalUsageScanner(root).Scan();
+        Check(continued.Lifetime.TotalTokens == 360,
+            "migrated cached history and newly observed usage are not double counted");
     }
 
     private static string Context(string model)

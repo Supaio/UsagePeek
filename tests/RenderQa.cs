@@ -44,6 +44,7 @@ internal static class RenderQa
         }
 
         bool pet = string.Equals(mode, "pet", StringComparison.OrdinalIgnoreCase) ||
+            mode.StartsWith("pet-chatgpt", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-phoebe", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-remaining", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-small", StringComparison.OrdinalIgnoreCase) ||
@@ -90,17 +91,35 @@ internal static class RenderQa
                 {
                     petForm.SetAppearance(PetAppearance.PhoebeChibi);
                 }
+                if (mode.StartsWith("pet-chatgpt", StringComparison.OrdinalIgnoreCase))
+                {
+                    petForm.SetAppearance(PetAppearance.ChatGptGirl);
+                    if (string.Equals(mode, "pet-chatgpt-rua",
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        petForm.SetPettingProgressForTesting(0.15f);
+                    }
+                }
                 petForm.SetUsage(new UsageSnapshot
                 {
                     Primary = new UsageWindowSnapshot
                     {
                         UsedPercent = string.Equals(mode, "pet-nervous",
-                            StringComparison.OrdinalIgnoreCase) ? 88 : 45
+                            StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(mode, "pet-chatgpt-nervous",
+                                StringComparison.OrdinalIgnoreCase) ? 88 : 45,
+                        ResetsAtUtc = DateTime.UtcNow.AddHours(2).AddMinutes(14)
                     },
-                    Secondary = new UsageWindowSnapshot { UsedPercent = 34 }
+                    Secondary = new UsageWindowSnapshot
+                    {
+                        UsedPercent = 34,
+                        ResetsAtUtc = DateTime.UtcNow.AddDays(3).AddHours(9)
+                    }
                 });
                 if (string.Equals(mode, "pet-happy",
-                    StringComparison.OrdinalIgnoreCase))
+                    StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(mode, "pet-chatgpt-happy",
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     petForm.SetMoodForTesting(PetMood.Happy, 0.45f);
                 }
@@ -235,7 +254,7 @@ internal static class RenderQa
         return new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.2.1",
+            AppVersion = "v1.3.0",
             OperatingSystem = "Microsoft Windows 11",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Users\Tester\Apps\UsagePeek.exe",

@@ -1,6 +1,6 @@
 {
-  "version": "1.2.1",
-  "url": "https://github.com/Supaio/UsagePeek/releases/download/v1.2.1/UsagePeek.exe",
-  "sha256": "89F6A33DADEC774A65436B048D3F7D110E164058009FB1CE759ECBF5C265B17D",
-  "notes": "v1.2.1：普通窗口不再强制置顶；桌宠置顶改为默认关闭的可选项，并新增右键快捷开关；优化设置窗口首次显示时的绘制速度。"
+  "version": "1.3.0",
+  "url": "https://github.com/Supaio/UsagePeek/releases/download/v1.3.0/UsagePeek.exe",
+  "sha256": "0F70A3F11D0C97315BA3D747A230E59088FC086A67D1BEAB7479DA49FCF26218",
+  "notes": "v1.3.0：新增持久化累计账本，逐条指纹核对避免重复入账，已记录用量不再因 Codex 清理日志而下降；新增 ChatGPT 娘桌宠；用量下显示 5 小时与 7 天额度的恢复日期和本地时间；气泡背景直接使用图片平均色，文字自动适配明暗；移除常驻摸头说明，保留摸头互动；设置窗口启动预热并复用，减少打开时的渲染延迟。"
 }

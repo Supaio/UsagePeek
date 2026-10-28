@@ -20,6 +20,7 @@ $result = Join-Path $outputDirectory 'WinExeProviderQa.result.json'
     (Join-Path $root 'IUsageProvider.cs') `
     (Join-Path $root 'CodexResponseParser.cs') `
     (Join-Path $root 'CodexExecutableLocator.cs') `
+    (Join-Path $root 'UsageCache.cs') `
     (Join-Path $root 'LocalUsageScanner.cs') `
     (Join-Path $root 'CodexUsageProvider.cs') `
     (Join-Path $PSScriptRoot 'WinExeProviderQa.cs')

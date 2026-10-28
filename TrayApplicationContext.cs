@@ -32,6 +32,7 @@ namespace UsagePeek
         private readonly Timer activationTimer;
         private readonly System.Threading.EventWaitHandle activationEvent;
         private readonly Icon icon;
+        private SettingsForm settingsDialog;
         private UsageSnapshot lastSnapshot;
         private bool refreshing;
         private bool exiting;
@@ -194,6 +195,28 @@ namespace UsagePeek
                     "新版本未能正常启动，已自动恢复旧版本。",
                     ToolTipIcon.Warning);
             }
+
+            EventHandler warmSettingsDialog = null;
+            warmSettingsDialog = delegate
+            {
+                Application.Idle -= warmSettingsDialog;
+                if (!exiting)
+                {
+                    try
+                    {
+                        EnsureSettingsDialog();
+                    }
+                    catch
+                    {
+                        if (settingsDialog != null)
+                        {
+                            settingsDialog.Dispose();
+                            settingsDialog = null;
+                        }
+                    }
+                }
+            };
+            Application.Idle += warmSettingsDialog;
         }
 
         private async Task RefreshAsync()
@@ -479,54 +502,67 @@ namespace UsagePeek
 
         private void ShowSettings()
         {
-            bool restoreDetails = form.Visible;
-            try
-            {
-                ShowSettingsDialog();
-            }
-            finally
-            {
-                if (restoreDetails && !exiting)
-                {
-                    ShowDetails();
-                }
-            }
+            ShowSettingsDialog();
         }
 
         private void ShowSettingsDialog()
         {
-            SettingsSelection initial = ReadSettingsSelection();
-
-            using (SettingsForm dialog = new SettingsForm(
-                initial, BuildDiagnosticsSnapshot))
+            SettingsForm dialog = EnsureSettingsDialog();
+            if (dialog.Visible)
             {
-                dialog.SettingsChanged += delegate
-                {
-                    ApplySettingsChange(dialog);
-                };
-                dialog.ConnectionTestRequested += async delegate
-                {
-                    dialog.SetConnectionTestBusy(true);
-                    try
-                    {
-                        await RefreshAsync();
-                        if (!dialog.IsDisposed)
-                        {
-                            dialog.RefreshDiagnostics();
-                        }
-                    }
-                    finally
-                    {
-                        if (!dialog.IsDisposed)
-                        {
-                            dialog.SetConnectionTestBusy(false);
-                        }
-                    }
-                };
-                dialog.PlaceNearCursor();
-                dialog.PrepareForDisplay();
-                dialog.ShowDialog();
+                dialog.Activate();
+                return;
             }
+
+            dialog.SetSelection(ReadSettingsSelection());
+            dialog.ShowGeneralSettings();
+            dialog.PlaceNearCursor();
+            dialog.Show();
+            dialog.BringToFront();
+            dialog.Activate();
+        }
+
+        private SettingsForm EnsureSettingsDialog()
+        {
+            if (settingsDialog != null && !settingsDialog.IsDisposed)
+            {
+                settingsDialog.PrepareForDisplay();
+                return settingsDialog;
+            }
+
+            settingsDialog = new SettingsForm(
+                ReadSettingsSelection(), BuildDiagnosticsSnapshot);
+            settingsDialog.SettingsChanged += delegate
+            {
+                ApplySettingsChange(settingsDialog);
+            };
+            settingsDialog.ConnectionTestRequested += async delegate
+            {
+                SettingsForm dialog = settingsDialog;
+                if (dialog == null || dialog.IsDisposed)
+                {
+                    return;
+                }
+
+                dialog.SetConnectionTestBusy(true);
+                try
+                {
+                    await RefreshAsync();
+                    if (!dialog.IsDisposed)
+                    {
+                        dialog.RefreshDiagnostics();
+                    }
+                }
+                finally
+                {
+                    if (!dialog.IsDisposed)
+                    {
+                        dialog.SetConnectionTestBusy(false);
+                    }
+                }
+            };
+            settingsDialog.PrepareForDisplay();
+            return settingsDialog;
         }
 
         private SettingsSelection ReadSettingsSelection()
@@ -692,6 +728,8 @@ namespace UsagePeek
             diagnostics.DisplayMode = displayPreference.GetDisplayMode() ==
                 UsageDisplayMode.Pet ? "桌宠模式" : "经典面板";
             diagnostics.PetAppearance = displayPreference.GetPetAppearance() ==
+                PetAppearance.ChatGptGirl ? "ChatGPT 娘" :
+                displayPreference.GetPetAppearance() ==
                 PetAppearance.PhoebeChibi ? "菲比啾比" : "鲸鱼娘趴趴";
             diagnostics.PetUsageMode =
                 displayPreference.GetPetUsageDisplayMode() ==
@@ -912,6 +950,10 @@ namespace UsagePeek
             displayPreference.SetPetAlwaysOnTop(enabled);
             petForm.SetAlwaysOnTop(enabled);
             petAlwaysOnTopMenuItem.Checked = enabled;
+            if (settingsDialog != null && !settingsDialog.IsDisposed)
+            {
+                settingsDialog.SetPetAlwaysOnTopState(enabled);
+            }
         }
 
         private static void ShowAbout()
@@ -951,6 +993,11 @@ namespace UsagePeek
             trayIcon.Visible = false;
             trayIcon.Dispose();
             icon.Dispose();
+            if (settingsDialog != null)
+            {
+                settingsDialog.Dispose();
+                settingsDialog = null;
+            }
             petForm.Dispose();
             form.Dispose();
             menu.Dispose();

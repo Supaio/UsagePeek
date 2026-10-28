@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -22,6 +23,8 @@ namespace UsagePeek
             "UsagePeek.Assets.PetWhaleMaidCurled.png";
         private const string PhoebePetResourceName =
             "UsagePeek.Assets.PetPhoebeChibi.png";
+        private const string ChatGptPetResourceName =
+            "UsagePeek.Assets.PetChatGptGirl.png";
         private const string PettingHandResourceName =
             "UsagePeek.Assets.PetpetHandV2.png";
         private const int WmNcHitTest = 0x0084;
@@ -34,7 +37,7 @@ namespace UsagePeek
         private const byte AcSrcAlpha = 0x01;
         private const int PetDesignHeight = 210;
         private const int WindowDesignWidth = 220;
-        private const int WindowDesignHeight = 292;
+        private const int WindowDesignHeight = 310;
         private const int PetHintDesignHeight = 20;
         private const int PettingTimerIntervalMilliseconds = 20;
         private const int PettingAnimationDurationMilliseconds = 960;
@@ -43,7 +46,7 @@ namespace UsagePeek
         private const int PettingTriggerCooldownMilliseconds = 1050;
         private const int PettingMinimumStrokeDesignPixels = 14;
         private const int PettingMinimumTravelDesignPixels = 34;
-        private const int PetSurfaceMinimumYDesign = 68;
+        private const int PetSurfaceMinimumYDesign = 86;
         private const int WmDisplayChange = 0x007E;
         private const int DisplayRecoveryDelayMilliseconds = 300;
         private const int NervousUsedPercentThreshold = 80;
@@ -59,7 +62,11 @@ namespace UsagePeek
 
         private readonly Bitmap whaleImage;
         private readonly Bitmap phoebeImage;
+        private readonly Bitmap chatGptImage;
         private readonly Bitmap pettingHandImage;
+        private readonly Color whaleAverageColor;
+        private readonly Color phoebeAverageColor;
+        private readonly Color chatGptAverageColor;
         private readonly Timer pettingTimer;
         private readonly Timer displayRecoveryTimer;
         private readonly Timer moodTimer;
@@ -74,6 +81,8 @@ namespace UsagePeek
         private bool moved;
         private int? primaryUsedPercent;
         private int? secondaryUsedPercent;
+        private DateTime? primaryResetsAtUtc;
+        private DateTime? secondaryResetsAtUtc;
         private int? livePrimaryUsedPercent;
         private int? liveSecondaryUsedPercent;
         private DateTime? livePrimaryResetsAtUtc;
@@ -138,7 +147,11 @@ namespace UsagePeek
         {
             whaleImage = LoadPetImage(PetAppearance.WhaleMaid);
             phoebeImage = LoadPetImage(PetAppearance.PhoebeChibi);
+            chatGptImage = LoadPetImage(PetAppearance.ChatGptGirl);
             pettingHandImage = LoadPettingHandImage();
+            whaleAverageColor = CalculateArtworkAverageColor(whaleImage);
+            phoebeAverageColor = CalculateArtworkAverageColor(phoebeImage);
+            chatGptAverageColor = CalculateArtworkAverageColor(chatGptImage);
             sourceImage = whaleImage;
             sourceContentBounds = WhaleContentBounds;
             petAppearance = PetAppearance.WhaleMaid;
@@ -181,7 +194,9 @@ namespace UsagePeek
             int? nextSecondaryUsedPercent = ReadUsedPercent(
                 snapshot == null ? null : snapshot.Secondary);
             ApplyUsage(nextPrimaryUsedPercent,
-                nextSecondaryUsedPercent, false);
+                nextSecondaryUsedPercent,
+                ReadResetAt(snapshot == null ? null : snapshot.Primary),
+                ReadResetAt(snapshot == null ? null : snapshot.Secondary), false);
         }
 
         public void SetLiveUsage(UsageSnapshot snapshot)
@@ -211,16 +226,21 @@ namespace UsagePeek
                 nextSecondaryUsedPercent.HasValue;
 
             ApplyUsage(nextPrimaryUsedPercent,
-                nextSecondaryUsedPercent, quotaReset);
+                nextSecondaryUsedPercent,
+                nextPrimaryReset, nextSecondaryReset, quotaReset);
         }
 
         private void ApplyUsage(
             int? nextPrimaryUsedPercent,
             int? nextSecondaryUsedPercent,
+            DateTime? nextPrimaryReset,
+            DateTime? nextSecondaryReset,
             bool quotaReset)
         {
             primaryUsedPercent = nextPrimaryUsedPercent;
             secondaryUsedPercent = nextSecondaryUsedPercent;
+            primaryResetsAtUtc = nextPrimaryReset;
+            secondaryResetsAtUtc = nextSecondaryReset;
             if (quotaReset)
             {
                 StartHappyMood();
@@ -235,10 +255,14 @@ namespace UsagePeek
         public void SetAppearance(PetAppearance value)
         {
             petAppearance = value;
-            sourceImage = value == PetAppearance.PhoebeChibi
+            sourceImage = value == PetAppearance.ChatGptGirl
+                ? chatGptImage
+                : value == PetAppearance.PhoebeChibi
                 ? phoebeImage
                 : whaleImage;
-            sourceContentBounds = value == PetAppearance.PhoebeChibi
+            sourceContentBounds = value == PetAppearance.ChatGptGirl
+                ? new Rectangle(Point.Empty, chatGptImage.Size)
+                : value == PetAppearance.PhoebeChibi
                 ? PhoebeContentBounds
                 : WhaleContentBounds;
             ApplyLayeredImage();
@@ -350,6 +374,15 @@ namespace UsagePeek
         internal PetAppearance AppearanceForTesting
         {
             get { return petAppearance; }
+        }
+
+        internal string ResetDatesForTesting
+        {
+            get
+            {
+                return FormatResetDate(primaryResetsAtUtc) + " | " +
+                    FormatResetDate(secondaryResetsAtUtc);
+            }
         }
 
         internal int ScalePercentForTesting
@@ -522,6 +555,7 @@ namespace UsagePeek
                 }
                 whaleImage.Dispose();
                 phoebeImage.Dispose();
+                chatGptImage.Dispose();
                 pettingHandImage.Dispose();
             }
             base.Dispose(disposing);
@@ -529,7 +563,9 @@ namespace UsagePeek
 
         private static Bitmap LoadPetImage(PetAppearance appearance)
         {
-            string resourceName = appearance == PetAppearance.PhoebeChibi
+            string resourceName = appearance == PetAppearance.ChatGptGirl
+                ? ChatGptPetResourceName
+                : appearance == PetAppearance.PhoebeChibi
                 ? PhoebePetResourceName
                 : WhalePetResourceName;
             return LoadEmbeddedBitmap(resourceName,
@@ -559,6 +595,51 @@ namespace UsagePeek
                     return new Bitmap(image);
                 }
             }
+        }
+
+        internal static Color CalculateArtworkAverageColor(Bitmap image)
+        {
+            Rectangle bounds = new Rectangle(0, 0, image.Width, image.Height);
+            BitmapData data = image.LockBits(bounds, ImageLockMode.ReadOnly,
+                PixelFormat.Format32bppArgb);
+            long red = 0L;
+            long green = 0L;
+            long blue = 0L;
+            long weight = 0L;
+            try
+            {
+                byte[] row = new byte[image.Width * 4];
+                for (int y = 0; y < image.Height; y++)
+                {
+                    Marshal.Copy(IntPtr.Add(data.Scan0, y * data.Stride),
+                        row, 0, row.Length);
+                    for (int x = 0; x < row.Length; x += 4)
+                    {
+                        int alpha = row[x + 3];
+                        blue += row[x] * alpha;
+                        green += row[x + 1] * alpha;
+                        red += row[x + 2] * alpha;
+                        weight += alpha;
+                    }
+                }
+            }
+            finally
+            {
+                image.UnlockBits(data);
+            }
+
+            return weight > 0
+                ? Color.FromArgb((int)(red / weight),
+                    (int)(green / weight), (int)(blue / weight))
+                : Color.FromArgb(128, 128, 128);
+        }
+
+        private static Color BlendColor(Color first, Color second, float amount)
+        {
+            return Color.FromArgb(
+                (int)Math.Round(first.R + (second.R - first.R) * amount),
+                (int)Math.Round(first.G + (second.G - first.G) * amount),
+                (int)Math.Round(first.B + (second.B - first.B) * amount));
         }
 
         private void ApplyLayeredImage()
@@ -867,10 +948,11 @@ namespace UsagePeek
             Graphics graphics, Rectangle petBounds, float scale)
         {
             bool whale = petAppearance == PetAppearance.WhaleMaid;
+            bool chatGpt = petAppearance == PetAppearance.ChatGptGirl;
             float centerX = petBounds.Left + petBounds.Width *
-                (whale ? 0.66f : 0.83f);
+                (whale ? 0.66f : chatGpt ? 0.71f : 0.83f);
             float top = petBounds.Top + petBounds.Height *
-                (whale ? 0.31f : 0.34f);
+                (whale ? 0.31f : chatGpt ? 0.36f : 0.34f);
             float width = Math.Max(4f, 12f * scale);
             float height = Math.Max(6f, 18f * scale);
 
@@ -1059,6 +1141,11 @@ namespace UsagePeek
             Graphics graphics, int width, int height, float scale,
             string hint, Color hintColor)
         {
+            if (string.IsNullOrEmpty(hint))
+            {
+                return;
+            }
+
             float fontSize = Math.Max(6f, 9f * scale);
             float top = height - ScaleDesign(18, scale);
             float hintHeight = Math.Max(8f, ScaleDesign(16, scale));
@@ -1085,8 +1172,25 @@ namespace UsagePeek
         private void DrawUsageBubble(
             Graphics graphics, int width, float scale)
         {
+            Color average = petAppearance == PetAppearance.ChatGptGirl
+                ? chatGptAverageColor
+                : petAppearance == PetAppearance.PhoebeChibi
+                ? phoebeAverageColor
+                : whaleAverageColor;
+            double red = average.R / 255d;
+            double green = average.G / 255d;
+            double blue = average.B / 255d;
+            red = red <= 0.04045d ? red / 12.92d :
+                Math.Pow((red + 0.055d) / 1.055d, 2.4d);
+            green = green <= 0.04045d ? green / 12.92d :
+                Math.Pow((green + 0.055d) / 1.055d, 2.4d);
+            blue = blue <= 0.04045d ? blue / 12.92d :
+                Math.Pow((blue + 0.055d) / 1.055d, 2.4d);
+            double luminance = 0.2126d * red + 0.7152d * green + 0.0722d * blue;
+            Color textColor = luminance > 0.179d ? Color.Black : Color.White;
+            Color borderColor = BlendColor(average, textColor, 0.35f);
             int margin = Math.Max(2, ScaleDesign(4, scale));
-            int bubbleHeight = Math.Max(1, ScaleDesign(54, scale));
+            int bubbleHeight = Math.Max(1, ScaleDesign(72, scale));
             int tailHeight = Math.Max(1, ScaleDesign(10, scale));
             int radius = Math.Max(2, ScaleDesign(15, scale));
             Rectangle bubble = new Rectangle(
@@ -1095,10 +1199,9 @@ namespace UsagePeek
             using (GraphicsPath path = RoundedRectangle(bubble, radius))
             using (SolidBrush shadow = new SolidBrush(
                 Color.FromArgb(70, 0, 0, 0)))
-            using (SolidBrush background = new SolidBrush(
-                Color.FromArgb(242, 13, 24, 38)))
+            using (SolidBrush background = new SolidBrush(average))
             using (Pen border = new Pen(
-                Color.FromArgb(220, 43, 65, 88),
+                borderColor,
                 Math.Max(1f, scale)))
             {
                 graphics.TranslateTransform(0, Math.Max(1, ScaleDesign(2, scale)));
@@ -1117,7 +1220,7 @@ namespace UsagePeek
                 };
                 graphics.FillPolygon(background, tail);
                 using (Pen tailBorder = new Pen(
-                    Color.FromArgb(220, 43, 65, 88),
+                    borderColor,
                     Math.Max(1f, scale)))
                 {
                     graphics.DrawLines(tailBorder,
@@ -1127,7 +1230,7 @@ namespace UsagePeek
 
             int dividerTop = bubble.Top + ScaleDesign(11, scale);
             int dividerBottom = bubble.Bottom - ScaleDesign(11, scale);
-            using (Pen divider = new Pen(Color.FromArgb(90, 92, 117, 142),
+            using (Pen divider = new Pen(Color.FromArgb(70, textColor),
                 Math.Max(1f, scale)))
             {
                 graphics.DrawLine(divider, width / 2,
@@ -1141,7 +1244,8 @@ namespace UsagePeek
                     ? "5h 剩余"
                     : "5h 已用",
                 FormatPercent(GetDisplayedPercent(primaryUsedPercent)),
-                Color.FromArgb(251, 113, 133), scale);
+                FormatResetDate(primaryResetsAtUtc),
+                textColor, textColor, scale);
             DrawUsageColumn(graphics,
                 new Rectangle(bubble.Left + bubble.Width / 2, bubble.Top,
                     bubble.Width - bubble.Width / 2, bubble.Height),
@@ -1149,7 +1253,8 @@ namespace UsagePeek
                     ? "7d 剩余"
                     : "7d 已用",
                 FormatPercent(GetDisplayedPercent(secondaryUsedPercent)),
-                Color.FromArgb(45, 212, 191), scale);
+                FormatResetDate(secondaryResetsAtUtc),
+                textColor, textColor, scale);
         }
 
         private static void DrawUsageColumn(
@@ -1157,7 +1262,9 @@ namespace UsagePeek
             Rectangle area,
             string label,
             string value,
+            string resetDate,
             Color accent,
+            Color labelColor,
             float scale)
         {
             using (Font labelFont = new Font("Segoe UI Semibold",
@@ -1166,20 +1273,26 @@ namespace UsagePeek
             using (Font valueFont = new Font("Segoe UI Semibold",
                 Math.Max(12f, 19f * scale), FontStyle.Bold,
                 GraphicsUnit.Pixel))
-            using (SolidBrush labelBrush = new SolidBrush(
-                Color.FromArgb(205, 177, 196, 216)))
+            using (Font dateFont = new Font("Segoe UI",
+                Math.Max(6f, 10f * scale), FontStyle.Regular,
+                GraphicsUnit.Pixel))
+            using (SolidBrush labelBrush = new SolidBrush(labelColor))
             using (SolidBrush valueBrush = new SolidBrush(accent))
             using (StringFormat format = new StringFormat())
             {
                 format.Alignment = StringAlignment.Center;
                 format.LineAlignment = StringAlignment.Near;
                 format.Trimming = StringTrimming.EllipsisCharacter;
+                format.FormatFlags = StringFormatFlags.NoWrap;
                 graphics.DrawString(label, labelFont, labelBrush,
                     new RectangleF(area.Left, area.Top + ScaleDesign(7, scale),
                         area.Width, ScaleDesign(13, scale)), format);
                 graphics.DrawString(value, valueFont, valueBrush,
                     new RectangleF(area.Left, area.Top + ScaleDesign(21, scale),
                         area.Width, ScaleDesign(27, scale)), format);
+                graphics.DrawString(resetDate, dateFont, labelBrush,
+                    new RectangleF(area.Left, area.Top + ScaleDesign(49, scale),
+                        area.Width, ScaleDesign(17, scale)), format);
             }
         }
 
@@ -1231,7 +1344,7 @@ namespace UsagePeek
             {
                 return "（额度快到上限啦…）";
             }
-            return "（鼠标来回可以摸摸头哦）";
+            return string.Empty;
         }
 
         private Color GetMoodHintColor()
@@ -1308,6 +1421,14 @@ namespace UsagePeek
         private static string FormatPercent(int? value)
         {
             return value.HasValue ? value.Value + "%" : "--";
+        }
+
+        private static string FormatResetDate(DateTime? value)
+        {
+            return value.HasValue
+                ? value.Value.ToLocalTime().ToString("MM/dd HH:mm",
+                    CultureInfo.InvariantCulture)
+                : "--/-- --:--";
         }
 
         private static int ScaleDesign(int value, float scale)

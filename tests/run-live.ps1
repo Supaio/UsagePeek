@@ -23,6 +23,7 @@ $output = Join-Path $outputDirectory 'LiveProviderQa.exe'
     (Join-Path $root 'IUsageProvider.cs') `
     (Join-Path $root 'CodexResponseParser.cs') `
     (Join-Path $root 'CodexExecutableLocator.cs') `
+    (Join-Path $root 'UsageCache.cs') `
     (Join-Path $root 'LocalUsageScanner.cs') `
     (Join-Path $root 'CodexUsageProvider.cs') `
     (Join-Path $PSScriptRoot 'LiveProviderQa.cs')

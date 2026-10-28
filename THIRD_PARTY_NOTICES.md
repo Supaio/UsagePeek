@@ -49,3 +49,8 @@ The Phoebe Chibi desktop pet artwork embedded as
 Both artworks are separate from the MIT-licensed source code and are not
 relicensed under the repository's MIT License. Copyright and other artwork
 rights remain with their respective rights holders.
+
+The ChatGPT-girl desktop pet artwork embedded as
+`assets/pet-chatgpt-girl.png` was generated for UsagePeek with the built-in
+imagegen tool using a user-supplied character reference. Its generation
+prompt is saved in `assets/pet-chatgpt-girl.prompt.txt`.

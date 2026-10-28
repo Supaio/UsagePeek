@@ -20,6 +20,7 @@ namespace UsagePeek
     {
         private const int WmNclButtonDown = 0xA1;
         private const int HtCaption = 0x2;
+        private const int WsExComposited = 0x02000000;
 
         private readonly ComboBox displayModeInput;
         private readonly ComboBox appearanceInput;
@@ -39,6 +40,7 @@ namespace UsagePeek
         private readonly Func<DiagnosticsSnapshot> diagnosticsProvider;
         private bool diagnosticsPageSelected;
         private bool suppressSettingsChanged;
+        private bool displayPrepared;
 
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
@@ -94,7 +96,7 @@ namespace UsagePeek
             closeButton.Font = new Font("Segoe UI", 13f,
                 FontStyle.Regular);
             closeButton.ForeColor = Color.FromArgb(164, 179, 198);
-            closeButton.Click += delegate { Close(); };
+            closeButton.Click += delegate { Dismiss(); };
 
             Panel divider = new Panel();
             divider.BackColor = Color.FromArgb(31, 43, 57);
@@ -138,12 +140,14 @@ namespace UsagePeek
             appearanceInput.Items.AddRange(new object[]
             {
                 "鲸鱼娘趴趴",
-                "菲比啾比"
+                "菲比啾比",
+                "ChatGPT 娘"
             });
             appearanceInput.SelectedIndex = safe.PetAppearance ==
+                PetAppearance.ChatGptGirl ? 2 : safe.PetAppearance ==
                 PetAppearance.PhoebeChibi ? 1 : 0;
             AddSettingRow(settingsPage, 102, "桌宠外形",
-                "两种形象共用摸头和状态表情", appearanceInput);
+                "三种形象共用摸头和状态表情", appearanceInput);
 
             usageModeInput = CreateComboBox();
             usageModeInput.Items.AddRange(new object[]
@@ -301,7 +305,7 @@ namespace UsagePeek
                 if (args.KeyCode == Keys.Escape)
                 {
                     args.SuppressKeyPress = true;
-                    Close();
+                    Dismiss();
                 }
             };
             displayModeInput.SelectedIndexChanged += delegate
@@ -339,7 +343,9 @@ namespace UsagePeek
                     DisplayMode = displayModeInput.SelectedIndex == 1
                         ? UsageDisplayMode.Pet
                         : UsageDisplayMode.Classic,
-                    PetAppearance = appearanceInput.SelectedIndex == 1
+                    PetAppearance = appearanceInput.SelectedIndex == 2
+                        ? PetAppearance.ChatGptGirl
+                        : appearanceInput.SelectedIndex == 1
                         ? PetAppearance.PhoebeChibi
                         : PetAppearance.WhaleMaid,
                     PetUsageDisplayMode = usageModeInput.SelectedIndex == 1
@@ -377,9 +383,19 @@ namespace UsagePeek
             }
         }
 
+        internal bool UsesCompositedPaintingForTesting
+        {
+            get { return (CreateParams.ExStyle & WsExComposited) != 0; }
+        }
+
         internal void ShowDiagnosticsForTesting()
         {
             ShowPage(true);
+        }
+
+        public void ShowGeneralSettings()
+        {
+            ShowPage(false);
         }
 
         internal void SelectDisplayModeForTesting(UsageDisplayMode mode)
@@ -392,6 +408,24 @@ namespace UsagePeek
         internal void SetPetAlwaysOnTopForTesting(bool enabled)
         {
             petAlwaysOnTopInput.Checked = enabled;
+        }
+
+        public void SetPetAlwaysOnTopState(bool enabled)
+        {
+            suppressSettingsChanged = true;
+            try
+            {
+                petAlwaysOnTopInput.Checked = enabled;
+            }
+            finally
+            {
+                suppressSettingsChanged = false;
+            }
+        }
+
+        internal void DismissForTesting()
+        {
+            Dismiss();
         }
 
         public void SetSelection(SettingsSelection value)
@@ -407,6 +441,7 @@ namespace UsagePeek
                 displayModeInput.SelectedIndex = value.DisplayMode ==
                     UsageDisplayMode.Pet ? 1 : 0;
                 appearanceInput.SelectedIndex = value.PetAppearance ==
+                    PetAppearance.ChatGptGirl ? 2 : value.PetAppearance ==
                     PetAppearance.PhoebeChibi ? 1 : 0;
                 usageModeInput.SelectedIndex = value.PetUsageDisplayMode ==
                     PetUsageDisplayMode.Remaining ? 1 : 0;
@@ -450,8 +485,13 @@ namespace UsagePeek
 
         public void PrepareForDisplay()
         {
+            if (displayPrepared && VisibleControlsReadyForTesting)
+            {
+                return;
+            }
             CreateChildHandles(this);
             PerformLayout();
+            displayPrepared = true;
         }
 
         public void RefreshDiagnostics()
@@ -514,10 +554,31 @@ namespace UsagePeek
             }
         }
 
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams parameters = base.CreateParams;
+                parameters.ExStyle |= WsExComposited;
+                return parameters;
+            }
+        }
+
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
             Refresh();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Dismiss();
+                return;
+            }
+            base.OnFormClosing(e);
         }
 
         protected override void OnDpiScaleChanged()
@@ -729,6 +790,11 @@ namespace UsagePeek
             ReleaseCapture();
             SendMessage(Handle, WmNclButtonDown,
                 new IntPtr(HtCaption), IntPtr.Zero);
+        }
+
+        private void Dismiss()
+        {
+            Hide();
         }
 
         private void UpdateRoundedRegion()

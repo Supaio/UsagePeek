@@ -209,7 +209,7 @@ namespace UsagePeek
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
             WebClient client = new WebClient();
             client.Encoding = Encoding.UTF8;
-            client.Headers[HttpRequestHeader.UserAgent] = "UsagePeek/1.2.1";
+            client.Headers[HttpRequestHeader.UserAgent] = "UsagePeek/1.3.0";
             return client;
         }
 

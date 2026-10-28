@@ -17,6 +17,8 @@ internal static class PetModeQa
             VerifyPreferenceRoundTrip(root);
             VerifyEmbeddedArtwork();
             VerifyLayeredWindowRendering();
+            VerifyResetDatesAndBubbleThemes();
+            VerifyChatGptPet();
             VerifyMoodStates();
         }
         finally
@@ -90,6 +92,11 @@ internal static class PetModeQa
         restored.SetPetScalePercent(500);
         Check(restored.GetPetScalePercent() == 200,
             "custom pet size is clamped to the maximum");
+
+        restored.SetPetAppearance(PetAppearance.ChatGptGirl);
+        settings.Save(restored);
+        Check(settings.Load().GetPetAppearance() == PetAppearance.ChatGptGirl,
+            "the ChatGPT girl appearance survives restart");
     }
 
     private static void VerifyEmbeddedArtwork()
@@ -119,6 +126,17 @@ internal static class PetModeQa
                 "Phoebe Chibi artwork retains transparent corners");
             Check(image.GetPixel(image.Width / 2, image.Height / 2).A > 200,
                 "Phoebe Chibi artwork contains an opaque character body");
+        }
+
+        using (Bitmap image = PetForm.LoadPetImageForTesting(
+            PetAppearance.ChatGptGirl))
+        {
+            Check(image.Width == 1254 && image.Height == 1254,
+                "the ChatGPT girl artwork is embedded at its original resolution");
+            Check(image.GetPixel(0, 0).A == 0 &&
+                    image.GetPixel(image.Width - 1, image.Height - 1).A == 0 &&
+                    image.GetPixel(image.Width / 2, image.Height / 2).A > 200,
+                "the ChatGPT girl retains real transparency and a visible body");
         }
 
         using (Bitmap image = PetForm.LoadPettingHandImageForTesting())
@@ -166,7 +184,7 @@ internal static class PetModeQa
                 "pet appearance can switch to Phoebe Chibi");
             form.SetScalePercent(137);
             Check(form.ScalePercentForTesting == 137 &&
-                    form.ClientSize == new Size(301, 400),
+                    form.ClientSize == new Size(301, 425),
                 "custom pet scale changes the layered window size");
             using (Bitmap idle = form.RenderImageForTesting())
             {
@@ -281,6 +299,127 @@ internal static class PetModeQa
                     form.Location == new Point(-1500, 100) &&
                     committedLocations == 1,
                 "a pet on a valid negative-coordinate monitor is preserved");
+        }
+    }
+
+    private static void VerifyResetDatesAndBubbleThemes()
+    {
+        using (Bitmap artwork = new Bitmap(3, 1))
+        {
+            Color bodyColor = Color.FromArgb(60, 120, 180);
+            artwork.SetPixel(0, 0, bodyColor);
+            artwork.SetPixel(1, 0, Color.FromArgb(0, 255, 255, 255));
+            artwork.SetPixel(2, 0, Color.FromArgb(128, bodyColor));
+            Check(PetForm.CalculateArtworkAverageColor(artwork).ToArgb() ==
+                    bodyColor.ToArgb(),
+                "artwork average excludes transparent padding and weights edge alpha");
+        }
+
+        using (PetForm form = new PetForm())
+        {
+            foreach (PetAppearance appearance in new[]
+            {
+                PetAppearance.WhaleMaid,
+                PetAppearance.PhoebeChibi,
+                PetAppearance.ChatGptGirl
+            })
+            {
+                form.SetAppearance(appearance);
+                using (Bitmap artwork = PetForm.LoadPetImageForTesting(appearance))
+                using (Bitmap preview = form.RenderImageForTesting())
+                {
+                    Color average = PetForm.CalculateArtworkAverageColor(artwork);
+                    Check(preview.GetPixel(12, 30).ToArgb() == average.ToArgb(),
+                        "bubble background uses the actual artwork average: " + appearance);
+                }
+            }
+            form.SetAppearance(PetAppearance.WhaleMaid);
+
+            DateTime primary = new DateTime(2026, 10, 28, 18, 30, 0,
+                DateTimeKind.Local).ToUniversalTime();
+            DateTime secondary = new DateTime(2026, 11, 2, 7, 5, 0,
+                DateTimeKind.Local).ToUniversalTime();
+            form.SetUsage(Snapshot(45, 34, primary, secondary));
+            Check(form.ResetDatesForTesting == "10/28 18:30 | 11/02 07:05",
+                "cached quota resets appear as numeric local dates and times");
+
+            form.SetUsageDisplayMode(PetUsageDisplayMode.Remaining);
+            Check(form.ResetDatesForTesting == "10/28 18:30 | 11/02 07:05",
+                "remaining-percent mode preserves both reset dates");
+
+            using (Bitmap whale = form.RenderImageForTesting())
+            {
+                form.SetAppearance(PetAppearance.PhoebeChibi);
+                using (Bitmap phoebe = form.RenderImageForTesting())
+                {
+                    Check(whale.GetPixel(12, 30).ToArgb() !=
+                            phoebe.GetPixel(12, 30).ToArgb(),
+                        "switching pet artwork changes the bubble background");
+                }
+                form.SetAppearance(PetAppearance.WhaleMaid);
+                using (Bitmap restored = form.RenderImageForTesting())
+                {
+                    Check(whale.GetPixel(12, 30).ToArgb() ==
+                            restored.GetPixel(12, 30).ToArgb(),
+                        "switching back restores the artwork-derived bubble color");
+                }
+            }
+
+            form.SetLiveUsage(Snapshot(46, 35, primary.AddHours(5),
+                secondary.AddDays(7)));
+            Check(form.ResetDatesForTesting == "10/28 23:30 | 11/09 07:05",
+                "a live quota refresh updates both displayed reset times");
+
+            form.SetUsage(Snapshot(0, 35, null, secondary));
+            Check(form.ResetDatesForTesting == "--/-- --:-- | 11/02 07:05",
+                "an unknown reset uses a numeric placeholder without reusing old data");
+            form.SetUsage(null);
+            Check(form.ResetDatesForTesting == "--/-- --:-- | --/-- --:--",
+                "missing quota data clears both old reset dates");
+        }
+    }
+
+    private static void VerifyChatGptPet()
+    {
+        using (PetForm form = new PetForm())
+        {
+            form.SetUsage(Snapshot(45, 34,
+                DateTime.UtcNow.AddHours(2), DateTime.UtcNow.AddDays(3)));
+            using (Bitmap whale = form.RenderImageForTesting())
+            {
+                form.SetAppearance(PetAppearance.ChatGptGirl);
+                using (Bitmap calm = form.RenderImageForTesting())
+                {
+                    Check(form.AppearanceForTesting == PetAppearance.ChatGptGirl &&
+                            calm.GetPixel(calm.Width / 2, calm.Height / 2).A > 200,
+                        "the ChatGPT girl can be selected and rendered");
+                    Check(whale.GetPixel(12, 30).ToArgb() !=
+                            calm.GetPixel(12, 30).ToArgb(),
+                        "the ChatGPT girl bubble uses its own artwork average");
+
+                    form.SetPettingProgressForTesting(0.15f);
+                    using (Bitmap petted = form.RenderImageForTesting())
+                    {
+                        Check(CountChangedPixels(calm, petted) > 1000 &&
+                                CountAlphaIncreases(calm, petted) > 80,
+                            "the ChatGPT girl supports the petpet hand and squash animation");
+                    }
+                    form.SetPettingProgressForTesting(null);
+
+                    form.SetMoodForTesting(PetMood.Nervous, 0f);
+                    using (Bitmap nervous = form.RenderImageForTesting())
+                    {
+                        Check(CountChangedPixels(calm, nervous) > 40,
+                            "the ChatGPT girl visibly shows the nervous sweat state");
+                    }
+                    form.SetMoodForTesting(PetMood.Happy, 0.45f);
+                    using (Bitmap happy = form.RenderImageForTesting())
+                    {
+                        Check(CountChangedPixels(calm, happy) > 80,
+                            "the ChatGPT girl visibly celebrates a quota reset");
+                    }
+                }
+            }
         }
     }
 

@@ -20,6 +20,7 @@ $output = Join-Path $outputDirectory 'LocalUsageQa.exe'
     /reference:System.Web.Extensions.dll `
     "/out:$output" `
     (Join-Path $root 'UsageModels.cs') `
+    (Join-Path $root 'UsageCache.cs') `
     (Join-Path $root 'CodexResponseParser.cs') `
     (Join-Path $root 'LocalUsageScanner.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `

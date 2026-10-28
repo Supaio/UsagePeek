@@ -107,6 +107,11 @@ internal static class SettingsDiagnosticsQa
             form.PrepareForDisplay();
             Check(form.VisibleControlsReadyForTesting,
                 "settings controls are created before the window is shown");
+            Check(form.UsesCompositedPaintingForTesting,
+                "settings window composes child controls into one frame");
+            form.PrepareForDisplay();
+            Check(form.VisibleControlsReadyForTesting,
+                "preparing an already warmed settings window is harmless");
 
             form.SelectDisplayModeForTesting(UsageDisplayMode.Pet);
             Check(settingsChanges == 1 &&
@@ -124,6 +129,11 @@ internal static class SettingsDiagnosticsQa
             Check(settingsChanges == 2 &&
                     form.Selection.PetAlwaysOnTop,
                 "restoring pet topmost does not raise another request");
+            form.SetPetAlwaysOnTopState(false);
+            Check(settingsChanges == 2 &&
+                    !form.Selection.PetAlwaysOnTop,
+                "external topmost changes synchronize without looping");
+            form.SetPetAlwaysOnTopState(true);
 
             form.ShowDiagnosticsForTesting();
             Check(form.DiagnosticsTextForTesting.Contains(
@@ -131,7 +141,51 @@ internal static class SettingsDiagnosticsQa
                 "diagnostics page builds its report locally");
             Check(form.DiagnosticsPageVisibleForTesting,
                 "diagnostics navigation changes the visible page");
+
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(-10000, -10000);
+            bool firstClose = ShowAndHide(form, true);
+            bool secondClose = ShowAndHide(form, false);
+            Check(firstClose,
+                "the first warmed settings window hides normally");
+            Check(secondClose,
+                "the reused settings window hides normally");
+            Check(!form.IsDisposed,
+                "closing the reusable settings dialog keeps it alive");
+            Check(form.VisibleControlsReadyForTesting,
+                "the reused settings dialog keeps its prepared controls");
         }
+
+        initial.PetAppearance = PetAppearance.ChatGptGirl;
+        using (SettingsForm form = new SettingsForm(initial, CreateDiagnostics))
+        {
+            Check(form.Selection.PetAppearance == PetAppearance.ChatGptGirl,
+                "settings opens with the ChatGPT girl selected");
+            initial.PetAppearance = PetAppearance.PhoebeChibi;
+            form.SetSelection(initial);
+            Check(form.Selection.PetAppearance == PetAppearance.PhoebeChibi,
+                "settings can restore an existing pet after the new selection");
+            initial.PetAppearance = PetAppearance.ChatGptGirl;
+            form.SetSelection(initial);
+            Check(form.Selection.PetAppearance == PetAppearance.ChatGptGirl,
+                "the reusable settings dialog retains the ChatGPT girl selection");
+        }
+    }
+
+    private static bool ShowAndHide(SettingsForm form, bool useClose)
+    {
+        form.Show();
+        Application.DoEvents();
+        if (useClose)
+        {
+            form.Close();
+        }
+        else
+        {
+            form.DismissForTesting();
+        }
+        Application.DoEvents();
+        return !form.Visible;
     }
 
     private static void VerifyTrySave()
@@ -181,7 +235,7 @@ internal static class SettingsDiagnosticsQa
         return new DiagnosticsSnapshot
         {
             GeneratedAtUtc = DateTime.UtcNow,
-            AppVersion = "v1.2.1",
+            AppVersion = "v1.3.0",
             OperatingSystem = "Windows QA",
             ProcessArchitecture = "64 位",
             ExecutablePath = @"C:\Program Files\UsagePeek\UsagePeek.exe",

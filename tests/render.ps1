@@ -25,6 +25,7 @@ $mode = if ($args.Count -gt 1) { $args[1] } else { '' }
     /reference:System.Web.Extensions.dll `
     "/resource:$(Join-Path $root 'assets\pet-whale-maid-curled.png'),UsagePeek.Assets.PetWhaleMaidCurled.png" `
     "/resource:$(Join-Path $root 'assets\pet-phoebe-chibi.png'),UsagePeek.Assets.PetPhoebeChibi.png" `
+    "/resource:$(Join-Path $root 'assets\pet-chatgpt-girl.png'),UsagePeek.Assets.PetChatGptGirl.png" `
     "/resource:$(Join-Path $root 'assets\petpet-hand-v2.png'),UsagePeek.Assets.PetpetHandV2.png" `
     "/out:$renderer" `
     (Join-Path $root 'UsageModels.cs') `
