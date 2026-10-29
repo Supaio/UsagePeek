@@ -42,6 +42,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
   CodexExecutableLocator.cs CodexUsageProvider.cs LocalUsageScanner.cs UsageCache.cs DisplayFormatting.cs ^
   ExchangeRateService.cs StartupManager.cs ExecutableIntegrity.cs UpdateService.cs CodexBootstrapService.cs ^
   DisplayModeSettings.cs DiagnosticsSnapshot.cs SettingsForm.cs ^
+  PetRigAnimation.cs AnimationFrameClock.cs LayeredPetSurface.cs ^
   PetForm.cs PetSizeDialog.cs TaskbarCreatedListener.cs ^
   ResetCreditNotificationTracker.cs ^
   DpiAwareForm.cs UiTheme.cs UiControls.cs SelectionControls.cs UsageCardControl.cs UsageDetailsControl.cs ^

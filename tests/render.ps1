@@ -48,6 +48,9 @@ $dpi = if ($args.Count -gt 2) { $args[2] } else { '0' }
     (Join-Path $root 'SettingsForm.cs') `
     (Join-Path $root 'PetSizeDialog.cs') `
     (Join-Path $root 'PetForm.cs') `
+    (Join-Path $root 'PetRigAnimation.cs') `
+    (Join-Path $root 'AnimationFrameClock.cs') `
+    (Join-Path $root 'LayeredPetSurface.cs') `
     (Join-Path $PSScriptRoot 'RenderQa.cs')
 
 if ($LASTEXITCODE -ne 0) {

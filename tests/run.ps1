@@ -47,6 +47,16 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& (Join-Path $PSScriptRoot 'run-animation-clock.ps1')
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+& (Join-Path $PSScriptRoot 'run-continuous-rig.ps1')
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 & (Join-Path $PSScriptRoot 'run-taskbar-recovery.ps1')
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

@@ -32,6 +32,9 @@ $output = Join-Path $outputDirectory 'PetModeQa.exe'
     (Join-Path $root 'DisplayModeSettings.cs') `
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'PetForm.cs') `
+    (Join-Path $root 'PetRigAnimation.cs') `
+    (Join-Path $root 'AnimationFrameClock.cs') `
+    (Join-Path $root 'LayeredPetSurface.cs') `
     (Join-Path $PSScriptRoot 'PetModeQa.cs')
 
 if ($LASTEXITCODE -ne 0) {

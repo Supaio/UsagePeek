@@ -20,6 +20,7 @@ internal static class PetModeQa
             VerifyResetDatesAndBubbleThemes();
             VerifyChatGptPet();
             VerifyNewPets();
+            VerifyContinuousAnimations();
             VerifyDesktopActivity();
             VerifyMoodStates();
         }
@@ -477,6 +478,58 @@ internal static class PetModeQa
                             "new pet supports quota-reset celebration: " + appearance);
                     }
                 }
+            }
+        }
+    }
+
+    private static void VerifyContinuousAnimations()
+    {
+        foreach (PetAppearance appearance in (PetAppearance[])Enum.GetValues(typeof(PetAppearance)))
+        {
+            using (PetForm form = new PetForm())
+            {
+                form.SetAppearance(appearance);
+                form.Location = new Point(700, 400);
+                Rectangle workArea = new Rectangle(0, 0, 1920, 1080);
+                Point cursor = new Point(1800, 200);
+                Check(form.HasContinuousAnimationForTesting,
+                    "selected pet uses a continuous rig: " + appearance);
+                for (int tick = 0; tick < 20; tick++)
+                    form.AdvanceDesktopMotionForTesting(false, cursor, workArea, 0.1d, false);
+                using (Bitmap idle = form.RenderImageForTesting())
+                {
+                    form.AdvanceDesktopMotionForTesting(false, cursor, workArea, 1d / 120d, false);
+                    using (Bitmap intermediate = form.RenderImageForTesting())
+                    {
+                        Check(CountChangedPixels(idle, intermediate) > 100 &&
+                                idle.GetPixel(35, 40).ToArgb() == intermediate.GetPixel(35, 40).ToArgb(),
+                            "idle motion has an intermediate pose within 1/120 second: " + appearance);
+                    }
+                }
+                form.AdvanceDesktopMotionForTesting(true, cursor, workArea, 1d / 60d, false);
+                Check(form.WalkingBlendForTesting > 0f && form.WalkingBlendForTesting < 0.5f,
+                    "walking blends in instead of snapping to a new picture: " + appearance);
+                for (int tick = 0; tick < 30; tick++)
+                    form.AdvanceDesktopMotionForTesting(true, cursor, workArea, 1d / 60d, false);
+                Check(form.WalkingBlendForTesting > 0.9f,
+                    "walking reaches its full stride: " + appearance);
+                using (Bitmap stride = form.RenderImageForTesting())
+                {
+                    form.AdvanceDesktopMotionForTesting(true, cursor, workArea, 1d / 120d, false);
+                    using (Bitmap intermediate = form.RenderImageForTesting())
+                        Check(CountChangedPixels(stride, intermediate) > 100,
+                            "walking evaluates a new local pose within 1/120 second: " + appearance);
+                }
+                Point stopped = form.Location;
+                float fullStride = form.WalkingBlendForTesting;
+                form.AdvanceDesktopMotionForTesting(false, cursor, workArea, 1d / 60d, true);
+                Check(form.Location == stopped && form.WalkingBlendForTesting > 0f &&
+                        form.WalkingBlendForTesting < fullStride,
+                    "stopping keeps the window still while joints settle smoothly: " + appearance);
+                form.SetScalePercent(200);
+                using (Bitmap large = form.RenderImageForTesting())
+                    Check(large.Width == 440 && large.Height == 620,
+                        "continuous animation honors custom scaling: " + appearance);
             }
         }
     }

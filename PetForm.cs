@@ -51,7 +51,6 @@ namespace UsagePeek
         private const int WindowDesignWidth = 220;
         private const int WindowDesignHeight = 310;
         private const int PetHintDesignHeight = 20;
-        private const int PettingTimerIntervalMilliseconds = 20;
         private const int PettingAnimationDurationMilliseconds = 960;
         private const int PettingStrokeCount = 3;
         private const int PettingGestureTimeoutMilliseconds = 700;
@@ -63,9 +62,7 @@ namespace UsagePeek
         private const int DisplayRecoveryDelayMilliseconds = 300;
         private const int NervousUsedPercentThreshold = 80;
         private const int HappyMoodDurationMilliseconds = 6000;
-        private const int MoodTimerIntervalMilliseconds = 50;
         private const int ResetFallbackMinimumDropPercent = 50;
-        private const int DesktopMotionIntervalMilliseconds = 40;
         private const double RoamingDesignPixelsPerSecond = 30d;
         private static readonly Rectangle WhaleContentBounds =
             new Rectangle(26, 31, 1223, 1197);
@@ -85,17 +82,17 @@ namespace UsagePeek
         private readonly Color chatGptAverageColor;
         private readonly Color claudeAverageColor;
         private readonly Color milkFrogAverageColor;
-        private readonly Timer pettingTimer;
         private readonly Timer displayRecoveryTimer;
-        private readonly Timer moodTimer;
-        private readonly Timer desktopMotionTimer;
+        private readonly AnimationFrameClock desktopMotionTimer;
         private readonly Stopwatch pettingStopwatch;
         private readonly Stopwatch moodStopwatch;
         private readonly Stopwatch desktopMotionStopwatch;
         private readonly Random desktopMotionRandom;
         private PetActivity desktopActivity;
         private bool facingLeft;
-        private double walkingPhase;
+        private double animationSeconds;
+        private float walkingBlend;
+        private PetRigAnimation rigAnimation;
         private double roamingFractionalX;
         private double roamingSecondsRemaining;
         private double roamingRestSeconds;
@@ -103,6 +100,13 @@ namespace UsagePeek
         private Bitmap sourceImage;
         private Rectangle sourceContentBounds;
         private Bitmap renderedImage;
+        private LayeredPetSurface layeredSurface;
+        private Bitmap usageBubbleImage;
+        private long presentedFrames;
+        private string animationDisplayName;
+        private readonly PointF[] overlayAnchors = new PointF[2];
+        private PointF currentSweatAnchor;
+        private PointF currentHeadAnchor;
         private Point dragStartCursor;
         private Point dragStartWindow;
         private bool dragging;
@@ -151,26 +155,6 @@ namespace UsagePeek
             ref BlendFunction blend,
             int flags);
 
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern IntPtr GetDC(IntPtr windowHandle);
-
-        [DllImport("user32.dll")]
-        private static extern int ReleaseDC(
-            IntPtr windowHandle, IntPtr deviceContext);
-
-        [DllImport("gdi32.dll")]
-        private static extern IntPtr CreateCompatibleDC(IntPtr deviceContext);
-
-        [DllImport("gdi32.dll")]
-        private static extern bool DeleteDC(IntPtr deviceContext);
-
-        [DllImport("gdi32.dll")]
-        private static extern IntPtr SelectObject(
-            IntPtr deviceContext, IntPtr graphicsObject);
-
-        [DllImport("gdi32.dll")]
-        private static extern bool DeleteObject(IntPtr graphicsObject);
-
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
@@ -200,26 +184,19 @@ namespace UsagePeek
             sourceImage = whaleImage;
             sourceContentBounds = WhaleContentBounds;
             petAppearance = PetAppearance.WhaleMaid;
+            rigAnimation = new PetRigAnimation(sourceImage, sourceContentBounds, petAppearance);
             usageDisplayMode = PetUsageDisplayMode.Used;
             petScalePercent = 100;
             pettingContactXRatio = 0.62f;
             pettingStopwatch = new Stopwatch();
-            pettingTimer = new Timer();
-            pettingTimer.Interval = PettingTimerIntervalMilliseconds;
-            pettingTimer.Tick += AdvancePettingAnimation;
             displayRecoveryTimer = new Timer();
             displayRecoveryTimer.Interval =
                 DisplayRecoveryDelayMilliseconds;
             displayRecoveryTimer.Tick += RecoverDisplayLocation;
             moodStopwatch = new Stopwatch();
-            moodTimer = new Timer();
-            moodTimer.Interval = MoodTimerIntervalMilliseconds;
-            moodTimer.Tick += AdvanceMoodAnimation;
             desktopMotionRandom = new Random();
             desktopMotionStopwatch = new Stopwatch();
-            desktopMotionTimer = new Timer();
-            desktopMotionTimer.Interval = DesktopMotionIntervalMilliseconds;
-            desktopMotionTimer.Tick += AdvanceDesktopMotion;
+            desktopMotionTimer = new AnimationFrameClock(this, AdvanceDesktopMotion);
             mood = PetMood.Normal;
             Text = "UsagePeek 桌宠";
             ClientSize = new Size(WindowDesignWidth, WindowDesignHeight);
@@ -291,6 +268,7 @@ namespace UsagePeek
             secondaryUsedPercent = nextSecondaryUsedPercent;
             primaryResetsAtUtc = nextPrimaryReset;
             secondaryResetsAtUtc = nextSecondaryReset;
+            InvalidateUsageBubble();
             if (quotaReset)
             {
                 StartHappyMood();
@@ -304,6 +282,8 @@ namespace UsagePeek
 
         public void SetAppearance(PetAppearance value)
         {
+            InvalidateUsageBubble();
+            bool changed = petAppearance != value;
             petAppearance = value;
             switch (value)
             {
@@ -328,12 +308,20 @@ namespace UsagePeek
                 : value == PetAppearance.PhoebeChibi
                 ? PhoebeContentBounds
                 : new Rectangle(Point.Empty, sourceImage.Size);
+            if (changed)
+            {
+                rigAnimation.Dispose();
+                rigAnimation = new PetRigAnimation(sourceImage, sourceContentBounds, petAppearance);
+                animationSeconds = 0d;
+                walkingBlend = 0f;
+            }
             ApplyLayeredImage();
         }
 
         public void SetUsageDisplayMode(PetUsageDisplayMode value)
         {
             usageDisplayMode = value;
+            InvalidateUsageBubble();
             ApplyLayeredImage();
         }
 
@@ -478,6 +466,41 @@ namespace UsagePeek
             get { return desktopMotionTimer.Enabled; }
         }
 
+        internal bool HasContinuousAnimationForTesting
+        {
+            get { return rigAnimation != null; }
+        }
+
+        internal double AnimationTimeForTesting
+        {
+            get { return animationSeconds; }
+        }
+
+        internal float WalkingBlendForTesting
+        {
+            get { return walkingBlend; }
+        }
+
+        internal long PresentedFramesForTesting
+        {
+            get { return presentedFrames; }
+        }
+
+        internal int TargetFramesPerSecondForTesting
+        {
+            get { return desktopMotionTimer.FramesPerSecond; }
+        }
+
+        internal PointF SweatAnchorForTesting
+        {
+            get { return currentSweatAnchor; }
+        }
+
+        internal PointF HeadAnchorForTesting
+        {
+            get { return currentHeadAnchor; }
+        }
+
         internal void AdvanceDesktopMotionForTesting(
             bool desktopIsActive, Point cursor, Rectangle workArea,
             double elapsedSeconds, bool interactionPaused)
@@ -504,7 +527,6 @@ namespace UsagePeek
 
         internal void SetPettingProgressForTesting(float? progress)
         {
-            pettingTimer.Stop();
             pettingStopwatch.Reset();
             if (progress.HasValue)
             {
@@ -523,7 +545,6 @@ namespace UsagePeek
         internal void SetMoodForTesting(
             PetMood value, float animationProgress)
         {
-            moodTimer.Stop();
             moodStopwatch.Reset();
             mood = value;
             moodAnimationProgress = Math.Max(0f,
@@ -595,8 +616,11 @@ namespace UsagePeek
             desktopMotionTimer.Stop();
             desktopMotionStopwatch.Reset();
             ResetDesktopMotion();
+            walkingBlend = 0f;
+            animationDisplayName = null;
             if (Visible)
             {
+                UpdateAnimationScreen(Screen.FromRectangle(Bounds));
                 desktopMotionStopwatch.Start();
                 desktopMotionTimer.Start();
                 ApplyLayeredImage();
@@ -629,10 +653,14 @@ namespace UsagePeek
         protected override void WndProc(ref Message message)
         {
             base.WndProc(ref message);
-            if (message.Msg == WmDisplayChange && Visible)
+            if (message.Msg == WmDisplayChange)
             {
-                displayRecoveryTimer.Stop();
-                displayRecoveryTimer.Start();
+                animationDisplayName = null;
+                if (Visible)
+                {
+                    displayRecoveryTimer.Stop();
+                    displayRecoveryTimer.Start();
+                }
             }
             if (message.Msg == WmNcHitTest &&
                 message.Result == new IntPtr(HtClient) &&
@@ -649,19 +677,22 @@ namespace UsagePeek
                 desktopMotionTimer.Stop();
                 desktopMotionTimer.Dispose();
                 desktopMotionStopwatch.Stop();
-                moodTimer.Stop();
-                moodTimer.Dispose();
                 moodStopwatch.Stop();
                 displayRecoveryTimer.Stop();
                 displayRecoveryTimer.Dispose();
-                pettingTimer.Stop();
-                pettingTimer.Dispose();
                 pettingStopwatch.Stop();
-                if (renderedImage != null)
+                if (rigAnimation != null)
                 {
-                    renderedImage.Dispose();
-                    renderedImage = null;
+                    rigAnimation.Dispose();
+                    rigAnimation = null;
                 }
+                if (layeredSurface != null)
+                {
+                    layeredSurface.Dispose();
+                    layeredSurface = null;
+                }
+                renderedImage = null;
+                InvalidateUsageBubble();
                 whaleImage.Dispose();
                 phoebeImage.Dispose();
                 chatGptImage.Dispose();
@@ -800,14 +831,13 @@ namespace UsagePeek
         private void ResetDesktopMotion()
         {
             desktopActivity = PetActivity.Watching;
-            walkingPhase = 0d;
             watchingTilt = 0f;
             roamingFractionalX = 0d;
             roamingSecondsRemaining = 0d;
             roamingRestSeconds = 0d;
         }
 
-        private void AdvanceDesktopMotion(object sender, EventArgs e)
+        private void AdvanceDesktopMotion()
         {
             if (!Visible)
             {
@@ -818,6 +848,8 @@ namespace UsagePeek
 
             double elapsed = desktopMotionStopwatch.Elapsed.TotalSeconds;
             desktopMotionStopwatch.Restart();
+            AdvancePettingAnimation();
+            AdvanceMoodAnimation();
             Point cursor = Cursor.Position;
             bool paused = dragging || pettingActive || mood == PetMood.Happy ||
                 Bounds.Contains(cursor) ||
@@ -831,8 +863,18 @@ namespace UsagePeek
                 }
             }
 
+            Screen screen = Screen.FromRectangle(Bounds);
+            UpdateAnimationScreen(screen);
             UpdateDesktopMotion(IsDesktopActive(), cursor,
-                Screen.FromRectangle(Bounds).WorkingArea, elapsed, paused);
+                screen.WorkingArea, elapsed, paused);
+        }
+
+        private void UpdateAnimationScreen(Screen screen)
+        {
+            if (screen.DeviceName == animationDisplayName) return;
+            animationDisplayName = screen.DeviceName;
+            desktopMotionTimer.SetFramesPerSecond(
+                AnimationFrameClock.GetPreferredFrameRate(screen));
         }
 
         private void UpdateDesktopMotion(
@@ -853,7 +895,6 @@ namespace UsagePeek
                 interactionPaused || !roomToWalk)
             {
                 desktopActivity = PetActivity.Watching;
-                walkingPhase = 0d;
                 roamingFractionalX = 0d;
                 roamingSecondsRemaining = 0d;
                 roamingRestSeconds = 0d;
@@ -883,7 +924,6 @@ namespace UsagePeek
                                 desktopMotionRandom.Next(2) == 0);
                         roamingSecondsRemaining =
                             3d + desktopMotionRandom.NextDouble() * 3d;
-                        walkingPhase = 0d;
                         desktopActivity = PetActivity.Walking;
                     }
                 }
@@ -898,8 +938,6 @@ namespace UsagePeek
                     Point requested = new Point(Left + step, Top);
                     Point bounded = ClampToWorkArea(requested, workArea);
                     Location = bounded;
-                    walkingPhase = (walkingPhase + elapsed * Math.PI * 4d) %
-                        (Math.PI * 2d);
                     roamingSecondsRemaining -= elapsed;
                     bool hitEdge = bounded.X != requested.X;
                     if (hitEdge || roamingSecondsRemaining <= 0d)
@@ -909,7 +947,6 @@ namespace UsagePeek
                             facingLeft = !facingLeft;
                         }
                         desktopActivity = PetActivity.Resting;
-                        walkingPhase = 0d;
                         roamingFractionalX = 0d;
                         roamingRestSeconds =
                             1.5d + desktopMotionRandom.NextDouble() * 2d;
@@ -923,10 +960,16 @@ namespace UsagePeek
             {
                 watchingTilt = targetTilt;
             }
+            animationSeconds += elapsed;
+            float targetBlend = desktopActivity == PetActivity.Walking ? 1f : 0f;
+            walkingBlend += (targetBlend - walkingBlend) *
+                (float)(1d - Math.Exp(-elapsed * 10d));
+            if (Math.Abs(targetBlend - walkingBlend) < 0.001f) walkingBlend = targetBlend;
             if (Location != oldLocation || desktopActivity != previousActivity ||
                 facingLeft != previousFacing ||
                 Math.Abs(watchingTilt - previousTilt) > 0.01f ||
-                desktopActivity == PetActivity.Walking)
+                desktopActivity == PetActivity.Walking ||
+                elapsed > 0d)
             {
                 ApplyLayeredImage();
             }
@@ -939,55 +982,25 @@ namespace UsagePeek
                 return;
             }
 
-            Bitmap next = RenderImage(Width, Height);
-            IntPtr screenDc = IntPtr.Zero;
-            IntPtr memoryDc = IntPtr.Zero;
-            IntPtr bitmapHandle = IntPtr.Zero;
-            IntPtr oldBitmap = IntPtr.Zero;
-            try
+            if (layeredSurface == null || layeredSurface.Image.Size != ClientSize)
             {
-                screenDc = GetDC(IntPtr.Zero);
-                memoryDc = CreateCompatibleDC(screenDc);
-                bitmapHandle = next.GetHbitmap(Color.FromArgb(0));
-                oldBitmap = SelectObject(memoryDc, bitmapHandle);
-
-                NativePoint destination = new NativePoint(Left, Top);
-                NativePoint source = new NativePoint(0, 0);
-                NativeSize size = new NativeSize(next.Width, next.Height);
-                BlendFunction blend = new BlendFunction();
-                blend.BlendOp = AcSrcOver;
-                blend.SourceConstantAlpha = 255;
-                blend.AlphaFormat = AcSrcAlpha;
-                LayeredImageApplied = UpdateLayeredWindow(
-                    Handle, screenDc, ref destination,
-                    ref size, memoryDc, ref source, 0, ref blend, UlwAlpha);
+                if (layeredSurface != null) layeredSurface.Dispose();
+                layeredSurface = new LayeredPetSurface(Width, Height);
+                renderedImage = layeredSurface.Image;
             }
-            finally
-            {
-                if (oldBitmap != IntPtr.Zero && memoryDc != IntPtr.Zero)
-                {
-                    SelectObject(memoryDc, oldBitmap);
-                }
-                if (bitmapHandle != IntPtr.Zero)
-                {
-                    DeleteObject(bitmapHandle);
-                }
-                if (memoryDc != IntPtr.Zero)
-                {
-                    DeleteDC(memoryDc);
-                }
-                if (screenDc != IntPtr.Zero)
-                {
-                    ReleaseDC(IntPtr.Zero, screenDc);
-                }
-            }
-
-            Bitmap oldImage = renderedImage;
-            renderedImage = next;
-            if (oldImage != null)
-            {
-                oldImage.Dispose();
-            }
+            RenderScene(layeredSurface.Graphics, Width, Height);
+            layeredSurface.Graphics.Flush(FlushIntention.Sync);
+            NativePoint destination = new NativePoint(Left, Top);
+            NativePoint source = new NativePoint(0, 0);
+            NativeSize size = new NativeSize(Width, Height);
+            BlendFunction blend = new BlendFunction();
+            blend.BlendOp = AcSrcOver;
+            blend.SourceConstantAlpha = 255;
+            blend.AlphaFormat = AcSrcAlpha;
+            LayeredImageApplied = UpdateLayeredWindow(
+                Handle, IntPtr.Zero, ref destination,
+                ref size, layeredSurface.MemoryDc, ref source, 0, ref blend, UlwAlpha);
+            if (LayeredImageApplied) presentedFrames++;
         }
 
         private Bitmap RenderImage(int width, int height)
@@ -995,6 +1008,14 @@ namespace UsagePeek
             Bitmap bitmap = new Bitmap(width, height,
                 PixelFormat.Format32bppArgb);
             using (Graphics graphics = Graphics.FromImage(bitmap))
+                RenderScene(graphics, width, height);
+            return bitmap;
+        }
+
+        private void RenderScene(Graphics graphics, int width, int height)
+        {
+            GraphicsState sceneState = graphics.Save();
+            try
             {
                 graphics.CompositingMode =
                     System.Drawing.Drawing2D.CompositingMode.SourceCopy;
@@ -1003,6 +1024,7 @@ namespace UsagePeek
                 graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 graphics.SmoothingMode = SmoothingMode.HighQuality;
                 graphics.Clear(Color.Transparent);
+                graphics.TranslateTransform((float)roamingFractionalX, 0f);
 
                 float scale = height / (float)WindowDesignHeight;
                 int petBoxSize = Math.Max(1,
@@ -1030,16 +1052,13 @@ namespace UsagePeek
                     ScaleDesign(PetHintDesignHeight, scale);
                 int petLeft = (width - petWidth) / 2;
                 int petTop = petBottom - petHeight;
+                int textureWidth = Math.Max(64, Math.Min(512, petWidth));
+                int textureHeight = Math.Max(64, Math.Min(512, petHeight));
+                Bitmap characterImage = rigAnimation.Render(textureWidth, textureHeight,
+                    animationSeconds, walkingBlend, mood, pettingActive ? pettingProgress : -1f);
                 PettingPose pose = pettingActive
                     ? CalculatePettingPose(pettingProgress)
                     : PettingPose.Resting;
-                if (!pettingActive && desktopActivity == PetActivity.Walking)
-                {
-                    float stride = (float)Math.Sin(walkingPhase);
-                    pose = new PettingPose(1f + stride * 0.012f,
-                        1f - Math.Abs(stride) * 0.02f,
-                        -(int)Math.Round(Math.Abs(stride) * 3f));
-                }
                 petWidth = Math.Max(1, (int)Math.Round(
                     petWidth * pose.ScaleX,
                     MidpointRounding.AwayFromZero));
@@ -1049,6 +1068,14 @@ namespace UsagePeek
                 petLeft = (width - petWidth) / 2;
                 petTop = petBottom - petHeight +
                     ScaleDesign(pose.OffsetY, scale);
+                if (!pettingActive && walkingBlend > 0f &&
+                    petAppearance == PetAppearance.PhoebeChibi)
+                {
+                    // The seated character scoots with a small hop. Keep the
+                    // bubble fixed while the articulated pose lifts off the ground.
+                    petTop -= ScaleDesign((int)Math.Round(3d * walkingBlend * Math.Abs(
+                        Math.Sin(animationSeconds * 1.55d * Math.PI * 2d))), scale);
+                }
                 if (mood == PetMood.Happy)
                 {
                     petTop += ScaleDesign(
@@ -1056,25 +1083,36 @@ namespace UsagePeek
                 }
                 GraphicsState characterState = graphics.Save();
                 float pivotX = width / 2f;
-                float rotation = desktopActivity == PetActivity.Walking
-                    ? (float)Math.Sin(walkingPhase) * 2f
-                    : watchingTilt;
                 graphics.TranslateTransform(pivotX, petBottom);
-                graphics.RotateTransform(rotation);
+                graphics.RotateTransform(watchingTilt);
                 graphics.ScaleTransform(facingLeft ? -1f : 1f, 1f);
                 graphics.TranslateTransform(-pivotX, -petBottom);
-                graphics.DrawImage(sourceImage,
+                graphics.DrawImage(characterImage,
                     new Rectangle(petLeft, petTop, petWidth, petHeight),
-                    sourceContentBounds.X, sourceContentBounds.Y,
-                    sourceContentBounds.Width, sourceContentBounds.Height,
+                    0, 0, characterImage.Width, characterImage.Height,
                     GraphicsUnit.Pixel);
 
                 graphics.CompositingMode = CompositingMode.SourceOver;
                 Rectangle petBounds = new Rectangle(
                     petLeft, petTop, petWidth, petHeight);
+                Rectangle artwork = rigAnimation.ArtworkBounds;
+                petBounds = Rectangle.Round(new RectangleF(
+                    petLeft + artwork.X * petWidth / (float)characterImage.Width,
+                    petTop + artwork.Y * petHeight / (float)characterImage.Height,
+                    artwork.Width * petWidth / (float)characterImage.Width,
+                    artwork.Height * petHeight / (float)characterImage.Height));
+                PointF sweatAnchor = MapCharacterAnchor(GetSweatSourcePoint(),
+                    petLeft, petTop, petWidth, petHeight, characterImage.Size);
+                overlayAnchors[0] = sweatAnchor;
+                overlayAnchors[1] = MapCharacterAnchor(GetHeadSourcePoint(),
+                    petLeft, petTop, petWidth, petHeight, characterImage.Size);
+                using (Matrix characterTransform = graphics.Transform)
+                    characterTransform.TransformPoints(overlayAnchors);
+                currentSweatAnchor = overlayAnchors[0];
+                currentHeadAnchor = overlayAnchors[1];
                 if (mood == PetMood.Nervous)
                 {
-                    DrawNervousMood(graphics, petBounds, scale);
+                    DrawNervousMood(graphics, sweatAnchor, scale);
                 }
                 else if (mood == PetMood.Happy)
                 {
@@ -1086,15 +1124,75 @@ namespace UsagePeek
                 if (pettingActive)
                 {
                     DrawPettingHand(graphics,
-                        petLeft + (petWidth * pettingContactXRatio),
-                        petTop + (petHeight * 0.13f),
+                        currentHeadAnchor.X - (float)roamingFractionalX +
+                            (pettingContactXRatio - 0.52f) * 8f * scale,
+                        currentHeadAnchor.Y,
                         scale, pettingProgress);
                 }
                 DrawPettingHint(graphics, width, height,
                     scale, GetMoodHint(), GetMoodHintColor());
-                DrawUsageBubble(graphics, width, scale);
+                DrawCachedUsageBubble(graphics, width, scale);
             }
-            return bitmap;
+            finally { graphics.Restore(sceneState); }
+        }
+
+        private PointF MapCharacterAnchor(PointF originalPoint,
+            int left, int top, int width, int height, Size textureSize)
+        {
+            PointF point = rigAnimation.MapSourcePoint(originalPoint);
+            return new PointF(left + point.X * width / textureSize.Width,
+                top + point.Y * height / textureSize.Height);
+        }
+
+        private PointF GetSweatSourcePoint()
+        {
+            // Original PNG pixels: temple points, independent of body/tail bounds.
+            switch (petAppearance)
+            {
+                case PetAppearance.PhoebeChibi: return new PointF(345, 285);
+                case PetAppearance.ChatGptGirl: return new PointF(455, 365);
+                case PetAppearance.ClaudeGirl: return new PointF(444, 218);
+                case PetAppearance.MilkFrog: return new PointF(570, 145);
+                default: return new PointF(280, 380);
+            }
+        }
+
+        private PointF GetHeadSourcePoint()
+        {
+            switch (petAppearance)
+            {
+                case PetAppearance.PhoebeChibi: return new PointF(250, 130);
+                case PetAppearance.ChatGptGirl: return new PointF(556, 177);
+                case PetAppearance.ClaudeGirl: return new PointF(582, 52);
+                case PetAppearance.MilkFrog: return new PointF(650, 58);
+                default: return new PointF(445, 150);
+            }
+        }
+
+        private void InvalidateUsageBubble()
+        {
+            if (usageBubbleImage == null) return;
+            usageBubbleImage.Dispose();
+            usageBubbleImage = null;
+        }
+
+        private void DrawCachedUsageBubble(Graphics graphics, int width, float scale)
+        {
+            int bubbleHeight = Math.Max(1, ScaleDesign(90, scale));
+            if (usageBubbleImage == null || usageBubbleImage.Width != width ||
+                usageBubbleImage.Height != bubbleHeight)
+            {
+                InvalidateUsageBubble();
+                usageBubbleImage = new Bitmap(width, bubbleHeight, PixelFormat.Format32bppPArgb);
+                using (Graphics bubbleGraphics = Graphics.FromImage(usageBubbleImage))
+                {
+                    bubbleGraphics.SmoothingMode = SmoothingMode.HighQuality;
+                    bubbleGraphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    bubbleGraphics.Clear(Color.Transparent);
+                    DrawUsageBubble(bubbleGraphics, width, scale);
+                }
+            }
+            graphics.DrawImageUnscaled(usageBubbleImage, 0, 0);
         }
 
         private static PettingPose CalculatePettingPose(float progress)
@@ -1253,27 +1351,20 @@ namespace UsagePeek
         }
 
         private void DrawNervousMood(
-            Graphics graphics, Rectangle petBounds, float scale)
+            Graphics graphics, PointF anchor, float scale)
         {
-            bool whale = petAppearance == PetAppearance.WhaleMaid;
-            bool chatGpt = petAppearance == PetAppearance.ChatGptGirl;
-            bool claude = petAppearance == PetAppearance.ClaudeGirl;
-            bool frog = petAppearance == PetAppearance.MilkFrog;
-            float centerX = petBounds.Left + petBounds.Width *
-                (whale ? 0.66f : chatGpt ? 0.71f :
-                    claude ? 0.67f : frog ? 0.64f : 0.83f);
-            float top = petBounds.Top + petBounds.Height *
-                (whale ? 0.31f : chatGpt ? 0.36f :
-                    claude ? 0.26f : frog ? 0.18f : 0.34f);
+            float centerX = anchor.X;
             float width = Math.Max(4f, 12f * scale);
             float height = Math.Max(6f, 18f * scale);
+            float top = anchor.Y - height * 0.5f;
+            float outward = petAppearance == PetAppearance.PhoebeChibi ? 1f : -1f;
 
             DrawSweatDrop(graphics, centerX, top,
                 width, height, 235);
             if (GetHighestUsedPercent() >= 95)
             {
                 DrawSweatDrop(graphics,
-                    centerX + (10f * scale),
+                    centerX + (outward * 10f * scale),
                     top + (13f * scale),
                     Math.Max(3f, 7f * scale),
                     Math.Max(4f, 10f * scale), 210);
@@ -1286,11 +1377,11 @@ namespace UsagePeek
                 stress.StartCap = LineCap.Round;
                 stress.EndCap = LineCap.Round;
                 graphics.DrawLine(stress,
-                    centerX - (10f * scale), top - (3f * scale),
-                    centerX - (14f * scale), top - (8f * scale));
+                    centerX + (outward * 10f * scale), top - (3f * scale),
+                    centerX + (outward * 14f * scale), top - (8f * scale));
                 graphics.DrawLine(stress,
-                    centerX - (4f * scale), top - (6f * scale),
-                    centerX - (5f * scale), top - (12f * scale));
+                    centerX + (outward * 4f * scale), top - (6f * scale),
+                    centerX + (outward * 5f * scale), top - (12f * scale));
             }
         }
 
@@ -1955,30 +2046,28 @@ namespace UsagePeek
             mood = PetMood.Happy;
             moodAnimationProgress = 0f;
             moodStopwatch.Restart();
-            moodTimer.Start();
         }
 
-        private void AdvanceMoodAnimation(object sender, EventArgs e)
+        private void AdvanceMoodAnimation()
         {
+            if (!moodStopwatch.IsRunning) return;
             double elapsed = moodStopwatch.Elapsed.TotalMilliseconds;
             if (elapsed >= HappyMoodDurationMilliseconds)
             {
-                CompleteHappyMood();
+                CompleteHappyMood(false);
                 return;
             }
 
             moodAnimationProgress = (float)(elapsed /
                 HappyMoodDurationMilliseconds);
-            ApplyLayeredImage();
         }
 
-        private void CompleteHappyMood()
+        private void CompleteHappyMood(bool redraw = true)
         {
-            moodTimer.Stop();
             moodStopwatch.Reset();
             moodAnimationProgress = 0f;
             mood = GetPersistentMood();
-            ApplyLayeredImage();
+            if (redraw) ApplyLayeredImage();
         }
 
         private void StartPettingAnimation(int contactX)
@@ -1990,28 +2079,26 @@ namespace UsagePeek
             pettingProgress = 0f;
             pettingActive = true;
             pettingStopwatch.Restart();
-            pettingTimer.Start();
             ApplyLayeredImage();
         }
 
-        private void AdvancePettingAnimation(object sender, EventArgs e)
+        private void AdvancePettingAnimation()
         {
+            if (!pettingStopwatch.IsRunning) return;
             double elapsed = pettingStopwatch.Elapsed.TotalMilliseconds;
             if (elapsed >= PettingAnimationDurationMilliseconds)
             {
-                StopPettingAnimation(true);
+                StopPettingAnimation(false);
                 return;
             }
 
             pettingProgress = (float)(elapsed /
                 PettingAnimationDurationMilliseconds);
-            ApplyLayeredImage();
         }
 
         private void StopPettingAnimation(bool redraw)
         {
             bool changed = pettingActive;
-            pettingTimer.Stop();
             pettingStopwatch.Reset();
             pettingActive = false;
             pettingProgress = 0f;

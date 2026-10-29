@@ -60,3 +60,12 @@ The Claude-girl and milk-frog desktop pet artworks embedded as
 UsagePeek with the built-in imagegen tool using user-supplied visual references.
 Their generation prompts are saved alongside the PNG files as
 `assets/pet-claude-girl.prompt.txt` and `assets/pet-milk-frog.prompt.txt`.
+
+The five early frame-animation studies in `assets/animations/` were generated with
+the built-in imagegen tool using the existing character artwork as references.
+Their prompt set and packing details are recorded in `assets/animations/PROMPTS.md`.
+The whale-maid and Phoebe character credits and artwork rights above also apply
+to their derived animation frames; those frames are not relicensed under MIT.
+These studies are kept as design references and are not embedded in the current
+executable. The continuous 2D rig uses the original character PNGs as textures;
+their existing artwork credits and rights continue to apply.
