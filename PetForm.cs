@@ -461,6 +461,18 @@ namespace UsagePeek
             get { return facingLeft; }
         }
 
+        private bool MirrorArtwork
+        {
+            // Claude's original pose faces left; the other poses use the
+            // existing right-facing/frontal convention.
+            get { return facingLeft != (petAppearance == PetAppearance.ClaudeGirl); }
+        }
+
+        internal bool ArtworkMirroredForTesting
+        {
+            get { return MirrorArtwork; }
+        }
+
         internal bool DesktopMotionTimerEnabledForTesting
         {
             get { return desktopMotionTimer.Enabled; }
@@ -1085,7 +1097,7 @@ namespace UsagePeek
                 float pivotX = width / 2f;
                 graphics.TranslateTransform(pivotX, petBottom);
                 graphics.RotateTransform(watchingTilt);
-                graphics.ScaleTransform(facingLeft ? -1f : 1f, 1f);
+                graphics.ScaleTransform(MirrorArtwork ? -1f : 1f, 1f);
                 graphics.TranslateTransform(-pivotX, -petBottom);
                 graphics.DrawImage(characterImage,
                     new Rectangle(petLeft, petTop, petWidth, petHeight),

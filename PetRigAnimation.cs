@@ -817,8 +817,8 @@ namespace UsagePeek
                     head = BoneAt("Head", .54f, .25f, .55f, .15f, .20f, .22f, 1.0f, 2.2f, 1.2f, .003f, .004f, false);
                     body = BoneAt("Body", .50f, .72f, .50f, .53f, .34f, .33f, .4f, 2.4f, opposite, .008f, .008f, false);
                     result = new[] { head, body,
-                        BoneAt("LeftFoot", .42f, .76f, .42f, .91f, .105f, .20f, .3f, 8f, 0f, .014f, .016f, true),
-                        BoneAt("RightFoot", .61f, .76f, .64f, .88f, .12f, .19f, .3f, 8f, opposite, .014f, .016f, true),
+                        BoneAt("LeftFoot", .42f, .76f, .42f, .91f, .105f, .20f, .3f, -8f, 0f, -.014f, .016f, true),
+                        BoneAt("RightFoot", .61f, .76f, .64f, .88f, .12f, .19f, .3f, -8f, opposite, -.014f, .016f, true),
                         BoneAt("LeftHand", .35f, .38f, .49f, .47f, .18f, .12f, .7f, 7f, opposite, .009f, .007f, false),
                         BoneAt("RightHand", .68f, .39f, .72f, .46f, .09f, .13f, .7f, 7f, 0f, .009f, .007f, false) };
                     break;
@@ -826,8 +826,8 @@ namespace UsagePeek
                     head = BoneAt("Head", .49f, .35f, .50f, .21f, .24f, .24f, 1.2f, 2.2f, .8f, .002f, .003f, false);
                     body = BoneAt("Body", .51f, .62f, .51f, .49f, .23f, .23f, .3f, 1.7f, opposite, .004f, .005f, false);
                     result = new[] { head, body,
-                        BoneAt("LeftFoot", .47f, .89f, .465f, .925f, .065f, .10f, .2f, -3.5f, 0f, .004f, .007f, true),
-                        BoneAt("RightFoot", .54f, .89f, .54f, .94f, .065f, .10f, .2f, -3.5f, opposite, .004f, .007f, true),
+                        BoneAt("LeftFoot", .47f, .89f, .465f, .925f, .065f, .10f, .2f, 3.5f, 0f, -.004f, .007f, true),
+                        BoneAt("RightFoot", .54f, .89f, .54f, .94f, .065f, .10f, .2f, 3.5f, opposite, -.004f, .007f, true),
                         BoneAt("Skirt", .51f, .59f, .51f, .79f, .36f, .22f, .65f, 4.8f, .6f, .007f, .006f, false),
                         BoneAt("HairLeft", .39f, .27f, .26f, .55f, .16f, .28f, 2.1f, 5.2f, 1.1f, .005f, .004f, false),
                         BoneAt("HairRight", .60f, .25f, .77f, .59f, .16f, .28f, 2.1f, 5.2f, 1.8f, .005f, .004f, false),

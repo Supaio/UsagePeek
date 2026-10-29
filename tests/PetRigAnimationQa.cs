@@ -75,6 +75,8 @@ internal static class PetRigAnimationQa
                             "left and right feet move in opposite phases: " + appearance);
                         VerifyFootContact(rig, appearance);
                         VerifyFootwearShape(rig, source, appearance);
+                        if (appearance != PetAppearance.PhoebeChibi)
+                            VerifyStandingStepDirection(rig, appearance);
                     }
                     rig.Render(210, 210, 0d, 0f, PetMood.Normal, -1f);
                     VerifyWalkingShape(rig, source, bounds, appearance, root);
@@ -103,6 +105,31 @@ internal static class PetRigAnimationQa
         }
         Console.WriteLine(failures == 0 ? "Continuous rig QA passed." : "Continuous rig QA failed: " + failures);
         return failures == 0 ? 0 : 1;
+    }
+
+    private static void VerifyStandingStepDirection(PetRigAnimation rig, PetAppearance appearance)
+    {
+        double frequency = appearance == PetAppearance.ClaudeGirl ? 1.45d : 1.35d;
+        // The Claude source boots point left; the frog source toes point right.
+        int expected = appearance == PetAppearance.ClaudeGirl ? 1 : -1;
+        string[] feet = { "LeftFoot", "RightFoot" };
+        for (int foot = 0; foot < feet.Length; foot++)
+        {
+            PointF[] walking = new PointF[2], resting = new PointF[2];
+            for (int sample = 0; sample < 2; sample++)
+            {
+                double time = (.35d + sample * .30d + foot * .5d) / frequency;
+                rig.Render(420, 420, time, 0f, PetMood.Normal, -1f);
+                resting[sample] = rig.GetJointPositionForTesting(feet[foot]);
+                rig.Render(420, 420, time, 1f, PetMood.Normal, -1f);
+                walking[sample] = rig.GetJointPositionForTesting(feet[foot]);
+            }
+            double plantedTravel = walking[1].X - walking[0].X - (resting[1].X - resting[0].X);
+            Check(plantedTravel * expected > .10d,
+                "planted foot moves against the source character's forward direction: " + appearance +
+                " " + feet[foot] + " dx=" + plantedTravel.ToString("F3"));
+        }
+        rig.Render(210, 210, 0d, 0f, PetMood.Normal, -1f);
     }
 
     private static void VerifyFootwearShape(PetRigAnimation rig, Bitmap source, PetAppearance appearance)

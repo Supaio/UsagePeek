@@ -22,6 +22,7 @@ internal static class PetModeQa
             VerifyNewPets();
             VerifyContinuousAnimations();
             VerifyDesktopActivity();
+            VerifyArtworkDirection();
             VerifyMoodStates();
         }
         finally
@@ -532,6 +533,31 @@ internal static class PetModeQa
                         "continuous animation honors custom scaling: " + appearance);
             }
         }
+    }
+
+    private static void VerifyArtworkDirection()
+    {
+        Rectangle workArea = new Rectangle(0, 0, 1920, 1080);
+        foreach (PetAppearance appearance in (PetAppearance[])Enum.GetValues(typeof(PetAppearance)))
+            using (PetForm form = new PetForm())
+            {
+                form.SetAppearance(appearance);
+                form.Location = new Point(700, 400);
+                bool sourceFacesLeft = appearance == PetAppearance.ClaudeGirl;
+                form.AdvanceDesktopMotionForTesting(false, new Point(1800, 200), workArea, 0d, false);
+                Check(!form.FacingLeftForTesting && form.ArtworkMirroredForTesting == sourceFacesLeft,
+                    "right-facing pose accounts for the source artwork direction: " + appearance);
+                using (Bitmap right = form.RenderImageForTesting())
+                {
+                    form.AdvanceDesktopMotionForTesting(false, new Point(10, 200), workArea, 0d, false);
+                    Check(form.FacingLeftForTesting && form.ArtworkMirroredForTesting != sourceFacesLeft,
+                        "left-facing pose accounts for the source artwork direction: " + appearance);
+                    using (Bitmap left = form.RenderImageForTesting())
+                        Check(CountChangedPixels(right, left) > 1000 &&
+                            right.GetPixel(35, 40).ToArgb() == left.GetPixel(35, 40).ToArgb(),
+                            "turning renders the opposite pose while keeping the bubble upright: " + appearance);
+                }
+            }
     }
 
     private static void VerifyDesktopActivity()
