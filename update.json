@@ -1,6 +1,6 @@
 {
   "version": "2.0.1",
-  "url": "https://github.com/Supaio/UsagePeek/releases/download/v2.0.1/UsagePeek.exe",
-  "sha256": "9CE0114B1B850CF0D02AA527EA178CD31664FFEFCBA8DC880F4DC2EBF90384B1",
-  "notes": "- 修复 Claude 朝前看却倒着走：按角色原图朝向正确翻转形象，并同步纠正迈步方向。\n- 修正奶蛙的落脚动作方向，确保左右行走时脚步和移动方向一致。\n- 保留五角色步态、鞋部形变与多尺寸网格修复，新增朝向及落脚方向回归检查。\n- 高倍放大下仍有少量眼睑肤色边缘可继续打磨。"
+  "url": "https://gitlab.com/Supaio/usagepeek/-/releases/v2.0.1/downloads/UsagePeek.exe",
+  "sha256": "2D29774B90CEFFE0D547873F1D8A4C37E5F8340CB2A8DBD9BC89AF38175CADD5",
+  "notes": "- 修复 Claude 朝前看却倒着走：按角色原图朝向正确翻转形象，并同步纠正迈步方向。\n- 修正奶蛙的落脚动作方向，确保左右行走时脚步和移动方向一致。\n- 保留五角色步态、鞋部形变与多尺寸网格修复，新增朝向及落脚方向回归检查。\n- 高倍放大下仍有少量眼睑肤色边缘可继续打磨。\n- 源码、版本下载和自动更新迁移至 GitLab；原 GitHub 版本需手动更新一次，设置与累计账本保留。"
 }

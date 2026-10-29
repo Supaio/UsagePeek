@@ -28,8 +28,8 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 
 ## 下载
 
-推荐从 [GitHub Releases](https://github.com/Supaio/UsagePeek/releases/latest)
-下载单文件版，也可以[直接下载最新版 UsagePeek.exe](https://github.com/Supaio/UsagePeek/releases/latest/download/UsagePeek.exe)。
+推荐从 [GitLab Releases](https://gitlab.com/Supaio/usagepeek/-/releases)
+下载单文件版，也可以[直接下载最新版 UsagePeek.exe](https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/UsagePeek.exe)。
 无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
 点击“修复连接”即可获取官方 Codex CLI 运行组件。
 Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈希，诊断技术详情可查看完整值。
@@ -223,7 +223,7 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ## 联网更新
 
-公开版本默认从 `Supaio/UsagePeek` 的 `update.json` 检查更新；下载完成后会
+公开版本默认从 GitLab `Supaio/usagepeek` 最新 Release 的 `update.json` 检查更新；下载完成后会
 核对 SHA-256，并在用户确认后原地替换。也可以通过环境变量
 `USAGEPEEK_UPDATE_URL`，或以下文件覆盖默认清单地址：
 
@@ -248,8 +248,16 @@ Codex 不在自动探测的位置，可将完整路径放入
 (Get-FileHash .\dist\UsagePeek.exe -Algorithm SHA256).Hash
 ```
 
-把该值写入 `update.json`。Release 工作流会拒绝版本或哈希不一致的 EXE，并
-额外发布 `SHA256SUMS.txt`。
+把该值写入 `update.json`，并将 `url` 指向该版本的 GitLab Release 下载地址。
+提交源码和 EXE 后推送 `v<版本号>` 标签，GitLab CI 会校验版本和 SHA-256，
+将 EXE、`SHA256SUMS.txt` 和 `update.json` 上传到 Generic Package Registry，
+再创建 Release 及固定下载链接。最新版本的更新清单只会在文件上传并验证后发布。
+本地可运行 `python tools/publish-gitlab-release.py --check` 检查发布文件，
+该命令不会联网或上传。
+
+从 GitHub 下载的旧版仍使用原更新地址，需要手动替换一次新版 EXE，或将
+`https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/update.json`
+写入上述 `update-url.txt` 后重启；原有设置与累计账本会保留。
 
 配置后，
 程序每次启动会静默检查一次，也可从托盘菜单手动检查；发现新版本后仍会先询问，

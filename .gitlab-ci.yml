@@ -1,0 +1,11 @@
+stages:
+  - release
+
+publish-release:
+  stage: release
+  image: python:3.12-alpine
+  resource_group: usagepeek-release
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  script:
+    - python tools/publish-gitlab-release.py

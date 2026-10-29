@@ -36,7 +36,7 @@ namespace UsagePeek
     {
         private const int MaximumDownloadBytes = 200 * 1024 * 1024;
         private const string DefaultManifestUrl =
-            "https://raw.githubusercontent.com/Supaio/UsagePeek/main/update.json";
+            "https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/update.json";
         private readonly JavaScriptSerializer serializer =
             new JavaScriptSerializer();
         private readonly string updateRoot;
