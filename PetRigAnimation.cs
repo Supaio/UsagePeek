@@ -11,8 +11,9 @@ namespace UsagePeek
     // evaluated continuously; there are no pose indices or image transitions.
     internal sealed class PetRigAnimation : IDisposable
     {
-        private const int MeshColumns = 32;
-        private const int MeshRows = 32;
+        private readonly int MeshColumns;
+        private readonly int MeshRows;
+        private readonly bool separateBoots;
         private const float Padding = 0.055f;
         private const float ModelScale = 1f - Padding * 2f;
         private readonly Bitmap source;
@@ -25,8 +26,8 @@ namespace UsagePeek
         private readonly float[] mappedX;
         private readonly float[] mappedY;
         private readonly BoneTransform[] transforms;
-        private readonly int[] columns = new int[MeshColumns + 1];
-        private readonly int[] rows = new int[MeshRows + 1];
+        private readonly int[] columns;
+        private readonly int[] rows;
         private Bitmap rendered;
         private int[] texture;
         private int[] pixels;
@@ -51,6 +52,13 @@ namespace UsagePeek
                 throw new ArgumentOutOfRangeException("sourceBounds");
             this.source = source;
             this.sourceBounds = sourceBounds;
+            // The two narrow boots need separate influence regions. Other
+            // characters retain their existing mesh and rendering cost.
+            separateBoots = appearance == PetAppearance.ClaudeGirl;
+            MeshColumns = separateBoots ? 64 : 32;
+            MeshRows = MeshColumns;
+            columns = new int[MeshColumns + 1];
+            rows = new int[MeshRows + 1];
             walkingFrequency = appearance == PetAppearance.ClaudeGirl ? 1.45d :
                 appearance == PetAppearance.MilkFrog ? 1.35d :
                 appearance == PetAppearance.PhoebeChibi ? 1.55d : 1.05d;
@@ -64,12 +72,32 @@ namespace UsagePeek
             mappedX = new float[points];
             mappedY = new float[points];
             weights = new float[points * bones.Length];
+        }
+
+        private void PrepareMeshWeights()
+        {
             for (int row = 0; row <= MeshRows; row++)
                 for (int column = 0; column <= MeshColumns; column++)
                 {
                     int point = row * (MeshColumns + 1) + column;
-                    float x = column / (float)MeshColumns;
-                    float y = row / (float)MeshRows;
+                    // The raster cells use rounded pixel boundaries. Evaluate
+                    // weights at those same points, including after DPI changes.
+                    float x = columns[column] / (float)width;
+                    float y = rows[row] / (float)height;
+                    float bootBlend = 0f, rightBoot = 0f;
+                    if (separateBoots)
+                    {
+                        float sourceX = sourceBounds.X + (x - Padding) / ModelScale * sourceBounds.Width;
+                        float sourceY = sourceBounds.Y + (y - Padding) / ModelScale * sourceBounds.Height;
+                        // Blend below the ankles, only around the actual boots.
+                        // An unrestricted half-plane folds the empty canvas.
+                        bootBlend = SmoothStep((sourceY / source.Height - .885f) / .055f) *
+                            SmoothStep((sourceX - 460f) / 70f) *
+                            SmoothStep((790f - sourceX) / 70f) *
+                            SmoothStep((1340f - sourceY) / 80f);
+                        float divider = 642f - 1.1f * Math.Max(0f, Math.Min(sourceY, 1225f) - 1175f);
+                        rightBoot = SmoothStep((sourceX - divider + 24f) / 48f);
+                    }
                     float total = 0f;
                     for (int joint = 0; joint < bones.Length; joint++)
                     {
@@ -78,6 +106,14 @@ namespace UsagePeek
                         float dy = (y - bone.CenterY) / bone.RadiusY;
                         float weight = Math.Max(0f, 1f - dx * dx - dy * dy);
                         weight *= weight;
+                        if (bootBlend > 0f)
+                        {
+                            if (bone.Name == "LeftFoot")
+                                weight = weight * (1f - bootBlend) + (1f - rightBoot) * bootBlend;
+                            else if (bone.Name == "RightFoot")
+                                weight = weight * (1f - bootBlend) + rightBoot * bootBlend;
+                            else weight *= 1f - bootBlend;
+                        }
                         weights[point * bones.Length + joint] = weight;
                         total += weight;
                     }
@@ -115,6 +151,8 @@ namespace UsagePeek
                 float lift = bone.IsFoot
                     ? Math.Max(0f, (float)Math.Cos(cycle + bone.Phase))
                     : (float)Math.Cos(cycle + bone.Phase);
+                // Keep lift velocity continuous when a foot touches down.
+                if (bone.IsFoot) lift *= lift;
                 float degrees = bone.IdleAngle * idle +
                     walkingAmount * bone.WalkAngle * stride;
                 if (mood == PetMood.Nervous && bone.Name == "Head")
@@ -203,6 +241,7 @@ namespace UsagePeek
                 new Rectangle(0, 0, width, height);
             for (int x = 0; x <= MeshColumns; x++) columns[x] = width * x / MeshColumns;
             for (int y = 0; y <= MeshRows; y++) rows[y] = height * y / MeshRows;
+            PrepareMeshWeights();
             for (int eye = 0; eye < eyes.Length; eye++)
             {
                 Eye eyelid = eyes[eye];
@@ -434,6 +473,12 @@ namespace UsagePeek
         }
 
         private static float Lerp(float a, float b, float amount) { return a + (b - a) * amount; }
+
+        private static float SmoothStep(float amount)
+        {
+            amount = Math.Max(0f, Math.Min(1f, amount));
+            return amount * amount * (3f - 2f * amount);
+        }
 
         private static uint ShadeColor(uint color, float brightness)
         {
@@ -772,8 +817,8 @@ namespace UsagePeek
                     head = BoneAt("Head", .54f, .25f, .55f, .15f, .20f, .22f, 1.0f, 2.2f, 1.2f, .003f, .004f, false);
                     body = BoneAt("Body", .50f, .72f, .50f, .53f, .34f, .33f, .4f, 2.4f, opposite, .008f, .008f, false);
                     result = new[] { head, body,
-                        BoneAt("LeftFoot", .42f, .76f, .42f, .91f, .105f, .20f, .3f, 20f, 0f, .028f, .034f, true),
-                        BoneAt("RightFoot", .61f, .76f, .64f, .88f, .12f, .19f, .3f, 20f, opposite, .028f, .034f, true),
+                        BoneAt("LeftFoot", .42f, .76f, .42f, .91f, .105f, .20f, .3f, 8f, 0f, .014f, .016f, true),
+                        BoneAt("RightFoot", .61f, .76f, .64f, .88f, .12f, .19f, .3f, 8f, opposite, .014f, .016f, true),
                         BoneAt("LeftHand", .35f, .38f, .49f, .47f, .18f, .12f, .7f, 7f, opposite, .009f, .007f, false),
                         BoneAt("RightHand", .68f, .39f, .72f, .46f, .09f, .13f, .7f, 7f, 0f, .009f, .007f, false) };
                     break;
@@ -781,8 +826,8 @@ namespace UsagePeek
                     head = BoneAt("Head", .49f, .35f, .50f, .21f, .24f, .24f, 1.2f, 2.2f, .8f, .002f, .003f, false);
                     body = BoneAt("Body", .51f, .62f, .51f, .49f, .23f, .23f, .3f, 1.7f, opposite, .004f, .005f, false);
                     result = new[] { head, body,
-                        BoneAt("LeftFoot", .47f, .85f, .465f, .925f, .065f, .10f, .2f, -12f, 0f, .018f, .023f, true),
-                        BoneAt("RightFoot", .54f, .85f, .54f, .94f, .065f, .10f, .2f, -12f, opposite, .018f, .023f, true),
+                        BoneAt("LeftFoot", .47f, .89f, .465f, .925f, .065f, .10f, .2f, -3.5f, 0f, .004f, .007f, true),
+                        BoneAt("RightFoot", .54f, .89f, .54f, .94f, .065f, .10f, .2f, -3.5f, opposite, .004f, .007f, true),
                         BoneAt("Skirt", .51f, .59f, .51f, .79f, .36f, .22f, .65f, 4.8f, .6f, .007f, .006f, false),
                         BoneAt("HairLeft", .39f, .27f, .26f, .55f, .16f, .28f, 2.1f, 5.2f, 1.1f, .005f, .004f, false),
                         BoneAt("HairRight", .60f, .25f, .77f, .59f, .16f, .28f, 2.1f, 5.2f, 1.8f, .005f, .004f, false),
@@ -796,7 +841,7 @@ namespace UsagePeek
                         BoneAt("LeftWing", .29f, .47f, .17f, .57f, .20f, .22f, 2.2f, 11f, .6f, .009f, .005f, false),
                         BoneAt("RightWing", .74f, .43f, .84f, .57f, .19f, .23f, -2.2f, -11f, .6f, .009f, .005f, false),
                         BoneAt("Tail", .79f, .70f, .70f, .86f, .25f, .18f, 2.4f, 8.5f, 1.7f, .011f, .009f, false),
-                        BoneAt("HairLeft", .37f, .34f, .19f, .68f, .16f, .27f, 1.9f, 4.7f, 1.3f, .004f, .004f, false),
+                        BoneAt("HairLeft", .37f, .34f, .19f, .68f, .16f, .27f, 1.9f, 4.2f, 1.3f, .004f, .004f, false),
                         BoneAt("HairRight", .64f, .36f, .80f, .71f, .15f, .27f, 1.9f, 4.7f, 2.0f, .004f, .004f, false),
                         BoneAt("LeftHand", .47f, .55f, .44f, .46f, .10f, .15f, .6f, 2.4f, opposite, .003f, .004f, false) };
                     break;
@@ -804,8 +849,8 @@ namespace UsagePeek
                     head = BoneAt("Head", .48f, .73f, .49f, .59f, .29f, .25f, 1.2f, 2.2f, .9f, .003f, .003f, false);
                     body = BoneAt("Body", .50f, .95f, .50f, .84f, .23f, .15f, .6f, 3.0f, opposite, .008f, .013f, false);
                     result = new[] { head, body,
-                        BoneAt("LeftFoot", .43f, .87f, .405f, .935f, .09f, .07f, .4f, 16f, 0f, .023f, .022f, true),
-                        BoneAt("RightFoot", .56f, .87f, .555f, .94f, .09f, .07f, .4f, 16f, opposite, .023f, .022f, true),
+                        BoneAt("LeftFoot", .43f, .87f, .405f, .935f, .09f, .07f, .4f, 8f, 0f, .010f, .009f, true),
+                        BoneAt("RightFoot", .56f, .87f, .555f, .94f, .09f, .07f, .4f, 8f, opposite, .010f, .009f, true),
                         BoneAt("Hat", .47f, .45f, .41f, .36f, .29f, .15f, 1.8f, 4.8f, 1.3f, .004f, .004f, false),
                         BoneAt("Pompom", .26f, .51f, .11f, .81f, .14f, .25f, 2.2f, 6.3f, 2.1f, .007f, .005f, false),
                         BoneAt("HairLeft", .37f, .65f, .28f, .83f, .13f, .17f, 1.6f, 4.3f, 1.2f, .003f, .004f, false),
@@ -856,6 +901,7 @@ namespace UsagePeek
                 eye.Opening = eye.Outline;
                 if (appearance != PetAppearance.MilkFrog)
                 {
+                    safe[index] = EncloseLashTips(safe[index]);
                     eye.BaseSafety = new PointF[safe[index].Length];
                     for (int point = 0; point < safe[index].Length; point++)
                         eye.BaseSafety[point] = new PointF(ModelX(safe[index][point].X / source.Width),
@@ -895,6 +941,37 @@ namespace UsagePeek
                     polygon[index].Y + dy / length * pixels);
             }
             return result;
+        }
+
+        // Concave gaps between individually marked lash tips can leave the
+        // original lash root visible when the animated lid moves away.
+        private static PointF[] EncloseLashTips(PointF[] points)
+        {
+            PointF[] sorted = (PointF[])points.Clone();
+            Array.Sort(sorted, delegate(PointF a, PointF b)
+            {
+                int order = a.X.CompareTo(b.X);
+                return order != 0 ? order : a.Y.CompareTo(b.Y);
+            });
+            List<PointF> hull = new List<PointF>();
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int start = hull.Count;
+                for (int index = 0; index < sorted.Length; index++)
+                {
+                    PointF point = sorted[pass == 0 ? index : sorted.Length - 1 - index];
+                    while (hull.Count >= start + 2)
+                    {
+                        PointF a = hull[hull.Count - 2], b = hull[hull.Count - 1];
+                        if ((b.X - a.X) * (point.Y - a.Y) -
+                            (b.Y - a.Y) * (point.X - a.X) > 0f) break;
+                        hull.RemoveAt(hull.Count - 1);
+                    }
+                    hull.Add(point);
+                }
+                hull.RemoveAt(hull.Count - 1);
+            }
+            return hull.ToArray();
         }
 
         private static PointF[][] LashSafeRegions(PetAppearance appearance)

@@ -1,4 +1,4 @@
-param([string]$ApplicationPath)
+param([string]$ApplicationPath, [switch]$Large)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $ApplicationPath) { $ApplicationPath = Join-Path $root 'bin\UsagePeek.UI-preview.exe' }
@@ -12,5 +12,7 @@ $output = Join-Path $root 'bin\PetPresentationQa.exe'
     /reference:System.Drawing.dll /reference:System.Windows.Forms.dll `
     "/out:$output" (Join-Path $PSScriptRoot 'PetPresentationQa.cs')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $output $ApplicationPath
+$qaArguments = @($ApplicationPath)
+if ($Large) { $qaArguments += '--large' }
+& $output @qaArguments
 exit $LASTEXITCODE
