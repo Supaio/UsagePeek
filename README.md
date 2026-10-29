@@ -30,6 +30,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 
 推荐从 [GitLab Releases](https://gitlab.com/Supaio/usagepeek/-/releases)
 下载单文件版，也可以[直接下载最新版 UsagePeek.exe](https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/UsagePeek.exe)。
+也可直接下载 [2.0.1 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.1/dist/UsagePeek.exe)。
 无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
 点击“修复连接”即可获取官方 Codex CLI 运行组件。
 Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈希，诊断技术详情可查看完整值。
