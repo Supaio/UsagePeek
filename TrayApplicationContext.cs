@@ -243,6 +243,8 @@ namespace UsagePeek
                 snapshot.IsStale = false;
                 ResetCreditGrantNotification resetCreditGrant =
                     resetCreditNotificationTracker.Observe(snapshot);
+                ResetCreditExpiryNotification resetCreditExpiry =
+                    resetCreditNotificationTracker.ObserveExpiry(snapshot, DateTime.UtcNow);
                 lastSnapshot = snapshot;
                 lastRefreshSuccessUtc = DateTime.UtcNow;
                 lastRefreshErrorCode = null;
@@ -250,7 +252,14 @@ namespace UsagePeek
                 form.ShowSnapshot(snapshot, null);
                 petForm.SetLiveUsage(snapshot);
                 UpdateTrayText(snapshot, false);
-                ShowResetCreditGrant(resetCreditGrant);
+                if (resetCreditExpiry != null)
+                {
+                    ShowResetCreditExpiry(resetCreditExpiry, resetCreditGrant);
+                }
+                else
+                {
+                    ShowResetCreditGrant(resetCreditGrant);
+                }
             }
             catch (Exception ex)
             {
@@ -437,6 +446,21 @@ namespace UsagePeek
             string suffix = stale ? " · 缓存" : string.Empty;
             string text = "UsagePeek · 5h " + primary + " · 7d " + secondary + suffix;
             trayIcon.Text = text.Length > 63 ? text.Substring(0, 63) : text;
+        }
+
+        private void ShowResetCreditExpiry(ResetCreditExpiryNotification notification,
+            ResetCreditGrantNotification grant)
+        {
+            string message = "有 " + notification.ExpiringCreditCount +
+                " 张重置卡将在 24 小时内到期。\n最近到期：" +
+                notification.EarliestExpiryUtc.ToLocalTime().ToString("M月d日 HH:mm") +
+                "\n请在到期前按需使用。";
+            if (grant != null && grant.NewCreditCount > 0)
+            {
+                message += "\n同时检测到 " + grant.NewCreditCount + " 张新的重置卡。";
+            }
+            trayIcon.ShowBalloonTip(8000, "UsagePeek · 重置卡即将到期",
+                message, ToolTipIcon.Warning);
         }
 
         private void ShowResetCreditGrant(

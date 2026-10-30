@@ -1,6 +1,6 @@
 {
-  "version": "2.0.1",
-  "url": "https://gitlab.com/Supaio/usagepeek/-/releases/v2.0.1/downloads/UsagePeek.exe",
-  "sha256": "2D29774B90CEFFE0D547873F1D8A4C37E5F8340CB2A8DBD9BC89AF38175CADD5",
-  "notes": "- 修复 Claude 朝前看却倒着走：按角色原图朝向正确翻转形象，并同步纠正迈步方向。\n- 修正奶蛙的落脚动作方向，确保左右行走时脚步和移动方向一致。\n- 保留五角色步态、鞋部形变与多尺寸网格修复，新增朝向及落脚方向回归检查。\n- 高倍放大下仍有少量眼睑肤色边缘可继续打磨。\n- 源码、版本下载和自动更新迁移至 GitLab；原 GitHub 版本需手动更新一次，设置与累计账本保留。"
+  "version": "2.0.2",
+  "url": "https://gitlab.com/Supaio/usagepeek/-/releases/v2.0.2/downloads/UsagePeek.exe",
+  "sha256": "91499FD5CBC8B0339A173F512DEBDC95652402CE57122F5343F16F2163473FE5",
+  "notes": "- 新增重置卡到期提醒：在到期前 24 小时内的首次成功刷新时通知，启动时已不足 24 小时也会补提醒。\n- 按到期批次持久化去重，刷新、重启或补回卡片明细不会重复提醒；已用完、已过期、缓存及缺少到期时间的记录不提醒。\n- 同时触发发卡和到期提醒时合并为一条通知，并显示本地到期时间。程序需保持运行，提醒随每 5 分钟的成功刷新检查。"
 }

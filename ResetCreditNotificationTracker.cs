@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Web.Script.Serialization;
@@ -13,6 +14,12 @@ namespace UsagePeek
         public DateTime? EarliestExpiryUtc { get; set; }
     }
 
+    internal sealed class ResetCreditExpiryNotification
+    {
+        public int ExpiringCreditCount { get; set; }
+        public DateTime EarliestExpiryUtc { get; set; }
+    }
+
     internal sealed class ResetCreditNotificationTracker
     {
         private sealed class TrackerState
@@ -21,6 +28,7 @@ namespace UsagePeek
             public int? AvailableCount { get; set; }
             public DateTime LastObservedAtUtc { get; set; }
             public DateTime? LatestGrantedAtUtc { get; set; }
+            public Dictionary<string, int> ExpiryReminderCounts { get; set; }
         }
 
         private readonly JavaScriptSerializer serializer = new JavaScriptSerializer();
@@ -54,13 +62,7 @@ namespace UsagePeek
             DateTime? latestGrantedAtUtc = FindLatestGrant(snapshot.ResetCredits);
             if (state == null || !state.Initialized)
             {
-                state = new TrackerState
-                {
-                    Initialized = true,
-                    AvailableCount = snapshot.RateLimitResetCreditsAvailable,
-                    LastObservedAtUtc = observedAtUtc,
-                    LatestGrantedAtUtc = latestGrantedAtUtc
-                };
+                EstablishBaseline(snapshot, observedAtUtc, latestGrantedAtUtc);
                 SaveState();
                 return null;
             }
@@ -128,6 +130,110 @@ namespace UsagePeek
             };
         }
 
+        public ResetCreditExpiryNotification ObserveExpiry(
+            UsageSnapshot snapshot, DateTime nowUtc)
+        {
+            if (!HasReliableObservation(snapshot) ||
+                snapshot.RateLimitResetCreditsAvailable == 0 ||
+                snapshot.ResetCredits == null)
+            {
+                return null;
+            }
+
+            nowUtc = NormalizeUtc(nowUtc);
+            Dictionary<DateTime, int> batches = new Dictionary<DateTime, int>();
+            foreach (RateLimitResetCreditSnapshot credit in snapshot.ResetCredits)
+            {
+                if (credit == null || !credit.ExpiresAtUtc.HasValue ||
+                    credit.ExpiresAtUtc.Value == default(DateTime))
+                {
+                    continue;
+                }
+                DateTime expiryUtc = NormalizeUtc(credit.ExpiresAtUtc.Value);
+                if (expiryUtc <= nowUtc || expiryUtc - nowUtc > TimeSpan.FromHours(24))
+                {
+                    continue;
+                }
+                int count;
+                batches.TryGetValue(expiryUtc, out count);
+                batches[expiryUtc] = count + 1;
+            }
+            if (batches.Count == 0)
+            {
+                return null;
+            }
+
+            if (state == null || !state.Initialized)
+            {
+                EstablishBaseline(snapshot, NormalizeUtc(snapshot.FetchedAtUtc),
+                    FindLatestGrant(snapshot.ResetCredits));
+            }
+            if (state.ExpiryReminderCounts == null)
+            {
+                state.ExpiryReminderCounts = new Dictionary<string, int>();
+            }
+
+            int expiringCount = 0;
+            DateTime earliestExpiryUtc = DateTime.MaxValue;
+            foreach (KeyValuePair<DateTime, int> batch in batches)
+            {
+                // Expiry is stable even when grant details or display titles change.
+                string key = batch.Key.Ticks.ToString(CultureInfo.InvariantCulture);
+                int remindedCount;
+                state.ExpiryReminderCounts.TryGetValue(key, out remindedCount);
+                int newCount = Math.Max(0, batch.Value - Math.Max(0, remindedCount));
+                if (newCount == 0)
+                {
+                    continue;
+                }
+                expiringCount += newCount;
+                if (batch.Key < earliestExpiryUtc)
+                {
+                    earliestExpiryUtc = batch.Key;
+                }
+                state.ExpiryReminderCounts[key] = batch.Value;
+            }
+            if (expiringCount == 0)
+            {
+                return null;
+            }
+
+            // Keep missing or used-card batches until they expire, to avoid re-alerting
+            // when incomplete responses later restore their details.
+            List<string> expiredKeys = new List<string>();
+            foreach (string key in state.ExpiryReminderCounts.Keys)
+            {
+                long expiryTicks;
+                if (!long.TryParse(key, NumberStyles.None, CultureInfo.InvariantCulture,
+                        out expiryTicks) || expiryTicks <= nowUtc.Ticks)
+                {
+                    expiredKeys.Add(key);
+                }
+            }
+            foreach (string key in expiredKeys)
+            {
+                state.ExpiryReminderCounts.Remove(key);
+            }
+            SaveState();
+            return new ResetCreditExpiryNotification
+            {
+                ExpiringCreditCount = expiringCount,
+                EarliestExpiryUtc = earliestExpiryUtc
+            };
+        }
+
+        private void EstablishBaseline(UsageSnapshot snapshot,
+            DateTime observedAtUtc, DateTime? latestGrantedAtUtc)
+        {
+            state = new TrackerState
+            {
+                Initialized = true,
+                AvailableCount = snapshot.RateLimitResetCreditsAvailable,
+                LastObservedAtUtc = observedAtUtc,
+                LatestGrantedAtUtc = latestGrantedAtUtc
+            };
+        }
+
         private static string GetDefaultStatePath()
         {
             string root = Environment.GetFolderPath(
@@ -137,7 +243,7 @@ namespace UsagePeek
 
         private static bool HasReliableObservation(UsageSnapshot snapshot)
         {
-            return snapshot != null &&
+            return snapshot != null && !snapshot.IsStale &&
                 (snapshot.RateLimitResetCreditsAvailable.HasValue ||
                  (snapshot.ResetCredits != null && snapshot.ResetCredits.Count > 0));
         }
@@ -234,6 +340,7 @@ namespace UsagePeek
 
         private void SaveState()
         {
+            string temporaryPath = statePath + ".tmp";
             try
             {
                 string directory = Path.GetDirectoryName(statePath);
@@ -242,12 +349,25 @@ namespace UsagePeek
                     Directory.CreateDirectory(directory);
                 }
 
-                File.WriteAllText(statePath,
+                File.WriteAllText(temporaryPath,
                     serializer.Serialize(state), Encoding.UTF8);
+                if (File.Exists(statePath))
+                {
+                    File.Replace(temporaryPath, statePath, null);
+                }
+                else
+                {
+                    File.Move(temporaryPath, statePath);
+                }
             }
             catch
             {
                 // Notification tracking must never block a usage refresh.
+            }
+            finally
+            {
+                try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+                catch { }
             }
         }
     }

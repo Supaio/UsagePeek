@@ -30,7 +30,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 
 推荐从 [GitLab Releases](https://gitlab.com/Supaio/usagepeek/-/releases)
 下载单文件版，也可以[直接下载最新版 UsagePeek.exe](https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/UsagePeek.exe)。
-也可直接下载 [2.0.1 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.1/dist/UsagePeek.exe)。
+也可直接下载 [2.0.2 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.2/dist/UsagePeek.exe)。
 无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
 点击“修复连接”即可获取官方 Codex CLI 运行组件。
 Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈希，诊断技术详情可查看完整值。
@@ -42,6 +42,10 @@ Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈�
 - 可用 Rate Limit Reset 次数、最近一张重置额度的到期时间。
 - 仅在确认检测到新的重置卡发放时显示托盘通知；首次读取只建立基线，
   卡被使用、过期、刷新失败或旧详情补回时不会误报。
+- 重置卡在到期前 24 小时内的首次成功刷新时提醒，启动时已不足 24 小时也会
+  补提醒；按到期批次记录已提醒的数量，刷新、重启和明细补回不会重复弹出。
+  提醒显示本地到期时间，遇到同时发卡时合并为一条通知。程序需保持运行，
+  检查沿用每 5 分钟的刷新；已用完、已过期、缓存或没有到期时间时不提醒。
 - Credits / Extra Usage 余额。
 - 今天、昨天、近 30 天的本机 Token 与 API 等价费用估算。
 - 默认以美元显示费用；点击顶部 `$ USD` 会联网取得最新工作日 USD/CNY
@@ -160,7 +164,7 @@ Sol 的公开等价价格估算。若记录混有未知价格的模型，已识�
 - 不发送遥测，不上传本机会话数据。
 - “复制诊断”只包含版本、组件探测来源、刷新状态和价格覆盖情况；用户目录会被
   替换为环境变量占位符，其他绝对路径只保留盘符与文件名，原始异常也不会复制。
-- 重置卡通知只在本地保存可用数量和发放/观察时间，用于去重。
+- 重置卡通知只在本地保存可用数量、发放/观察时间与各到期批次已提醒的数量，用于去重。
 - “修复连接”仅下载并运行 `https://chatgpt.com/codex/install.ps1` 官方安装器；
   UsagePeek 本身仍不打开、复制或输出登录令牌。
 - `%LOCALAPPDATA%\UsagePeek\cache.json` 只保存聚合后的套餐、百分比、时间、
@@ -236,7 +240,7 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```json
 {
-  "version": "2.0.1",
+  "version": "2.0.2",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"
