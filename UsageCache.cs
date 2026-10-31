@@ -29,6 +29,7 @@ namespace UsagePeek
                     File.ReadAllText(cachePath, Encoding.UTF8));
                 if (snapshot != null)
                 {
+                    snapshot.NormalizeQuotaWindows();
                     snapshot.IsStale = true;
                 }
 

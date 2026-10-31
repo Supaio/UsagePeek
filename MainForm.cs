@@ -25,6 +25,7 @@ namespace UsagePeek
         private readonly UsageCardControl secondaryCard;
         private readonly Timer countdownTimer;
         private UsageSnapshot currentSnapshot;
+        private bool systemRoundedCorners;
 
         public event EventHandler RefreshRequested;
         public event EventHandler CurrencyToggleRequested;
@@ -297,6 +298,13 @@ namespace UsagePeek
             }
         }
 
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            systemRoundedCorners = UiTheme.TryApplyRoundedCorners(this);
+            UpdateRoundedRegion();
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -306,7 +314,8 @@ namespace UsagePeek
             int logicalHeight = UiDrawing.LogicalHeight(this);
             Rectangle borderBounds = new Rectangle(
                 0, 0, logicalWidth - 1, logicalHeight - 1);
-            using (GraphicsPath borderPath = UiDrawing.RoundedRectangle(borderBounds, 19))
+            using (GraphicsPath borderPath = UiDrawing.RoundedRectangle(
+                borderBounds, systemRoundedCorners ? 8 : 23))
             using (Pen border = new Pen(UiColors.Border))
             {
                 e.Graphics.DrawPath(border, borderPath);
@@ -433,7 +442,9 @@ namespace UsagePeek
                 return;
             }
 
+            snapshot.NormalizeQuotaWindows();
             currentSnapshot = snapshot;
+            ApplyQuotaCardLayout();
             primaryCard.SetWindow(snapshot.Primary);
             secondaryCard.SetWindow(snapshot.Secondary);
             int highest = HighestUsage(snapshot);
@@ -482,6 +493,19 @@ namespace UsagePeek
                 countdownTimer.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        private void ApplyQuotaCardLayout()
+        {
+            if (primaryCard == null || secondaryCard == null) return;
+            bool weeklyOnly = currentSnapshot != null &&
+                currentSnapshot.Primary == null &&
+                (currentSnapshot.Secondary != null || currentSnapshot.IsProPlan());
+            primaryCard.Visible = !weeklyOnly;
+            secondaryCard.Location = new Point(ScaleLogical(weeklyOnly ? 22 : 220),
+                ScaleLogical(136));
+            secondaryCard.Size = new Size(ScaleLogical(weeklyOnly ? 384 : 186),
+                ScaleLogical(174));
         }
 
         private static int HighestUsage(UsageSnapshot snapshot)
@@ -572,8 +596,19 @@ namespace UsagePeek
                 return;
             }
 
+            if (systemRoundedCorners)
+            {
+                Region previousRegion = Region;
+                if (previousRegion != null)
+                {
+                    Region = null;
+                    previousRegion.Dispose();
+                }
+                return;
+            }
+
             using (GraphicsPath path = UiDrawing.RoundedRectangle(
-                new Rectangle(0, 0, Width, Height), ScaleLogical(20)))
+                new Rectangle(0, 0, Width, Height), ScaleLogical(24)))
             {
                 Region oldRegion = Region;
                 Region = new Region(path);
@@ -586,6 +621,7 @@ namespace UsagePeek
 
         protected override void OnDpiScaleChanged()
         {
+            ApplyQuotaCardLayout();
             UpdateRoundedRegion();
             base.OnDpiScaleChanged();
         }

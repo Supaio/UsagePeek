@@ -43,8 +43,8 @@ namespace UsagePeek
             int logicalWidth = UiDrawing.LogicalWidth(this);
             int logicalHeight = UiDrawing.LogicalHeight(this);
             Rectangle bounds = new Rectangle(
-                0, 0, logicalWidth - 1, logicalHeight - 1);
-            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 14))
+                1, 1, logicalWidth - 2, logicalHeight - 2);
+            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 18))
             using (SolidBrush background = new SolidBrush(UiColors.Surface))
             using (Pen border = new Pen(UiColors.Border))
             {

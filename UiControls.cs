@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.Windows.Forms;
 
 namespace UsagePeek
@@ -9,6 +10,10 @@ namespace UsagePeek
     {
         public static float BeginLogicalPaint(Control control, Graphics graphics)
         {
+            // These controls paint onto an opaque window background. Request
+            // font smoothing explicitly instead of inheriting a system default
+            // that can rasterize custom DrawString text with hard pixel edges.
+            graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
             float scale = GetScale(control);
             using (Matrix transform = graphics.Transform)
             {
@@ -667,7 +672,10 @@ namespace UsagePeek
             else
             {
                 headline = "额度状态良好";
-                detail = "短期与长期窗口均可正常使用";
+                detail = snapshot != null && snapshot.Primary == null &&
+                    snapshot.Secondary != null ?
+                    (snapshot.Secondary.Label ?? "当前额度窗口") + "可正常使用" :
+                    "短期与长期窗口均可正常使用";
                 accent = UiColors.Success;
             }
 

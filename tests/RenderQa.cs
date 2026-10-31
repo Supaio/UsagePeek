@@ -49,11 +49,14 @@ internal static class RenderQa
             return;
         }
 
-        bool pet = string.Equals(mode, "pet", StringComparison.OrdinalIgnoreCase) ||
+        bool quotaAnimation = mode.StartsWith("pet-quota-", StringComparison.OrdinalIgnoreCase) ||
+            mode.StartsWith("pet-pro-quota-", StringComparison.OrdinalIgnoreCase);
+        bool pet = quotaAnimation || string.Equals(mode, "pet", StringComparison.OrdinalIgnoreCase) ||
             mode.StartsWith("pet-chatgpt", StringComparison.OrdinalIgnoreCase) ||
             mode.StartsWith("pet-claude", StringComparison.OrdinalIgnoreCase) ||
             mode.StartsWith("pet-milk-frog", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-phoebe", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "pet-pro", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-remaining", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-small", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(mode, "pet-rua", StringComparison.OrdinalIgnoreCase) ||
@@ -120,20 +123,46 @@ internal static class RenderQa
                         petForm.SetPettingProgressForTesting(0.15f);
                     }
                 }
+                bool pro = string.Equals(mode, "pet-pro",
+                    StringComparison.OrdinalIgnoreCase) ||
+                    mode.StartsWith("pet-pro-quota-", StringComparison.OrdinalIgnoreCase);
                 petForm.SetUsage(new UsageSnapshot
                 {
+                    PlanType = pro ? "Pro" : "Plus",
                     Primary = new UsageWindowSnapshot
                     {
-                        UsedPercent = mode.EndsWith("-nervous",
+                        UsedPercent = pro ? 34 : mode.EndsWith("-nervous",
                             StringComparison.OrdinalIgnoreCase) ? 88 : 45,
-                        ResetsAtUtc = DateTime.UtcNow.AddHours(2).AddMinutes(14)
+                        WindowDurationMinutes = pro ? 10080 : 300,
+                        ResetsAtUtc = pro
+                            ? DateTime.UtcNow.AddDays(3).AddHours(9)
+                            : DateTime.UtcNow.AddHours(2).AddMinutes(14)
                     },
-                    Secondary = new UsageWindowSnapshot
+                    Secondary = pro ? null : new UsageWindowSnapshot
                     {
                         UsedPercent = 34,
+                        WindowDurationMinutes = 10080,
                         ResetsAtUtc = DateTime.UtcNow.AddDays(3).AddHours(9)
                     }
                 });
+                if (quotaAnimation)
+                {
+                    if (mode.EndsWith("-remaining", StringComparison.OrdinalIgnoreCase))
+                        petForm.SetUsageDisplayMode(PetUsageDisplayMode.Remaining);
+                    DateTime reset = DateTime.UtcNow.Date.AddDays(3).AddHours(9);
+                    UsageSnapshot previous = CreateQuotaAnimationSnapshot(pro, 60, reset);
+                    petForm.SetUsage(previous);
+                    petForm.SetLiveUsage(previous);
+                    double elapsed = args.Length > 3 ? double.Parse(args[3],
+                        System.Globalization.CultureInfo.InvariantCulture) : 0.5d;
+                    if (elapsed >= 0d)
+                    {
+                        petForm.SetLiveUsage(CreateQuotaAnimationSnapshot(pro,
+                            mode.IndexOf("-down", StringComparison.OrdinalIgnoreCase) >= 0
+                                ? 55 : 65, reset));
+                        petForm.AdvanceUsageTransitionForTesting(elapsed);
+                    }
+                }
                 if (mode.EndsWith("-happy", StringComparison.OrdinalIgnoreCase))
                 {
                     petForm.SetMoodForTesting(PetMood.Happy, 0.45f);
@@ -188,7 +217,8 @@ internal static class RenderQa
         UsageSnapshot snapshot = new UsageSnapshot();
         snapshot.ProviderId = "chatgpt-codex";
         snapshot.ProviderName = "ChatGPT / Codex";
-        snapshot.PlanType = "Plus";
+        snapshot.PlanType = string.Equals(mode, "pro",
+            StringComparison.OrdinalIgnoreCase) ? "Pro" : "Plus";
         snapshot.FetchedAtUtc = DateTime.UtcNow;
         snapshot.Primary = new UsageWindowSnapshot
         {
@@ -311,6 +341,26 @@ internal static class RenderQa
             form.TopMost = false;
             Render(form, output, dpi);
         }
+    }
+
+    private static UsageSnapshot CreateQuotaAnimationSnapshot(bool pro, int weeklyUsed, DateTime reset)
+    {
+        return new UsageSnapshot
+        {
+            PlanType = pro ? "Pro" : "Plus",
+            Primary = pro ? null : new UsageWindowSnapshot
+            {
+                UsedPercent = 40,
+                WindowDurationMinutes = 300,
+                ResetsAtUtc = reset
+            },
+            Secondary = new UsageWindowSnapshot
+            {
+                UsedPercent = weeklyUsed,
+                WindowDurationMinutes = 10080,
+                ResetsAtUtc = reset
+            }
+        };
     }
 
     private static DiagnosticsSnapshot CreateDiagnosticsPreview(string mode)

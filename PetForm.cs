@@ -122,6 +122,24 @@ namespace UsagePeek
         private bool hasLiveUsageBaseline;
         private PetAppearance petAppearance;
         private PetUsageDisplayMode usageDisplayMode;
+        private bool singleQuotaWindow;
+        private bool weeklyWatermarkVisible = true;
+        private string quotaPresentationKey;
+        private float? quotaArcFromPercent;
+        private float? quotaArcToPercent;
+        private int? quotaWeeklyFromPercent;
+        private int? quotaWeeklyToPercent;
+        private double quotaTransitionSeconds;
+        private bool quotaArcAnimating;
+        private bool quotaWeeklyAnimating;
+        private readonly Bitmap[] quotaValueImages = new Bitmap[2];
+        private readonly string[] quotaValueImageKeys = new string[2];
+        private ImageAttributes quotaValueOpacity;
+        private readonly ColorMatrix quotaValueColorMatrix = new ColorMatrix();
+        private const double QuotaArcDurationSeconds = 0.75d;
+        private const double QuotaWeeklyDurationSeconds = 1.15d;
+        private string shortQuotaLabel = "5h";
+        private string secondaryQuotaLabel = "7d";
         private int petScalePercent;
         private PetMood mood;
         private float moodAnimationProgress;
@@ -216,6 +234,8 @@ namespace UsagePeek
 
         public void SetUsage(UsageSnapshot snapshot)
         {
+            SetQuotaPresentation(snapshot);
+            CompleteQuotaTransition();
             int? nextPrimaryUsedPercent = ReadUsedPercent(
                 snapshot == null ? null : snapshot.Primary);
             int? nextSecondaryUsedPercent = ReadUsedPercent(
@@ -228,6 +248,8 @@ namespace UsagePeek
 
         public void SetLiveUsage(UsageSnapshot snapshot)
         {
+            string previousPresentation = quotaPresentationKey;
+            SetQuotaPresentation(snapshot);
             int? nextPrimaryUsedPercent = ReadUsedPercent(
                 snapshot == null ? null : snapshot.Primary);
             int? nextSecondaryUsedPercent = ReadUsedPercent(
@@ -245,6 +267,10 @@ namespace UsagePeek
                     liveSecondaryUsedPercent, liveSecondaryResetsAtUtc,
                     nextSecondaryUsedPercent, nextSecondaryReset));
 
+            bool animate = hasLiveUsageBaseline && snapshot != null && !snapshot.IsStale &&
+                previousPresentation == quotaPresentationKey;
+            BeginQuotaTransition(nextPrimaryUsedPercent, nextSecondaryUsedPercent, animate);
+
             livePrimaryUsedPercent = nextPrimaryUsedPercent;
             liveSecondaryUsedPercent = nextSecondaryUsedPercent;
             livePrimaryResetsAtUtc = nextPrimaryReset;
@@ -255,6 +281,76 @@ namespace UsagePeek
             ApplyUsage(nextPrimaryUsedPercent,
                 nextSecondaryUsedPercent,
                 nextPrimaryReset, nextSecondaryReset, quotaReset);
+        }
+
+        private void SetQuotaPresentation(UsageSnapshot snapshot)
+        {
+            if (snapshot != null) snapshot.NormalizeQuotaWindows();
+            singleQuotaWindow = snapshot != null && snapshot.Primary == null &&
+                (snapshot.Secondary != null || snapshot.IsProPlan());
+            shortQuotaLabel = snapshot != null && snapshot.Primary != null
+                ? snapshot.Primary.GetCompactLabel("5h") : "5h";
+            secondaryQuotaLabel = snapshot != null && snapshot.Secondary != null
+                ? snapshot.Secondary.GetCompactLabel("7d") : "7d";
+            quotaPresentationKey = (snapshot == null ? "" :
+                (snapshot.ProviderId ?? "") + "|" + (snapshot.PlanType ?? "").Trim().ToLowerInvariant()) +
+                "|" + singleQuotaWindow + "|" + shortQuotaLabel + "|" + secondaryQuotaLabel;
+        }
+
+        private bool QuotaTransitionActive
+        {
+            get { return quotaArcAnimating || quotaWeeklyAnimating; }
+        }
+
+        private float? AnimatedArcPercent
+        {
+            get
+            {
+                if (!quotaArcAnimating)
+                    return GetDisplayedPercent(singleQuotaWindow
+                        ? secondaryUsedPercent : primaryUsedPercent);
+                double progress = Math.Min(1d, quotaTransitionSeconds / QuotaArcDurationSeconds);
+                float eased = (float)(progress * progress * (3d - 2d * progress));
+                return quotaArcFromPercent.Value +
+                    (quotaArcToPercent.Value - quotaArcFromPercent.Value) * eased;
+            }
+        }
+
+        private void BeginQuotaTransition(int? nextPrimary, int? nextSecondary, bool animate)
+        {
+            if (animate && QuotaTransitionActive && nextPrimary == primaryUsedPercent &&
+                nextSecondary == secondaryUsedPercent) return;
+            float? previousArc = AnimatedArcPercent;
+            int? previousWeekly = quotaWeeklyAnimating && quotaTransitionSeconds < 0.77d
+                ? quotaWeeklyFromPercent : GetDisplayedPercent(secondaryUsedPercent);
+            int? nextArc = GetDisplayedPercent(singleQuotaWindow ? nextSecondary : nextPrimary);
+            int? nextWeekly = GetDisplayedPercent(nextSecondary);
+            quotaArcFromPercent = previousArc;
+            quotaArcToPercent = nextArc;
+            quotaWeeklyFromPercent = previousWeekly;
+            quotaWeeklyToPercent = nextWeekly;
+            quotaTransitionSeconds = 0d;
+            quotaArcAnimating = animate && previousArc.HasValue && nextArc.HasValue &&
+                Math.Abs(previousArc.Value - nextArc.Value) > 0.001f;
+            quotaWeeklyAnimating = animate && previousWeekly.HasValue && nextWeekly.HasValue &&
+                previousWeekly != nextWeekly;
+        }
+
+        private void CompleteQuotaTransition()
+        {
+            quotaArcAnimating = false;
+            quotaWeeklyAnimating = false;
+            quotaTransitionSeconds = QuotaWeeklyDurationSeconds;
+            InvalidateUsageBubble();
+        }
+
+        private void AdvanceQuotaTransition(double elapsedSeconds)
+        {
+            if (!QuotaTransitionActive) return;
+            quotaTransitionSeconds += Math.Max(0d, elapsedSeconds);
+            if (quotaTransitionSeconds >= QuotaArcDurationSeconds) quotaArcAnimating = false;
+            if (quotaTransitionSeconds >= QuotaWeeklyDurationSeconds) quotaWeeklyAnimating = false;
+            if (!QuotaTransitionActive) InvalidateUsageBubble();
         }
 
         private void ApplyUsage(
@@ -320,6 +416,7 @@ namespace UsagePeek
 
         public void SetUsageDisplayMode(PetUsageDisplayMode value)
         {
+            CompleteQuotaTransition();
             usageDisplayMode = value;
             InvalidateUsageBubble();
             ApplyLayeredImage();
@@ -409,15 +506,31 @@ namespace UsagePeek
             return RenderImage(ClientSize.Width, ClientSize.Height);
         }
 
+        internal Bitmap RenderWithoutWeeklyWatermarkForTesting()
+        {
+            bool previous = weeklyWatermarkVisible;
+            weeklyWatermarkVisible = false;
+            InvalidateUsageBubble();
+            try { return RenderImage(ClientSize.Width, ClientSize.Height); }
+            finally
+            {
+                weeklyWatermarkVisible = previous;
+                InvalidateUsageBubble();
+            }
+        }
+
         internal string UsageSummaryForTesting
         {
             get
             {
                 string qualifier = usageDisplayMode ==
                     PetUsageDisplayMode.Remaining ? "剩余" : "已用";
-                return "5h " + qualifier + " " +
+                if (singleQuotaWindow)
+                    return secondaryQuotaLabel + " " + qualifier + " " +
+                        FormatPercent(GetDisplayedPercent(secondaryUsedPercent));
+                return shortQuotaLabel + " " + qualifier + " " +
                     FormatPercent(GetDisplayedPercent(primaryUsedPercent)) +
-                    " · 7d " + qualifier + " " +
+                    " · " + secondaryQuotaLabel + " " + qualifier + " " +
                     FormatPercent(GetDisplayedPercent(secondaryUsedPercent));
             }
         }
@@ -431,6 +544,7 @@ namespace UsagePeek
         {
             get
             {
+                if (singleQuotaWindow) return FormatResetDate(secondaryResetsAtUtc);
                 return FormatResetDate(primaryResetsAtUtc) + " | " +
                     FormatResetDate(secondaryResetsAtUtc);
             }
@@ -486,6 +600,27 @@ namespace UsagePeek
         internal double AnimationTimeForTesting
         {
             get { return animationSeconds; }
+        }
+
+        internal bool IsUsageTransitionActiveForTesting
+        {
+            get { return QuotaTransitionActive; }
+        }
+
+        internal float? DisplayedArcPercentForTesting
+        {
+            get { return AnimatedArcPercent; }
+        }
+
+        internal int WeeklyTransitionDirectionForTesting
+        {
+            get { return quotaWeeklyAnimating
+                ? Math.Sign(quotaWeeklyToPercent.Value - quotaWeeklyFromPercent.Value) : 0; }
+        }
+
+        internal void AdvanceUsageTransitionForTesting(double elapsedSeconds)
+        {
+            AdvanceQuotaTransition(elapsedSeconds);
         }
 
         internal float WalkingBlendForTesting
@@ -627,6 +762,7 @@ namespace UsagePeek
 
             desktopMotionTimer.Stop();
             desktopMotionStopwatch.Reset();
+            CompleteQuotaTransition();
             ResetDesktopMotion();
             walkingBlend = 0f;
             animationDisplayName = null;
@@ -711,6 +847,9 @@ namespace UsagePeek
                 claudeImage.Dispose();
                 milkFrogImage.Dispose();
                 pettingHandImage.Dispose();
+                foreach (Bitmap image in quotaValueImages)
+                    if (image != null) image.Dispose();
+                if (quotaValueOpacity != null) quotaValueOpacity.Dispose();
             }
             base.Dispose(disposing);
         }
@@ -973,6 +1112,7 @@ namespace UsagePeek
                 watchingTilt = targetTilt;
             }
             animationSeconds += elapsed;
+            AdvanceQuotaTransition(elapsed);
             float targetBlend = desktopActivity == PetActivity.Walking ? 1f : 0f;
             walkingBlend += (targetBlend - walkingBlend) *
                 (float)(1d - Math.Exp(-elapsed * 10d));
@@ -1200,11 +1340,18 @@ namespace UsagePeek
                 {
                     bubbleGraphics.SmoothingMode = SmoothingMode.HighQuality;
                     bubbleGraphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    bubbleGraphics.CompositingQuality = CompositingQuality.HighQuality;
                     bubbleGraphics.Clear(Color.Transparent);
                     DrawUsageBubble(bubbleGraphics, width, scale);
                 }
             }
             graphics.DrawImageUnscaled(usageBubbleImage, 0, 0);
+            int diameter = Math.Max(1, ScaleDesign(52, scale));
+            // Resting and moving values share a composition path. Only the
+            // small indicators are redrawn; dates, artwork colors and text stay cached.
+            DrawQuotaIndicators(graphics, new Rectangle(
+                width - ScaleDesign(5, scale) - diameter, ScaleDesign(18, scale),
+                diameter, diameter), scale);
         }
 
         private static PettingPose CalculatePettingPose(float progress)
@@ -1596,122 +1743,254 @@ namespace UsagePeek
                 : petAppearance == PetAppearance.PhoebeChibi
                 ? phoebeAverageColor
                 : whaleAverageColor;
-            double red = average.R / 255d;
-            double green = average.G / 255d;
-            double blue = average.B / 255d;
-            red = red <= 0.04045d ? red / 12.92d :
-                Math.Pow((red + 0.055d) / 1.055d, 2.4d);
-            green = green <= 0.04045d ? green / 12.92d :
-                Math.Pow((green + 0.055d) / 1.055d, 2.4d);
-            blue = blue <= 0.04045d ? blue / 12.92d :
-                Math.Pow((blue + 0.055d) / 1.055d, 2.4d);
-            double luminance = 0.2126d * red + 0.7152d * green + 0.0722d * blue;
-            Color textColor = luminance > 0.179d ? Color.Black : Color.White;
-            Color borderColor = BlendColor(average, textColor, 0.35f);
-            int margin = Math.Max(2, ScaleDesign(4, scale));
-            int bubbleHeight = Math.Max(1, ScaleDesign(72, scale));
-            int tailHeight = Math.Max(1, ScaleDesign(10, scale));
-            int radius = Math.Max(2, ScaleDesign(15, scale));
-            Rectangle bubble = new Rectangle(
-                margin, margin, width - (margin * 2), bubbleHeight);
+            graphics.TextRenderingHint =
+                System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            int diameter = Math.Max(1, ScaleDesign(52, scale));
+            int left = ScaleDesign(4, scale);
+            int circleLeft = width - ScaleDesign(5, scale) - diameter;
+            Rectangle pill = new Rectangle(left, ScaleDesign(22, scale),
+                circleLeft - ScaleDesign(8, scale) - left, ScaleDesign(44, scale));
+            Rectangle circle = new Rectangle(circleLeft, ScaleDesign(18, scale),
+                diameter, diameter);
+            Color pillColor = BlendColor(average, Color.FromArgb(28, 33, 52), 0.55f);
+            Color circleColor = BlendColor(average, Color.White, 0.9f);
 
-            using (GraphicsPath path = RoundedRectangle(bubble, radius))
-            using (SolidBrush shadow = new SolidBrush(
-                Color.FromArgb(70, 0, 0, 0)))
-            using (SolidBrush background = new SolidBrush(average))
-            using (Pen border = new Pen(
-                borderColor,
-                Math.Max(1f, scale)))
+            GraphicsState state = graphics.Save();
+            using (GraphicsPath path = RoundedRectangle(pill, pill.Height / 2))
+            using (SolidBrush shadow = new SolidBrush(Color.FromArgb(35, 0, 0, 0)))
+            using (SolidBrush fill = new SolidBrush(pillColor))
+            using (SolidBrush circleFill = new SolidBrush(circleColor))
+            using (Pen edge = new Pen(Color.FromArgb(40, Color.White),
+                Math.Max(0.5f, scale)))
             {
-                graphics.TranslateTransform(0, Math.Max(1, ScaleDesign(2, scale)));
+                graphics.TranslateTransform(0, Math.Max(1f, 2f * scale));
                 graphics.FillPath(shadow, path);
-                graphics.ResetTransform();
-                graphics.FillPath(background, path);
-                graphics.DrawPath(border, path);
-
-                Point[] tail =
-                {
-                    new Point(width / 2 - ScaleDesign(10, scale),
-                        bubble.Bottom - 1),
-                    new Point(width / 2 + ScaleDesign(10, scale),
-                        bubble.Bottom - 1),
-                    new Point(width / 2, bubble.Bottom + tailHeight)
-                };
-                graphics.FillPolygon(background, tail);
-                using (Pen tailBorder = new Pen(
-                    borderColor,
-                    Math.Max(1f, scale)))
-                {
-                    graphics.DrawLines(tailBorder,
-                        new[] { tail[0], tail[2], tail[1] });
-                }
+                graphics.FillEllipse(shadow, circle);
+                graphics.Restore(state);
+                graphics.FillPath(fill, path);
+                graphics.DrawPath(edge, path);
+                graphics.FillEllipse(circleFill, circle);
+                graphics.DrawEllipse(edge, circle);
             }
 
-            int dividerTop = bubble.Top + ScaleDesign(11, scale);
-            int dividerBottom = bubble.Bottom - ScaleDesign(11, scale);
-            using (Pen divider = new Pen(Color.FromArgb(70, textColor),
-                Math.Max(1f, scale)))
+            float dotSize = Math.Max(1f, 4f * scale);
+            using (SolidBrush dot = new SolidBrush(Color.FromArgb(150, circleColor)))
             {
-                graphics.DrawLine(divider, width / 2,
-                    dividerTop, width / 2, dividerBottom);
+                graphics.FillEllipse(dot, pill.Left + 14f * scale,
+                    pill.Top + 14f * scale, dotSize, dotSize);
+                dot.Color = Color.FromArgb(210, circleColor);
+                graphics.FillEllipse(dot, pill.Left + 10f * scale,
+                    pill.Top + 22f * scale, dotSize, dotSize);
+                dot.Color = circleColor;
+                graphics.FillEllipse(dot, pill.Left + 18f * scale,
+                    pill.Top + 22f * scale, dotSize, dotSize);
             }
 
-            DrawUsageColumn(graphics,
-                new Rectangle(bubble.Left, bubble.Top,
-                    bubble.Width / 2, bubble.Height),
-                usageDisplayMode == PetUsageDisplayMode.Remaining
-                    ? "5h 剩余"
-                    : "5h 已用",
-                FormatPercent(GetDisplayedPercent(primaryUsedPercent)),
-                FormatResetDate(primaryResetsAtUtc),
-                textColor, textColor, scale);
-            DrawUsageColumn(graphics,
-                new Rectangle(bubble.Left + bubble.Width / 2, bubble.Top,
-                    bubble.Width - bubble.Width / 2, bubble.Height),
-                usageDisplayMode == PetUsageDisplayMode.Remaining
-                    ? "7d 剩余"
-                    : "7d 已用",
-                FormatPercent(GetDisplayedPercent(secondaryUsedPercent)),
-                FormatResetDate(secondaryResetsAtUtc),
-                textColor, textColor, scale);
-        }
-
-        private static void DrawUsageColumn(
-            Graphics graphics,
-            Rectangle area,
-            string label,
-            string value,
-            string resetDate,
-            Color accent,
-            Color labelColor,
-            float scale)
-        {
-            using (Font labelFont = new Font("Segoe UI Semibold",
-                Math.Max(7f, 9f * scale), FontStyle.Bold,
-                GraphicsUnit.Pixel))
-            using (Font valueFont = new Font("Segoe UI Semibold",
-                Math.Max(12f, 19f * scale), FontStyle.Bold,
+            float textLeft = pill.Left + 34f * scale;
+            float textWidth = pill.Right - textLeft - 10f * scale;
+            using (Font labelFont = new Font("Segoe UI",
+                Math.Max(4.5f, 10.5f * scale), FontStyle.Bold,
                 GraphicsUnit.Pixel))
             using (Font dateFont = new Font("Segoe UI",
-                Math.Max(6f, 10f * scale), FontStyle.Regular,
+                Math.Max(4f, 10.5f * scale), FontStyle.Regular,
                 GraphicsUnit.Pixel))
-            using (SolidBrush labelBrush = new SolidBrush(labelColor))
-            using (SolidBrush valueBrush = new SolidBrush(accent))
+            using (SolidBrush labelBrush = new SolidBrush(Color.FromArgb(248, 249, 252)))
+            using (SolidBrush dateBrush = new SolidBrush(BlendColor(pillColor,
+                Color.White, 0.78f)))
             using (StringFormat format = new StringFormat())
             {
-                format.Alignment = StringAlignment.Center;
+                format.Alignment = StringAlignment.Near;
                 format.LineAlignment = StringAlignment.Near;
                 format.Trimming = StringTrimming.EllipsisCharacter;
                 format.FormatFlags = StringFormatFlags.NoWrap;
-                graphics.DrawString(label, labelFont, labelBrush,
-                    new RectangleF(area.Left, area.Top + ScaleDesign(7, scale),
-                        area.Width, ScaleDesign(13, scale)), format);
-                graphics.DrawString(value, valueFont, valueBrush,
-                    new RectangleF(area.Left, area.Top + ScaleDesign(21, scale),
-                        area.Width, ScaleDesign(27, scale)), format);
-                graphics.DrawString(resetDate, dateFont, labelBrush,
-                    new RectangleF(area.Left, area.Top + ScaleDesign(49, scale),
-                        area.Width, ScaleDesign(17, scale)), format);
+                if (!singleQuotaWindow)
+                {
+                    graphics.DrawString(shortQuotaLabel, labelFont, labelBrush,
+                        new RectangleF(textLeft, pill.Top + 6f * scale,
+                            22f * scale, 14f * scale), format);
+                    graphics.DrawString(FormatResetDate(primaryResetsAtUtc), dateFont, dateBrush,
+                        new RectangleF(textLeft + 22f * scale, pill.Top + 6f * scale,
+                            textWidth - 22f * scale, 14f * scale), format);
+                }
+                float weeklyRowTop = pill.Top + (singleQuotaWindow ? 15f : 24f) * scale;
+                graphics.DrawString(secondaryQuotaLabel, labelFont, labelBrush,
+                    new RectangleF(textLeft, weeklyRowTop,
+                        22f * scale, 14f * scale), format);
+                graphics.DrawString(FormatResetDate(secondaryResetsAtUtc), dateFont, dateBrush,
+                    new RectangleF(textLeft + 22f * scale, weeklyRowTop,
+                        textWidth - 22f * scale, 14f * scale), format);
+            }
+
+            if (weeklyWatermarkVisible)
+            {
+                GraphicsState watermarkState = graphics.Save();
+                using (GraphicsPath clip = new GraphicsPath())
+                using (Font watermarkFont = new Font("Segoe UI",
+                    Math.Max(6f, 29f * scale), FontStyle.Bold, GraphicsUnit.Pixel))
+                using (SolidBrush watermark = new SolidBrush(Color.FromArgb(45, 105, 109, 120)))
+                using (StringFormat format = new StringFormat(StringFormat.GenericTypographic))
+                {
+                    clip.AddEllipse(circle.Left + 7f * scale, circle.Top + 7f * scale,
+                        circle.Width - 14f * scale, circle.Height - 14f * scale);
+                    graphics.SetClip(clip, CombineMode.Intersect);
+                    format.Alignment = StringAlignment.Center;
+                    format.LineAlignment = StringAlignment.Center;
+                    format.FormatFlags = StringFormatFlags.NoWrap;
+                    graphics.DrawString(secondaryQuotaLabel, watermarkFont, watermark,
+                        new RectangleF(circle.Left, circle.Top + 2f * scale,
+                            circle.Width, circle.Height), format);
+                }
+                graphics.Restore(watermarkState);
+            }
+
+            if (!singleQuotaWindow)
+            using (Font captionFont = new Font("Segoe UI",
+                Math.Max(3.5f, 7.8f * scale), FontStyle.Bold, GraphicsUnit.Pixel))
+            using (SolidBrush captionBrush = new SolidBrush(Color.FromArgb(34, 38, 54)))
+            using (StringFormat format = new StringFormat())
+            {
+                format.Alignment = StringAlignment.Center;
+                format.LineAlignment = StringAlignment.Center;
+                format.FormatFlags = StringFormatFlags.NoWrap;
+                graphics.DrawString(shortQuotaLabel + " " +
+                    FormatPercent(GetDisplayedPercent(primaryUsedPercent)), captionFont, captionBrush,
+                    new RectangleF(circle.Left + 5f * scale, circle.Top + 2f * scale,
+                        circle.Width - 10f * scale, 12f * scale), format);
+            }
+        }
+
+        private void DrawQuotaIndicators(Graphics graphics, Rectangle circle, float scale)
+        {
+            GraphicsState state = graphics.Save();
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            Color average = petAppearance == PetAppearance.ClaudeGirl ? claudeAverageColor
+                : petAppearance == PetAppearance.MilkFrog ? milkFrogAverageColor
+                : petAppearance == PetAppearance.ChatGptGirl ? chatGptAverageColor
+                : petAppearance == PetAppearance.PhoebeChibi ? phoebeAverageColor : whaleAverageColor;
+            Color circleColor = BlendColor(average, Color.White, 0.9f);
+            Color accent = BlendColor(average, Color.FromArgb(28, 33, 52), 0.2f);
+            float stroke = Math.Max(1.2f, 3f * scale);
+            float inset = stroke / 2f + Math.Max(1f, scale);
+            RectangleF arc = new RectangleF(circle.Left + inset, circle.Top + inset,
+                circle.Width - 2f * inset, circle.Height - 2f * inset);
+            using (Pen track = new Pen(BlendColor(circleColor, accent, 0.18f), stroke))
+            using (Pen progress = new Pen(accent, stroke))
+            {
+                track.StartCap = track.EndCap = LineCap.Round;
+                progress.StartCap = progress.EndCap = LineCap.Round;
+                // A single weekly window needs no caption or top gap.
+                float startAngle = singleQuotaWindow ? -90f : -48f;
+                float totalSweep = singleQuotaWindow ? 360f : 276f;
+                if (singleQuotaWindow) graphics.DrawEllipse(track, arc);
+                else graphics.DrawArc(track, arc, startAngle, totalSweep);
+                float? percent = AnimatedArcPercent;
+                if (percent.HasValue && percent.Value > 0f)
+                {
+                    if (singleQuotaWindow && percent.Value >= 100f) graphics.DrawEllipse(progress, arc);
+                    else graphics.DrawArc(progress, arc, startAngle, percent.Value / 100f * totalSweep);
+                }
+            }
+
+            using (GraphicsPath clip = new GraphicsPath())
+            {
+                clip.AddEllipse(circle.Left + 7f * scale, circle.Top + 7f * scale,
+                    circle.Width - 14f * scale, circle.Height - 14f * scale);
+                graphics.SetClip(clip, CombineMode.Intersect);
+            }
+            string value = FormatPercent(GetDisplayedPercent(secondaryUsedPercent));
+            float offset = 0f;
+            float opacity = 1f;
+            int imageSlot = 0;
+            if (quotaWeeklyAnimating)
+            {
+                int direction = Math.Sign(quotaWeeklyToPercent.Value - quotaWeeklyFromPercent.Value);
+                if (quotaTransitionSeconds >= 0.28d && quotaTransitionSeconds < 0.77d)
+                {
+                    float fade = (float)Math.Min(1d, Math.Min(
+                        (quotaTransitionSeconds - 0.28d) / 0.08d,
+                        (0.77d - quotaTransitionSeconds) / 0.08d));
+                    DrawQuotaChangeArrow(graphics, circle, scale, direction, fade);
+                    graphics.Restore(state);
+                    return;
+                }
+                bool entering = quotaTransitionSeconds >= 0.77d;
+                imageSlot = entering ? 1 : 0;
+                double progress = entering ? (quotaTransitionSeconds - 0.77d) / 0.38d
+                    : quotaTransitionSeconds / 0.28d;
+                progress = Math.Max(0d, Math.Min(1d, progress));
+                float eased = (float)(progress * progress * (3d - 2d * progress));
+                value = FormatPercent(entering ? quotaWeeklyToPercent : quotaWeeklyFromPercent);
+                offset = direction * (entering ? 1f - eased : -eased) * 20f * scale;
+                opacity = entering ? eased : 1f - eased;
+            }
+            Bitmap valueImage = GetQuotaValueImage(value, circle.Size, scale, imageSlot);
+            graphics.TranslateTransform(circle.Left, circle.Top + offset);
+            if (opacity >= 1f)
+                graphics.DrawImageUnscaled(valueImage, 0, 0);
+            else
+            {
+                if (quotaValueOpacity == null) quotaValueOpacity = new ImageAttributes();
+                quotaValueColorMatrix.Matrix33 = opacity;
+                quotaValueOpacity.SetColorMatrix(quotaValueColorMatrix);
+                graphics.DrawImage(valueImage, new Rectangle(Point.Empty, valueImage.Size),
+                    0, 0, valueImage.Width, valueImage.Height, GraphicsUnit.Pixel, quotaValueOpacity);
+            }
+            graphics.Restore(state);
+        }
+
+        private Bitmap GetQuotaValueImage(string value, Size size, float scale, int slot)
+        {
+            string key = value + "|" + size.Width + "|" + scale.ToString("R", CultureInfo.InvariantCulture);
+            if (quotaValueImages[slot] != null && quotaValueImageKeys[slot] == key)
+                return quotaValueImages[slot];
+            if (quotaValueImages[slot] != null) quotaValueImages[slot].Dispose();
+            Bitmap image = new Bitmap(size.Width, size.Height, PixelFormat.Format32bppPArgb);
+            using (Graphics graphics = Graphics.FromImage(image))
+            using (StringFormat format = new StringFormat(StringFormat.GenericTypographic))
+            using (SolidBrush brush = new SolidBrush(Color.FromArgb(34, 38, 54)))
+            {
+                graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                format.Alignment = format.LineAlignment = StringAlignment.Center;
+                format.FormatFlags = StringFormatFlags.NoWrap;
+                float fontSize = Math.Max(6f, 19f * scale);
+                Font font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel);
+                try
+                {
+                    while (graphics.MeasureString(value, font, int.MaxValue, format).Width >
+                        size.Width - 14f * scale && fontSize > 4f)
+                    {
+                        font.Dispose();
+                        fontSize -= 0.5f;
+                        font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel);
+                    }
+                    graphics.DrawString(value, font, brush,
+                        new RectangleF(0, -0.5f * scale, size.Width, size.Height), format);
+                }
+                finally { font.Dispose(); }
+            }
+            quotaValueImageKeys[slot] = key;
+            quotaValueImages[slot] = image;
+            return image;
+        }
+
+        private static void DrawQuotaChangeArrow(Graphics graphics, Rectangle circle,
+            float scale, int direction, float opacity)
+        {
+            Color color = direction < 0 ? Color.FromArgb(22, 163, 105) : Color.FromArgb(225, 69, 80);
+            float x = circle.Left + circle.Width / 2f;
+            float y = circle.Top + circle.Height / 2f;
+            float tip = y - direction * 7f * scale;
+            using (Pen pen = new Pen(Color.FromArgb((int)(255f * opacity), color),
+                Math.Max(1.2f, 2.5f * scale)))
+            {
+                pen.StartCap = pen.EndCap = LineCap.Round;
+                pen.LineJoin = LineJoin.Round;
+                graphics.DrawLine(pen, x, y + direction * 7f * scale, x, tip);
+                graphics.DrawLines(pen, new PointF[] {
+                    new PointF(x - 5.5f * scale, tip + direction * 5.5f * scale),
+                    new PointF(x, tip),
+                    new PointF(x + 5.5f * scale, tip + direction * 5.5f * scale) });
             }
         }
 

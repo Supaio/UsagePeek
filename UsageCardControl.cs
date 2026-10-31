@@ -35,13 +35,13 @@ namespace UsagePeek
             int logicalWidth = UiDrawing.LogicalWidth(this);
             int logicalHeight = UiDrawing.LogicalHeight(this);
             Rectangle bounds = new Rectangle(
-                0, 0, logicalWidth - 1, logicalHeight - 1);
+                1, 1, logicalWidth - 2, logicalHeight - 2);
             UsageProjectionSnapshot projection = window == null
                 ? null
                 : DisplayFormatting.ProjectUsage(window, DateTime.UtcNow);
             Color accent = ResolveAccent(window);
 
-            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 15))
+            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 18))
             using (SolidBrush background = new SolidBrush(UiColors.Surface))
             using (Pen border = new Pen(UiColors.Border))
             {

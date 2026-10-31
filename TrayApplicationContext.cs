@@ -437,6 +437,7 @@ namespace UsagePeek
 
         private void UpdateTrayText(UsageSnapshot snapshot, bool stale)
         {
+            snapshot.NormalizeQuotaWindows();
             string primary = snapshot.Primary == null
                 ? "--"
                 : snapshot.Primary.UsedPercent + "%";
@@ -444,7 +445,15 @@ namespace UsagePeek
                 ? "--"
                 : snapshot.Secondary.UsedPercent + "%";
             string suffix = stale ? " · 缓存" : string.Empty;
-            string text = "UsagePeek · 5h " + primary + " · 7d " + secondary + suffix;
+            bool weeklyOnly = snapshot.Primary == null &&
+                (snapshot.Secondary != null || snapshot.IsProPlan());
+            string primaryLabel = snapshot.Primary == null ? "5h" :
+                snapshot.Primary.GetCompactLabel("5h");
+            string secondaryLabel = snapshot.Secondary == null ? "7d" :
+                snapshot.Secondary.GetCompactLabel("7d");
+            string text = weeklyOnly ? "UsagePeek · " + secondaryLabel + " " + secondary + suffix :
+                "UsagePeek · " + primaryLabel + " " + primary + " · " +
+                secondaryLabel + " " + secondary + suffix;
             trayIcon.Text = text.Length > 63 ? text.Substring(0, 63) : text;
         }
 

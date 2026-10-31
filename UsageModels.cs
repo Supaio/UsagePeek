@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace UsagePeek
 {
@@ -14,6 +15,18 @@ namespace UsagePeek
         public int RemainingPercent
         {
             get { return Math.Max(0, 100 - Math.Min(100, UsedPercent)); }
+        }
+
+        public string GetCompactLabel(string fallback)
+        {
+            if (!WindowDurationMinutes.HasValue || WindowDurationMinutes.Value <= 0)
+                return fallback;
+            long minutes = WindowDurationMinutes.Value;
+            if (minutes % 1440 == 0)
+                return (minutes / 1440).ToString(CultureInfo.InvariantCulture) + "d";
+            if (minutes % 60 == 0)
+                return (minutes / 60).ToString(CultureInfo.InvariantCulture) + "h";
+            return minutes.ToString(CultureInfo.InvariantCulture) + "m";
         }
     }
 
@@ -98,5 +111,74 @@ namespace UsagePeek
         public string RateLimitReachedType { get; set; }
         public DateTime FetchedAtUtc { get; set; }
         public bool IsStale { get; set; }
+
+        public bool IsProPlan()
+        {
+            string plan = (PlanType ?? string.Empty).Trim();
+            return string.Equals(plan, "pro", StringComparison.OrdinalIgnoreCase) ||
+                plan.StartsWith("pro_", StringComparison.OrdinalIgnoreCase) ||
+                plan.StartsWith("pro ", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public void NormalizeQuotaWindows()
+        {
+            UsageWindowSnapshot originalPrimary = Primary;
+            UsageWindowSnapshot originalSecondary = Secondary;
+            bool pro = IsProPlan();
+
+            Primary = pro ? null
+                : HasDuration(originalPrimary, 300) ? originalPrimary
+                : HasDuration(originalSecondary, 300) ? originalSecondary : null;
+            Secondary = HasDuration(originalSecondary, 10080) ? originalSecondary
+                : HasDuration(originalPrimary, 10080) ? originalPrimary : null;
+
+            PreserveOtherWindow(originalPrimary, true, pro);
+            PreserveOtherWindow(originalSecondary, false, pro);
+            if (Primary != null)
+            {
+                Primary.Key = "primary";
+                if (Primary.WindowDurationMinutes == 300)
+                    Primary.Label = "5 小时窗口";
+            }
+            if (Secondary != null)
+            {
+                Secondary.Key = "secondary";
+                if (Secondary.WindowDurationMinutes == 10080)
+                    Secondary.Label = "7 天窗口";
+            }
+        }
+
+        private static bool HasDuration(UsageWindowSnapshot window, long duration)
+        {
+            return window != null && window.WindowDurationMinutes == duration;
+        }
+
+        private void PreserveOtherWindow(
+            UsageWindowSnapshot window, bool wasPrimary, bool pro)
+        {
+            if (window == null || window == Primary || window == Secondary ||
+                window.WindowDurationMinutes == 300 ||
+                window.WindowDurationMinutes == 10080)
+                return;
+
+            if (pro && (!window.WindowDurationMinutes.HasValue ||
+                window.WindowDurationMinutes.Value <= 0))
+            {
+                // Old replies used primary for the session and secondary for the week.
+                if (!wasPrimary && Secondary == null) Secondary = window;
+                return;
+            }
+
+            if (wasPrimary)
+            {
+                if (Primary == null) Primary = window;
+                else if (Secondary == null) Secondary = window;
+            }
+            else
+            {
+                if (Secondary == null) Secondary = window;
+                else if (Primary == null) Primary = window;
+            }
+        }
     }
 }

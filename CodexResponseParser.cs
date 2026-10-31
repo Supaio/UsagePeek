@@ -42,6 +42,7 @@ namespace UsagePeek
             }
 
             ParseResetCredits(snapshot, resetCredits);
+            snapshot.NormalizeQuotaWindows();
 
             if (snapshot.Primary == null && snapshot.Secondary == null)
             {
@@ -205,6 +206,9 @@ namespace UsagePeek
                     return string.Format(CultureInfo.InvariantCulture,
                         "{0} 小时窗口", durationMinutes.Value / 60);
                 }
+
+                return string.Format(CultureInfo.InvariantCulture,
+                    "{0} 分钟窗口", durationMinutes.Value);
             }
 
             return key == "secondary" ? "长期窗口" : "短期窗口";

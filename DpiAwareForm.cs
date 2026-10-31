@@ -257,8 +257,12 @@ namespace UsagePeek
             }
 
             Size content = ScaleSize(designClientSize, DpiScaleFactor);
-            int availableWidth = Math.Max(1, area.Width - 16 - (Width - ClientSize.Width));
-            int availableHeight = Math.Max(1, area.Height - 16 - (Height - ClientSize.Height));
+            // Windows may clamp a borderless window before WinForms refreshes
+            // its cached client size; a non-client border cannot be negative.
+            int availableWidth = Math.Max(1, area.Width - 16 -
+                Math.Max(0, Width - ClientSize.Width));
+            int availableHeight = Math.Max(1, area.Height - 16 -
+                Math.Max(0, Height - ClientSize.Height));
             Size viewport = new Size(Math.Min(content.Width, availableWidth),
                 Math.Min(content.Height, availableHeight));
             SuspendLayout();

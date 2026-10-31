@@ -5,8 +5,8 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("UsagePeek")]
 [assembly: AssemblyProduct("UsagePeek")]
-[assembly: AssemblyVersion("2.0.2.0")]
-[assembly: AssemblyFileVersion("2.0.2.0")]
+[assembly: AssemblyVersion("2.0.3.0")]
+[assembly: AssemblyFileVersion("2.0.3.0")]
 
 namespace UsagePeek
 {

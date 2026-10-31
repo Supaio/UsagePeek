@@ -153,6 +153,21 @@ namespace UsagePeek
         private static extern int DwmSetWindowAttribute(
             IntPtr window, int attribute, ref int value, int size);
 
+        public static bool TryApplyRoundedCorners(Form form)
+        {
+            if (!form.IsHandleCreated) return false;
+            try
+            {
+                // Windows 11 clips these edges in the compositor, preserving
+                // antialiasing that a WinForms Region cannot provide.
+                int preference = 2; // DWMWCP_ROUND
+                return DwmSetWindowAttribute(form.Handle, 33, ref preference,
+                    sizeof(int)) == 0;
+            }
+            catch (DllNotFoundException) { return false; }
+            catch (EntryPointNotFoundException) { return false; }
+        }
+
         public static void ApplyTitleBar(Form form)
         {
             if (!form.IsHandleCreated) return;

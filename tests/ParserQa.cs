@@ -10,6 +10,14 @@ internal static class ParserQa
     private static void Main()
     {
         ParsesCurrentRateLimitShape();
+        NormalizesWeeklyOnlyPrimary();
+        NormalizesSwappedWindows();
+        NormalizesLegacyProWindows();
+        PreservesNonstandardWindows();
+        PreservesLegacyMissingDurations();
+        UnlimitedCreditsDoesNotRemoveSession();
+        NormalizesLegacyCachedSnapshot();
+        FormatsCompactWindowLabels();
         ParsesAccountUsageShape();
         RoundTripsAggregateSnapshot();
         RejectsMissingRateLimitPayload();
@@ -68,6 +76,204 @@ internal static class ParserQa
         Check(snapshot.ResetCredits != null && snapshot.ResetCredits.Count == 1 &&
             snapshot.ResetCredits[0].ExpiresAtUtc.HasValue,
             "reset credit expiry is parsed");
+    }
+
+    private static void NormalizesWeeklyOnlyPrimary()
+    {
+        UsageSnapshot snapshot = ParseWindows("pro", Window(10080, 67), null, false);
+        Check(snapshot.Primary == null && snapshot.Secondary != null &&
+                snapshot.Secondary.WindowDurationMinutes == 10080 &&
+                snapshot.Secondary.UsedPercent == 67,
+            "a weekly-only primary window is normalized as weekly rather than five-hour");
+        Check(snapshot.Secondary != null && snapshot.Secondary.Key == "secondary" &&
+                snapshot.Secondary.Label == "7 天窗口",
+            "a moved weekly window receives its canonical key and label");
+        string before = new JavaScriptSerializer().Serialize(snapshot);
+        snapshot.NormalizeQuotaWindows();
+        Check(new JavaScriptSerializer().Serialize(snapshot) == before,
+            "normalizing an already normalized weekly snapshot is idempotent");
+    }
+
+    private static void NormalizesSwappedWindows()
+    {
+        UsageSnapshot snapshot = ParseWindows("plus", Window(10080, 63),
+            Window(300, 12), false);
+        Check(snapshot.Primary != null && snapshot.Primary.UsedPercent == 12 &&
+                snapshot.Primary.WindowDurationMinutes == 300 &&
+                snapshot.Secondary != null && snapshot.Secondary.UsedPercent == 63 &&
+                snapshot.Secondary.WindowDurationMinutes == 10080,
+            "actual durations restore swapped five-hour and weekly positions");
+        Check(snapshot.Primary.Key == "primary" &&
+                snapshot.Primary.Label == "5 小时窗口" &&
+                snapshot.Secondary.Key == "secondary" &&
+                snapshot.Secondary.Label == "7 天窗口",
+            "both swapped windows have canonical keys and labels");
+    }
+
+    private static void NormalizesLegacyProWindows()
+    {
+        foreach (string plan in new[] { "pro", "pRo", "pro_5x", "pro_20x" })
+        {
+            UsageSnapshot snapshot = ParseWindows(plan, Window(300, 99),
+                Window(10080, 34), false);
+            Check(snapshot.IsProPlan() && snapshot.Primary == null &&
+                    snapshot.Secondary != null && snapshot.Secondary.UsedPercent == 34,
+                "Pro drops the legacy five-hour window while preserving weekly usage: " + plan);
+        }
+        Check(!new UsageSnapshot { PlanType = "Professional" }.IsProPlan(),
+            "a plan name merely starting with Pro is not treated as the Pro plan");
+    }
+
+    private static void PreservesNonstandardWindows()
+    {
+        UsageSnapshot pro = ParseWindows("pro", Window(10080, 34),
+            Window(15, 7), false);
+        Check(pro.Primary != null && pro.Primary.WindowDurationMinutes == 15 &&
+                pro.Primary.UsedPercent == 7 && pro.Primary.Label == "15 分钟窗口" &&
+                pro.Secondary != null && pro.Secondary.WindowDurationMinutes == 10080,
+            "Pro preserves an explicit non-five-hour window when moving the weekly window");
+        string before = new JavaScriptSerializer().Serialize(pro);
+        pro.NormalizeQuotaWindows();
+        Check(new JavaScriptSerializer().Serialize(pro) == before,
+            "normalization preserves moved nonstandard windows on repeated calls");
+
+        UsageSnapshot other = ParseWindows("plus", Window(600, 11),
+            Window(21600, 22), false);
+        Check(other.Primary != null && other.Primary.WindowDurationMinutes == 600 &&
+                other.Secondary != null && other.Secondary.WindowDurationMinutes == 21600,
+            "nonstandard non-Pro window durations are preserved");
+    }
+
+    private static void PreservesLegacyMissingDurations()
+    {
+        UsageSnapshot plus = ParseWindows("plus", Window(null, 45),
+            Window(null, 34), false);
+        Check(plus.Primary != null && plus.Primary.UsedPercent == 45 &&
+                plus.Secondary != null && plus.Secondary.UsedPercent == 34,
+            "old non-Pro replies without window durations keep positional compatibility");
+        UsageSnapshot pro = ParseWindows("pro", Window(null, 45),
+            Window(null, 34), false);
+        Check(pro.Primary == null && pro.Secondary != null &&
+                pro.Secondary.UsedPercent == 34,
+            "old Pro replies suppress an unspecified session and retain their weekly fallback");
+        string before = new JavaScriptSerializer().Serialize(pro);
+        pro.NormalizeQuotaWindows();
+        Check(new JavaScriptSerializer().Serialize(pro) == before,
+            "the missing-duration Pro weekly fallback remains stable on repeated normalization");
+        foreach (long duration in new[] { 0L, -1L })
+        {
+            UsageSnapshot invalidSession = ParseWindows("pro", Window(duration, 45),
+                Window(10080, 34), false);
+            Check(invalidSession.Primary == null && invalidSession.Secondary != null &&
+                    invalidSession.Secondary.UsedPercent == 34,
+                "Pro suppresses an invalid session duration without inventing a five-hour limit: " + duration);
+        }
+    }
+
+    private static void UnlimitedCreditsDoesNotRemoveSession()
+    {
+        UsageSnapshot snapshot = ParseWindows("plus", Window(300, 21),
+            Window(10080, 62), true);
+        Check(snapshot.UnlimitedCredits == true && !snapshot.IsProPlan() &&
+                snapshot.Primary != null && snapshot.Primary.WindowDurationMinutes == 300,
+            "unlimited extra credits do not remove a Plus five-hour quota");
+    }
+
+    private static void NormalizesLegacyCachedSnapshot()
+    {
+        UsageSnapshot oldSnapshot = new UsageSnapshot
+        {
+            PlanType = "PRO",
+            Primary = new UsageWindowSnapshot
+            {
+                Key = "primary", Label = "5 小时窗口",
+                WindowDurationMinutes = 300, UsedPercent = 99
+            },
+            Secondary = new UsageWindowSnapshot
+            {
+                Key = "secondary", Label = "7 天窗口",
+                WindowDurationMinutes = 10080, UsedPercent = 34
+            },
+            IsStale = true,
+            LocalTokenUsage = new LocalTokenUsageSnapshot
+            {
+                Lifetime = new TokenPeriodSnapshot { HasData = true, TotalTokens = 42 }
+            }
+        };
+        JavaScriptSerializer serializer = new JavaScriptSerializer();
+        UsageSnapshot restored = serializer.Deserialize<UsageSnapshot>(
+            serializer.Serialize(oldSnapshot));
+        restored.NormalizeQuotaWindows();
+        Check(restored.Primary == null && restored.Secondary != null &&
+                restored.Secondary.UsedPercent == 34,
+            "a serialized legacy Pro cache loses its obsolete session window");
+        Check(restored.IsStale && restored.LocalTokenUsage.Lifetime.TotalTokens == 42,
+            "cache normalization preserves freshness and token accounting data");
+        string normalized = serializer.Serialize(restored);
+        restored.NormalizeQuotaWindows();
+        Check(serializer.Serialize(restored) == normalized &&
+                normalized.IndexOf("IsProPlan", StringComparison.Ordinal) < 0,
+            "normalization is stable without adding serialized plan-derived properties");
+    }
+
+    private static void FormatsCompactWindowLabels()
+    {
+        Check(new UsageWindowSnapshot { WindowDurationMinutes = 300 }
+                .GetCompactLabel("short") == "5h" &&
+                new UsageWindowSnapshot { WindowDurationMinutes = 10080 }
+                .GetCompactLabel("long") == "7d",
+            "compact labels use actual five-hour and weekly durations");
+        Check(new UsageWindowSnapshot { WindowDurationMinutes = 15 }
+                .GetCompactLabel("7d") == "15m" &&
+                new UsageWindowSnapshot { WindowDurationMinutes = 90 }
+                .GetCompactLabel("5h") == "90m",
+            "non-hour windows retain their actual minute duration in compact labels");
+        Check(new UsageWindowSnapshot { WindowDurationMinutes = 21600 }
+                .GetCompactLabel("7d") == "15d" &&
+                new UsageWindowSnapshot { WindowDurationMinutes = 600 }
+                .GetCompactLabel("5h") == "10h",
+            "custom full-day and full-hour compact labels are not forced to standard windows");
+        Check(new UsageWindowSnapshot().GetCompactLabel("legacy") == "legacy" &&
+                new UsageWindowSnapshot { WindowDurationMinutes = 0 }
+                .GetCompactLabel("unknown") == "unknown" &&
+                new UsageWindowSnapshot { WindowDurationMinutes = -1 }
+                .GetCompactLabel("unknown") == "unknown",
+            "missing or invalid durations preserve the supplied compact-label fallback");
+    }
+
+    private static IDictionary<string, object> Window(long? minutes, int usedPercent)
+    {
+        return new Dictionary<string, object>
+        {
+            { "windowDurationMins", minutes },
+            { "usedPercent", usedPercent },
+            { "resetsAt", 1894060800L }
+        };
+    }
+
+    private static UsageSnapshot ParseWindows(string plan,
+        IDictionary<string, object> primary,
+        IDictionary<string, object> secondary, bool unlimited)
+    {
+        return CodexResponseParser.ParseRateLimitReply(new Dictionary<string, object>
+        {
+            { "result", new Dictionary<string, object>
+                {
+                    { "rateLimits", new Dictionary<string, object>
+                        {
+                            { "planType", plan }, { "primary", primary },
+                            { "secondary", secondary },
+                            { "credits", new Dictionary<string, object>
+                                {
+                                    { "hasCredits", true },
+                                    { "unlimited", unlimited }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     private static void ParsesAccountUsageShape()

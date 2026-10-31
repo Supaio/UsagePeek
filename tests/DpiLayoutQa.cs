@@ -16,6 +16,7 @@ internal static class DpiLayoutQa
         Application.SetCompatibleTextRenderingDefault(false);
 
         VerifyMainForm();
+        VerifyWeeklyOnlyMainForm();
         VerifyModelForm();
         VerifyAboutForm();
         VerifySettingsForm();
@@ -76,6 +77,62 @@ internal static class DpiLayoutQa
             form.ApplyDpiForTesting(96);
             AssertEqual(Size.Empty, form.AutoScrollMinSize,
                 "normal DPI clears the temporary scroll extent");
+        }
+    }
+
+    private static void VerifyWeeklyOnlyMainForm()
+    {
+        using (MainForm form = new MainForm())
+        {
+            UsageCardControl primary = FindControl<UsageCardControl>(form);
+            UsageCardControl weekly = null;
+            foreach (Control control in form.Controls)
+                if (control is UsageCardControl && control != primary)
+                    weekly = (UsageCardControl)control;
+            if (weekly == null) throw new InvalidOperationException("Weekly card not found.");
+            form.Opacity = 0d;
+            form.Show();
+            form.ShowSnapshot(new UsageSnapshot
+            {
+                PlanType = "Pro",
+                Primary = new UsageWindowSnapshot
+                {
+                    WindowDurationMinutes = 300, UsedPercent = 99
+                },
+                Secondary = new UsageWindowSnapshot
+                {
+                    WindowDurationMinutes = 10080, UsedPercent = 20
+                }
+            }, null);
+            AssertEqual(false, primary.Visible,
+                "Pro hides the inactive five-hour card rather than showing a read failure");
+            AssertEqual(true, weekly.Visible, "Pro keeps the weekly card visible");
+            foreach (int dpi in new[] { 96, 144, 192 })
+            {
+                form.ApplyDpiForTesting(dpi);
+                float scale = dpi / 96f;
+                AssertEqual(new Rectangle(Scale(22, scale), Scale(136, scale),
+                    Scale(384, scale), Scale(174, scale)), weekly.Bounds,
+                    "Pro weekly card spans both columns at DPI " + dpi);
+            }
+            form.ApplyDpiForTesting(96);
+            form.ShowSnapshot(new UsageSnapshot
+            {
+                PlanType = "Plus",
+                Primary = new UsageWindowSnapshot
+                {
+                    WindowDurationMinutes = 300, UsedPercent = 45
+                },
+                Secondary = new UsageWindowSnapshot
+                {
+                    WindowDurationMinutes = 10080, UsedPercent = 34
+                }
+            }, null);
+            AssertEqual(true, primary.Visible,
+                "returning from Pro to Plus restores the five-hour card");
+            AssertEqual(new Rectangle(220, 136, 186, 174), weekly.Bounds,
+                "returning to Plus restores the two-column quota layout");
+            form.Hide();
         }
     }
 
