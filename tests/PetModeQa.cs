@@ -357,7 +357,7 @@ internal static class PetModeQa
                         (int)Math.Round(average.R * 0.45d + 28 * 0.55d),
                         (int)Math.Round(average.G * 0.45d + 33 * 0.55d),
                         (int)Math.Round(average.B * 0.45d + 52 * 0.55d));
-                    Color actual = preview.GetPixel(12, 44);
+                    Color actual = preview.GetPixel(40, 44);
                     Check(actual.A == 255 &&
                             Math.Abs(actual.R - expected.R) <= 1 &&
                             Math.Abs(actual.G - expected.G) <= 1 &&
@@ -384,15 +384,15 @@ internal static class PetModeQa
                 form.SetAppearance(PetAppearance.PhoebeChibi);
                 using (Bitmap phoebe = form.RenderImageForTesting())
                 {
-                    Check(whale.GetPixel(12, 44).ToArgb() !=
-                            phoebe.GetPixel(12, 44).ToArgb(),
+                    Check(whale.GetPixel(40, 44).ToArgb() !=
+                            phoebe.GetPixel(40, 44).ToArgb(),
                         "switching pet artwork changes the bubble background");
                 }
                 form.SetAppearance(PetAppearance.WhaleMaid);
                 using (Bitmap restored = form.RenderImageForTesting())
                 {
-                    Check(whale.GetPixel(12, 44).ToArgb() ==
-                            restored.GetPixel(12, 44).ToArgb(),
+                    Check(whale.GetPixel(40, 44).ToArgb() ==
+                            restored.GetPixel(40, 44).ToArgb(),
                         "switching back restores the artwork-derived bubble color");
                 }
             }
@@ -427,18 +427,20 @@ internal static class PetModeQa
                         "status HUD preserves pet window dimensions at " + percent + "%");
                     Check(HudPixel(preview, 100, 35).A > 200 &&
                             HudPixel(preview, 100, 53).A > 200 &&
-                            HudPixel(preview, 189, 44).A > 200,
-                        "one capsule and its single detached circle render at " + percent + "%");
-                    Check(HudPixel(preview, 159, 44).A < 64,
-                        "the single percentage circle is detached from its capsule at " + percent + "%");
+                            HudPixel(preview, 162, 44).A > 200,
+                        "the centered capsule and its inset circle render at " + percent + "%");
+                    Check(HudPixel(preview, 137, 44).A > 200 &&
+                            HudPixel(preview, 26, 44).A < 64 &&
+                            HudPixel(preview, 194, 44).A < 64,
+                        "the compact capsule joins its circle with balanced transparent side margins at " + percent + "%");
                     Check(HudPixel(preview, 100, 10).A < 64 &&
                             HudPixel(preview, 100, 77).A < 64,
                         "the compact HUD leaves transparent space above and below at " + percent + "%");
-                    Check(HudPixel(preview, 189, 8).A < 64,
+                    Check(HudPixel(preview, 162, 8).A < 64,
                         "the ring label has no floating badge above the circle at " + percent + "%");
-                    Check(HudPixel(preview, 163, 18).A < 64 &&
-                            HudPixel(preview, 214, 18).A < 64,
-                        "the percentage badge has transparent circular corners at " + percent + "%");
+                    Check(HudPixel(preview, 32, 18).A < 64 &&
+                            HudPixel(preview, 187, 18).A < 64,
+                        "the integrated capsule retains transparent rounded corners at " + percent + "%");
                 }
             }
         }
@@ -458,25 +460,25 @@ internal static class PetModeQa
                 using (Bitmap primaryChanged = form.RenderImageForTesting())
                 {
                     Check(CountChangedPixels(initial, primaryChanged,
-                            new Rectangle(60, 28, 90, 14)) > 3 &&
+                            new Rectangle(48, 30, 84, 13)) > 3 &&
                             CountChangedPixels(initial, primaryChanged,
-                            new Rectangle(60, 46, 90, 14)) == 0,
+                            new Rectangle(48, 47, 84, 13)) == 0,
                         "changing the 5-hour reset date updates only its rendered date row");
                     form.SetUsage(Snapshot(10, 20, primary.AddHours(3),
                         secondary.AddDays(2)));
                     using (Bitmap secondaryChanged = form.RenderImageForTesting())
                     {
                         Check(CountChangedPixels(primaryChanged, secondaryChanged,
-                                new Rectangle(60, 46, 90, 14)) > 3 &&
+                                new Rectangle(48, 47, 84, 13)) > 3 &&
                                 CountChangedPixels(primaryChanged, secondaryChanged,
-                                new Rectangle(60, 28, 90, 14)) == 0,
+                                new Rectangle(48, 30, 84, 13)) == 0,
                             "changing the 7-day reset date updates only its rendered date row");
                     }
                 }
             }
 
-            Rectangle numberArea = new Rectangle(177, 31, 24, 17);
-            Rectangle primaryLabelArea = new Rectangle(168, 20, 42, 11);
+            Rectangle numberArea = new Rectangle(152, 33, 20, 17);
+            Rectangle primaryLabelArea = new Rectangle(145, 23, 34, 9);
             form.SetUsage(Snapshot(10, 20, primary, secondary));
             using (Bitmap initial = form.RenderImageForTesting())
             {
@@ -570,8 +572,8 @@ internal static class PetModeQa
             {
                 form.SetScalePercent(percent);
                 int scale = percent / 100;
-                Rectangle center = new Rectangle(168 * scale, 31 * scale,
-                    42 * scale, 31 * scale);
+                Rectangle center = new Rectangle(145 * scale, 27 * scale,
+                    35 * scale, 35 * scale);
                 using (Bitmap withWatermark = form.RenderImageForTesting())
                 using (Bitmap withoutWatermark = form.RenderWithoutWeeklyWatermarkForTesting())
                 {
@@ -623,9 +625,9 @@ internal static class PetModeQa
                 DateTimeKind.Local).ToUniversalTime();
             DateTime secondary = new DateTime(2026, 11, 3, 14, 45, 0,
                 DateTimeKind.Local).ToUniversalTime();
-            Rectangle numberArea = new Rectangle(177, 31, 24, 17);
-            Rectangle captionArea = new Rectangle(183, 25, 13, 6);
-            Rectangle capsuleArea = new Rectangle(4, 22, 151, 44);
+            Rectangle numberArea = new Rectangle(152, 33, 20, 17);
+            Rectangle captionArea = new Rectangle(152, 26, 20, 6);
+            Rectangle capsuleArea = new Rectangle(32, 18, 108, 52);
             UsageSnapshot pro = WeeklyProSnapshot(20, secondary);
             form.SetUsage(pro);
             Check(form.UsageSummaryForTesting == "7d 已用 20%" &&
@@ -640,17 +642,17 @@ internal static class PetModeQa
                 form.SetUsage(equalPercentPlus);
                 using (Bitmap twoWindows = form.RenderImageForTesting())
                 {
-                    Check(CountDarkPixels(initial, captionArea) == 0 &&
-                            CountDarkPixels(twoWindows, captionArea) > 3 &&
+                    Check(CountCaptionInkPixels(initial, captionArea) == 0 &&
+                            CountCaptionInkPixels(twoWindows, captionArea) > 2 &&
                             CountChangedPixels(initial, twoWindows, numberArea) == 0,
                         "the Pro ring has no rim text while Plus retains its 5-hour caption");
-                    Color background = initial.GetPixel(12, 44);
-                    Rectangle upperRow = new Rectangle(38, 28, 97, 7);
-                    Rectangle lowerRow = new Rectangle(38, 54, 97, 7);
+                    Color background = initial.GetPixel(40, 44);
+                    Rectangle upperRow = new Rectangle(48, 31, 84, 7);
+                    Rectangle lowerRow = new Rectangle(48, 52, 84, 7);
                     Check(CountContrastingPixels(initial, upperRow, background) == 0 &&
                             CountContrastingPixels(initial, lowerRow, background) == 0 &&
                             CountContrastingPixels(initial,
-                            new Rectangle(38, 37, 97, 14), background) > 20 &&
+                            new Rectangle(48, 38, 84, 13), background) > 20 &&
                             CountContrastingPixels(twoWindows, upperRow, background) > 10 &&
                             CountContrastingPixels(twoWindows, lowerRow, background) > 10,
                         "the Pro capsule has one centered date row with neither of the two Plus date rows left behind");
@@ -661,7 +663,7 @@ internal static class PetModeQa
                 {
                     Check(CountHudArcChanges(initial, usageChanged) > 6 &&
                             CountChangedPixels(initial, usageChanged, numberArea) > 3 &&
-                            CountDarkPixels(usageChanged, captionArea) == 0 &&
+                            CountCaptionInkPixels(usageChanged, captionArea) == 0 &&
                             CountChangedPixels(initial, usageChanged, capsuleArea) == 0,
                         "Pro weekly usage drives the arc and center number without adding rim text");
                 }
@@ -696,13 +698,13 @@ internal static class PetModeQa
                 using (Bitmap resetChanged = form.RenderImageForTesting())
                 {
                     Check(CountChangedPixels(initial, resetChanged,
-                            new Rectangle(60, 37, 90, 14)) > 3 &&
+                            new Rectangle(48, 38, 84, 13)) > 3 &&
                             CountChangedPixels(initial, resetChanged,
-                            new Rectangle(38, 28, 97, 7)) == 0 &&
+                            new Rectangle(48, 31, 84, 7)) == 0 &&
                             CountChangedPixels(initial, resetChanged,
-                            new Rectangle(38, 54, 97, 7)) == 0 &&
+                            new Rectangle(48, 52, 84, 7)) == 0 &&
                             CountChangedPixels(initial, resetChanged,
-                            new Rectangle(163, 18, 52, 52)) == 0,
+                            new Rectangle(140, 22, 44, 44)) == 0,
                         "the only Pro reset date updates a vertically centered capsule row without changing the circle");
                 }
 
@@ -712,7 +714,7 @@ internal static class PetModeQa
                 {
                     Check(CountHudArcChanges(initial, remaining) > 6 &&
                             CountChangedPixels(initial, remaining, numberArea) > 3 &&
-                            CountDarkPixels(remaining, captionArea) == 0 &&
+                            CountCaptionInkPixels(remaining, captionArea) == 0 &&
                             form.UsageSummaryForTesting == "7d 剩余 80%" &&
                             form.ResetDatesForTesting == "11/03 14:45",
                         "remaining mode updates every Pro weekly percentage and preserves its single reset date");
@@ -731,8 +733,8 @@ internal static class PetModeQa
                 using (Bitmap proBetween = form.RenderImageForTesting())
                 {
                     Check(CountChangedPixels(plusBefore, proBetween, capsuleArea) > 40 &&
-                            CountDarkPixels(proBetween, captionArea) == 0 &&
-                            CountDarkPixels(plusBefore, captionArea) > 3,
+                            CountCaptionInkPixels(proBetween, captionArea) == 0 &&
+                            CountCaptionInkPixels(plusBefore, captionArea) > 2,
                         "a live Plus-to-Pro update removes the 5-hour row and all rim text");
                 }
                 form.SetLiveUsage(plus);
@@ -847,7 +849,7 @@ internal static class PetModeQa
                 using (PetForm expected = new PetForm())
                 {
                     DateTime reset = DateTime.UtcNow.AddDays(3);
-                    Rectangle center = new Rectangle(170, 25, 39, 39);
+                    Rectangle center = new Rectangle(145, 27, 35, 35);
                     form.SetUsageDisplayMode(mode);
                     expected.SetUsageDisplayMode(mode);
                     form.SetUsage(Snapshot(40, 60, reset, reset));
@@ -923,7 +925,7 @@ internal static class PetModeQa
                     Check(first > 10f && first < 70f &&
                             CountHudArcChanges(initial, intermediate) > 3 &&
                             CountChangedPixels(initial, intermediate,
-                            new Rectangle(177, 31, 24, 17)) == 0,
+                            new Rectangle(152, 33, 20, 17)) == 0,
                         "the 5-hour arc renders a genuine intermediate value while the weekly number stays fixed");
                 form.SetLiveUsage(Snapshot(70, 20, reset, reset));
                 Check(form.DisplayedArcPercentForTesting == first,
@@ -1043,7 +1045,7 @@ internal static class PetModeQa
             using (Bitmap actual = form.RenderImageForTesting())
             using (Bitmap final = expected.RenderImageForTesting())
                 Check(!form.IsUsageTransitionActiveForTesting &&
-                        CountChangedPixels(actual, final, new Rectangle(170, 25, 39, 39)) == 0,
+                        CountChangedPixels(actual, final, new Rectangle(145, 27, 35, 35)) == 0,
                     "rapid weekly updates finish on the latest number without replaying an old target");
         }
     }
@@ -1079,14 +1081,15 @@ internal static class PetModeQa
         return direction < 0 ? lowerWidth > upperWidth : upperWidth > lowerWidth;
     }
 
-    private static int CountDarkPixels(Bitmap image, Rectangle area)
+    private static int CountCaptionInkPixels(Bitmap image, Rectangle area)
     {
         int dark = 0;
         for (int y = area.Top; y < area.Bottom; y++)
             for (int x = area.Left; x < area.Right; x++)
             {
                 Color pixel = image.GetPixel(x, y);
-                if (pixel.R < 100 && pixel.G < 100 && pixel.B < 100) dark++;
+                // The compact dial uses a smaller antialiased caption, without solid dark cores.
+                if (pixel.R < 145 && pixel.G < 145 && pixel.B < 145) dark++;
             }
         return dark;
     }
@@ -1124,14 +1127,14 @@ internal static class PetModeQa
     private static int CountHudArcChanges(Bitmap first, Bitmap second)
     {
         int changed = 0;
-        for (int y = 20; y <= 68; y++)
-            for (int x = 165; x <= 213; x++)
+        for (int y = 23; y <= 65; y++)
+            for (int x = 141; x <= 183; x++)
             {
-                int distanceSquared = (x - 189) * (x - 189) +
+                int distanceSquared = (x - 162) * (x - 162) +
                     (y - 44) * (y - 44);
                 // Sample the outer stroke away from the center number.
-                if (distanceSquared >= 22 * 22 && distanceSquared <= 25 * 25 &&
-                    (y >= 47 || Math.Abs(x - 189) >= 23) &&
+                if (distanceSquared >= 18 * 18 && distanceSquared <= 21 * 21 &&
+                    (y >= 47 || Math.Abs(x - 162) >= 19) &&
                     first.GetPixel(x, y).ToArgb() != second.GetPixel(x, y).ToArgb())
                     changed++;
             }
@@ -1152,8 +1155,8 @@ internal static class PetModeQa
                     Check(form.AppearanceForTesting == PetAppearance.ChatGptGirl &&
                             calm.GetPixel(calm.Width / 2, calm.Height / 2).A > 200,
                         "the ChatGPT girl can be selected and rendered");
-                    Check(whale.GetPixel(12, 44).ToArgb() !=
-                            calm.GetPixel(12, 44).ToArgb(),
+                    Check(whale.GetPixel(40, 44).ToArgb() !=
+                            calm.GetPixel(40, 44).ToArgb(),
                         "the ChatGPT girl capsule uses its own artwork-derived tint");
 
                     form.SetPettingProgressForTesting(0.15f);
@@ -1297,7 +1300,7 @@ internal static class PetModeQa
                         "left-facing pose accounts for the source artwork direction: " + appearance);
                     using (Bitmap left = form.RenderImageForTesting())
                         Check(CountChangedPixels(right, left) > 1000 &&
-                            right.GetPixel(14, 44).A > 200 &&
+                            right.GetPixel(40, 44).A > 200 &&
                             CountChangedPixels(right, left,
                                 new Rectangle(0, 0, right.Width, 78)) == 0,
                             "turning renders the opposite pose while keeping the bubble upright: " + appearance);

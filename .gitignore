@@ -1,6 +1,7 @@
 # Build and local QA outputs
 bin/
 obj/
+__pycache__/
 preview*.png
 *.zip
 *.result.json

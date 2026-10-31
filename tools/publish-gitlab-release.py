@@ -66,9 +66,39 @@ def main():
     token = os.environ["CI_JOB_TOKEN"]
     commit = os.environ["CI_COMMIT_SHA"]
     release_url = f"{api}/projects/{project}/releases/{tag}"
-    existing = request(release_url, token=token, missing_ok=True)
-    if existing and json.loads(existing)["commit"]["id"] != commit:
-        raise RuntimeError("An existing release refers to a different commit.")
+    previous_hash = os.environ.get("USAGEPEEK_REPLACE_RELEASE_SHA256", "").strip().upper()
+    replacing = bool(previous_hash)
+    if replacing and (
+        not re.fullmatch(r"[0-9A-F]{64}", previous_hash)
+        or os.environ.get("CI_PIPELINE_SOURCE") not in ("api", "web")
+    ):
+        raise RuntimeError("Release replacement requires an explicit manual pipeline and previous SHA-256.")
+
+    existing_bytes = request(release_url, token=token, missing_ok=True)
+    existing = json.loads(existing_bytes) if existing_bytes else None
+    replace_existing = False
+    if existing:
+        if replacing:
+            manifest_link = next(
+                (link for link in existing["assets"]["links"] if link["name"] == "update.json"), None
+            )
+            package_prefix = f"{api}/projects/{project}/packages/generic/usagepeek/"
+            if not manifest_link or not manifest_link["url"].startswith(package_prefix):
+                raise RuntimeError("Previous release manifest is not a package in this project.")
+            previous_manifest = json.loads(request(manifest_link["url"]))
+            if previous_manifest == manifest and existing["commit"]["id"] == commit:
+                # A retry after a successful replacement must not delete it again.
+                pass
+            elif (
+                previous_manifest.get("version") == version
+                and previous_manifest.get("sha256", "").upper() == previous_hash
+                and previous_hash != digest
+            ):
+                replace_existing = True
+            else:
+                raise RuntimeError("Previous release does not match the explicitly approved SHA-256.")
+        elif existing["commit"]["id"] != commit:
+            raise RuntimeError("An existing release refers to a different commit.")
 
     files = {
         "UsagePeek.exe": binary,
@@ -76,8 +106,11 @@ def main():
         "update.json": manifest_bytes,
     }
     links = []
+    # Keep the original package available for rollback. Only the release entry
+    # is replaced, after every new file has been publicly verified.
+    package_version = f"{version}-r{commit[:12]}" if replacing else version
     for name, content in files.items():
-        url = f"{api}/projects/{project}/packages/generic/usagepeek/{version}/{name}"
+        url = f"{api}/projects/{project}/packages/generic/usagepeek/{package_version}/{name}"
         published = request(url, token=token, missing_ok=True)
         if published is None:
             request(url, method="PUT", data=content, token=token)
@@ -98,7 +131,33 @@ def main():
         + f"\n\n**SHA-256:** `{digest}`\n"
     )
     payload = {"name": f"UsagePeek {tag}", "description": description, "assets": {"links": links}}
-    if existing:
+    if replace_existing:
+        latest = json.loads(request(release_url, token=token))
+        original_links = sorted((link["name"], link["url"]) for link in existing["assets"]["links"])
+        latest_links = sorted((link["name"], link["url"]) for link in latest["assets"]["links"])
+        if latest.get("created_at") != existing.get("created_at") or latest_links != original_links:
+            raise RuntimeError("Release changed during verification; refusing to delete it.")
+        restore = {
+            "name": existing["name"], "tag_name": tag,
+            "description": existing.get("description", ""),
+            "assets": {"links": [
+                {"name": link["name"], "url": link["url"],
+                 "direct_asset_path": "/" + link["name"], "link_type": link.get("link_type", "other")}
+                for link in existing["assets"]["links"]
+            ]},
+        }
+        if existing.get("released_at"):
+            restore["released_at"] = existing["released_at"]
+        payload.update({"tag_name": tag, "ref": commit})
+        request(release_url, method="DELETE", token=token)
+        try:
+            request(f"{api}/projects/{project}/releases", method="POST", data=payload, token=token)
+        except (OSError, RuntimeError):
+            if request(release_url, token=token, missing_ok=True) is None:
+                request(f"{api}/projects/{project}/releases", method="POST", data=restore, token=token)
+            raise
+        print("Replaced the checked release; previous package files remain available for rollback.")
+    elif existing:
         # Existing links already target the immutable, checked package files.
         payload.pop("assets")
         request(release_url, method="PUT", data=payload, token=token)

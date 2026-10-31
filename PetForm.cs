@@ -1346,12 +1346,25 @@ namespace UsagePeek
                 }
             }
             graphics.DrawImageUnscaled(usageBubbleImage, 0, 0);
-            int diameter = Math.Max(1, ScaleDesign(52, scale));
+            Rectangle circle = GetQuotaCircleBounds(width, scale);
             // Resting and moving values share a composition path. Only the
             // small indicators are redrawn; dates, artwork colors and text stay cached.
-            DrawQuotaIndicators(graphics, new Rectangle(
-                width - ScaleDesign(5, scale) - diameter, ScaleDesign(18, scale),
-                diameter, diameter), scale);
+            DrawQuotaIndicators(graphics, circle, circle.Width / 52f);
+        }
+
+        private static Rectangle GetQuotaCircleBounds(int width, float scale)
+        {
+            Rectangle capsule = GetQuotaCapsuleBounds(width, scale);
+            int diameter = Math.Max(1, ScaleDesign(44, scale));
+            return new Rectangle(capsule.Right - ScaleDesign(4, scale) - diameter,
+                ScaleDesign(22, scale), diameter, diameter);
+        }
+
+        private static Rectangle GetQuotaCapsuleBounds(int width, float scale)
+        {
+            int capsuleWidth = Math.Max(1, ScaleDesign(156, scale));
+            return new Rectangle((width - capsuleWidth) / 2,
+                ScaleDesign(18, scale), capsuleWidth, ScaleDesign(52, scale));
         }
 
         private static PettingPose CalculatePettingPose(float progress)
@@ -1745,18 +1758,16 @@ namespace UsagePeek
                 : whaleAverageColor;
             graphics.TextRenderingHint =
                 System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-            int diameter = Math.Max(1, ScaleDesign(52, scale));
-            int left = ScaleDesign(4, scale);
-            int circleLeft = width - ScaleDesign(5, scale) - diameter;
-            Rectangle pill = new Rectangle(left, ScaleDesign(22, scale),
-                circleLeft - ScaleDesign(8, scale) - left, ScaleDesign(44, scale));
-            Rectangle circle = new Rectangle(circleLeft, ScaleDesign(18, scale),
-                diameter, diameter);
+            Rectangle circle = GetQuotaCircleBounds(width, scale);
+            Rectangle capsule = GetQuotaCapsuleBounds(width, scale);
+            Rectangle pill = new Rectangle(capsule.Left, capsule.Top,
+                circle.Left - capsule.Left, capsule.Height);
+            float indicatorScale = circle.Width / 52f;
             Color pillColor = BlendColor(average, Color.FromArgb(28, 33, 52), 0.55f);
             Color circleColor = BlendColor(average, Color.White, 0.9f);
 
             GraphicsState state = graphics.Save();
-            using (GraphicsPath path = RoundedRectangle(pill, pill.Height / 2))
+            using (GraphicsPath path = RoundedRectangle(capsule, capsule.Height / 2))
             using (SolidBrush shadow = new SolidBrush(Color.FromArgb(35, 0, 0, 0)))
             using (SolidBrush fill = new SolidBrush(pillColor))
             using (SolidBrush circleFill = new SolidBrush(circleColor))
@@ -1765,16 +1776,12 @@ namespace UsagePeek
             {
                 graphics.TranslateTransform(0, Math.Max(1f, 2f * scale));
                 graphics.FillPath(shadow, path);
-                graphics.FillEllipse(shadow, circle);
                 graphics.Restore(state);
                 graphics.FillPath(fill, path);
                 graphics.DrawPath(edge, path);
                 graphics.FillEllipse(circleFill, circle);
-                graphics.DrawEllipse(edge, circle);
             }
 
-            float textLeft = pill.Left + 34f * scale;
-            float textWidth = pill.Right - textLeft - 10f * scale;
             using (Font labelFont = new Font("Segoe UI",
                 Math.Max(4.5f, 10.5f * scale), FontStyle.Bold,
                 GraphicsUnit.Pixel))
@@ -1784,28 +1791,66 @@ namespace UsagePeek
             using (SolidBrush labelBrush = new SolidBrush(Color.FromArgb(248, 249, 252)))
             using (SolidBrush dateBrush = new SolidBrush(BlendColor(pillColor,
                 Color.White, 0.78f)))
-            using (StringFormat format = new StringFormat())
+            using (StringFormat format = new StringFormat(StringFormat.GenericTypographic))
             {
                 format.Alignment = StringAlignment.Near;
-                format.LineAlignment = StringAlignment.Near;
-                format.Trimming = StringTrimming.EllipsisCharacter;
-                format.FormatFlags = StringFormatFlags.NoWrap;
+                format.LineAlignment = StringAlignment.Center;
+                format.FormatFlags |= StringFormatFlags.NoWrap;
+                string primaryDate = FormatResetDate(primaryResetsAtUtc);
+                string weeklyDate = FormatResetDate(secondaryResetsAtUtc);
+                float labelWidth = graphics.MeasureString(secondaryQuotaLabel,
+                    labelFont, int.MaxValue, format).Width;
+                float dateWidth = graphics.MeasureString(weeklyDate,
+                    dateFont, int.MaxValue, format).Width;
                 if (!singleQuotaWindow)
                 {
-                    graphics.DrawString(shortQuotaLabel, labelFont, labelBrush,
-                        new RectangleF(textLeft, pill.Top + 6f * scale,
-                            22f * scale, 14f * scale), format);
-                    graphics.DrawString(FormatResetDate(primaryResetsAtUtc), dateFont, dateBrush,
-                        new RectangleF(textLeft + 22f * scale, pill.Top + 6f * scale,
-                            textWidth - 22f * scale, 14f * scale), format);
+                    labelWidth = Math.Max(labelWidth, graphics.MeasureString(
+                        shortQuotaLabel, labelFont, int.MaxValue, format).Width);
+                    dateWidth = Math.Max(dateWidth, graphics.MeasureString(
+                        primaryDate, dateFont, int.MaxValue, format).Width);
                 }
-                float weeklyRowTop = pill.Top + (singleQuotaWindow ? 15f : 24f) * scale;
-                graphics.DrawString(secondaryQuotaLabel, labelFont, labelBrush,
-                    new RectangleF(textLeft, weeklyRowTop,
-                        22f * scale, 14f * scale), format);
-                graphics.DrawString(FormatResetDate(secondaryResetsAtUtc), dateFont, dateBrush,
-                    new RectangleF(textLeft + 22f * scale, weeklyRowTop,
-                        textWidth - 22f * scale, 14f * scale), format);
+                float columnGap = 8f * scale;
+                float textLeft =
+                    (pill.Width - labelWidth - columnGap - dateWidth) / 2f;
+                float dateLeft = textLeft + labelWidth + columnGap;
+                float rowHeight = Math.Max(labelFont.GetHeight(graphics), dateFont.GetHeight(graphics));
+                float rowSpacing = 3f * scale;
+                float blockHeight = singleQuotaWindow ? rowHeight : rowHeight * 2f + rowSpacing;
+                float firstRowTop = (pill.Height - blockHeight) / 2f;
+                using (Bitmap textImage = new Bitmap(pill.Width, pill.Height,
+                    PixelFormat.Format32bppPArgb))
+                {
+                    textImage.SetResolution(graphics.DpiX, graphics.DpiY);
+                    using (Graphics textGraphics = Graphics.FromImage(textImage))
+                    {
+                        textGraphics.TextRenderingHint = graphics.TextRenderingHint;
+                        textGraphics.CompositingQuality = graphics.CompositingQuality;
+                        textGraphics.PixelOffsetMode = graphics.PixelOffsetMode;
+                        if (!singleQuotaWindow)
+                        {
+                            textGraphics.DrawString(shortQuotaLabel, labelFont, labelBrush,
+                                new RectangleF(textLeft, firstRowTop, labelWidth, rowHeight), format);
+                            textGraphics.DrawString(primaryDate, dateFont, dateBrush,
+                                new RectangleF(dateLeft, firstRowTop, dateWidth, rowHeight), format);
+                        }
+                        float weeklyRowTop = singleQuotaWindow ? firstRowTop : firstRowTop + rowHeight + rowSpacing;
+                        textGraphics.DrawString(secondaryQuotaLabel, labelFont, labelBrush,
+                            new RectangleF(textLeft, weeklyRowTop, labelWidth, rowHeight), format);
+                        textGraphics.DrawString(weeklyDate, dateFont, dateBrush,
+                            new RectangleF(dateLeft, weeklyRowTop, dateWidth, rowHeight), format);
+                    }
+                    // Grid-fitted glyph advances can differ from MeasureString.
+                    // Center their visible ink once when building the cached HUD.
+                    Rectangle ink = FindVisibleTextBounds(textImage);
+                    if (!ink.IsEmpty)
+                    {
+                        int textX = (int)Math.Round(pill.Left +
+                            (pill.Width - ink.Width) / 2f - ink.Left);
+                        int textY = (int)Math.Round(pill.Top +
+                            (pill.Height - ink.Height) / 2f - ink.Top);
+                        graphics.DrawImageUnscaled(textImage, textX, textY);
+                    }
+                }
             }
 
             if (weeklyWatermarkVisible)
@@ -1813,18 +1858,18 @@ namespace UsagePeek
                 GraphicsState watermarkState = graphics.Save();
                 using (GraphicsPath clip = new GraphicsPath())
                 using (Font watermarkFont = new Font("Segoe UI",
-                    Math.Max(6f, 29f * scale), FontStyle.Bold, GraphicsUnit.Pixel))
-                using (SolidBrush watermark = new SolidBrush(Color.FromArgb(45, 105, 109, 120)))
+                    Math.Max(6f, 29f * indicatorScale), FontStyle.Bold, GraphicsUnit.Pixel))
+                using (SolidBrush watermark = new SolidBrush(Color.FromArgb(80, 105, 109, 120)))
                 using (StringFormat format = new StringFormat(StringFormat.GenericTypographic))
                 {
-                    clip.AddEllipse(circle.Left + 7f * scale, circle.Top + 7f * scale,
-                        circle.Width - 14f * scale, circle.Height - 14f * scale);
+                    clip.AddEllipse(circle.Left + 7f * indicatorScale, circle.Top + 7f * indicatorScale,
+                        circle.Width - 14f * indicatorScale, circle.Height - 14f * indicatorScale);
                     graphics.SetClip(clip, CombineMode.Intersect);
                     format.Alignment = StringAlignment.Center;
                     format.LineAlignment = StringAlignment.Center;
                     format.FormatFlags = StringFormatFlags.NoWrap;
                     graphics.DrawString(secondaryQuotaLabel, watermarkFont, watermark,
-                        new RectangleF(circle.Left, circle.Top + 2f * scale,
+                        new RectangleF(circle.Left, circle.Top + 2f * indicatorScale,
                             circle.Width, circle.Height), format);
                 }
                 graphics.Restore(watermarkState);
@@ -1832,7 +1877,7 @@ namespace UsagePeek
 
             if (!singleQuotaWindow)
             using (Font captionFont = new Font("Segoe UI",
-                Math.Max(3.5f, 7.8f * scale), FontStyle.Bold, GraphicsUnit.Pixel))
+                Math.Max(3.5f, 7.8f * indicatorScale), FontStyle.Bold, GraphicsUnit.Pixel))
             using (SolidBrush captionBrush = new SolidBrush(Color.FromArgb(34, 38, 54)))
             using (StringFormat format = new StringFormat())
             {
@@ -1841,9 +1886,39 @@ namespace UsagePeek
                 format.FormatFlags = StringFormatFlags.NoWrap;
                 graphics.DrawString(shortQuotaLabel + " " +
                     FormatPercent(GetDisplayedPercent(primaryUsedPercent)), captionFont, captionBrush,
-                    new RectangleF(circle.Left + 5f * scale, circle.Top + 2f * scale,
-                        circle.Width - 10f * scale, 12f * scale), format);
+                    new RectangleF(circle.Left + 5f * indicatorScale, circle.Top + 2f * indicatorScale,
+                        circle.Width - 10f * indicatorScale, 12f * indicatorScale), format);
             }
+        }
+
+        private static Rectangle FindVisibleTextBounds(Bitmap image)
+        {
+            Rectangle imageBounds = new Rectangle(Point.Empty, image.Size);
+            BitmapData data = image.LockBits(imageBounds, ImageLockMode.ReadOnly,
+                PixelFormat.Format32bppPArgb);
+            int left = image.Width;
+            int top = image.Height;
+            int right = -1;
+            int bottom = -1;
+            try
+            {
+                byte[] row = new byte[Math.Abs(data.Stride)];
+                for (int y = 0; y < image.Height; y++)
+                {
+                    Marshal.Copy(IntPtr.Add(data.Scan0, y * data.Stride), row, 0, row.Length);
+                    for (int x = 0; x < image.Width; x++)
+                    {
+                        if (row[x * 4 + 3] < 64) continue;
+                        left = Math.Min(left, x);
+                        top = Math.Min(top, y);
+                        right = Math.Max(right, x);
+                        bottom = Math.Max(bottom, y);
+                    }
+                }
+            }
+            finally { image.UnlockBits(data); }
+            return right < left ? Rectangle.Empty :
+                Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
         }
 
         private void DrawQuotaIndicators(Graphics graphics, Rectangle circle, float scale)
