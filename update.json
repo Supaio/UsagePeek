@@ -1,6 +1,6 @@
 {
-  "version": "2.0.3",
-  "url": "https://gitlab.com/Supaio/usagepeek/-/releases/v2.0.3/downloads/UsagePeek.exe",
-  "sha256": "13AF9D6B692E482A7F861A56E3239CEA8BF39EB7F473D87C6661EFFA04E49613",
-  "notes": "- 桌宠顶部改为胶囊与单圆环状态栏：左侧显示本地恢复日期，外圈表示 5h，百分比嵌入圆环缺口；圆心显示 7d 百分比及淡灰色水印。配色从当前角色图片平均色派生。\n- Pro 隐藏 5h 窗口，外圈改为完整的 7d 圆环，环上不显示文字；详情面板与托盘同步适配，并兼容旧缓存及窗口位置变化。\n- 检测到实时 7d 数值变化时，按旧值、方向箭头、新值滚动切换：下降为绿色向下箭头，上升为红色向上箭头；外圈平滑增减。首次读取、缓存回退及切换显示口径不会误播动画。\n- 改善详情与设置等界面的字体平滑效果，柔化卡片圆角并修复边框裁切；支持的 Windows 使用系统圆角，兼顾不同屏幕缩放。"
+  "version": "2.0.4",
+  "url": "https://gitlab.com/Supaio/usagepeek/-/releases/v2.0.4/downloads/UsagePeek.exe",
+  "sha256": "90D4FBC818C473AD726AF02F920EE97FA666BC7E8C69252797F8F2487C415C6D",
+  "notes": "- 移除桌宠左侧状态胶囊中的三点装饰，保留恢复日期和用量圆环。"
 }

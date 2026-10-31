@@ -1773,19 +1773,6 @@ namespace UsagePeek
                 graphics.DrawEllipse(edge, circle);
             }
 
-            float dotSize = Math.Max(1f, 4f * scale);
-            using (SolidBrush dot = new SolidBrush(Color.FromArgb(150, circleColor)))
-            {
-                graphics.FillEllipse(dot, pill.Left + 14f * scale,
-                    pill.Top + 14f * scale, dotSize, dotSize);
-                dot.Color = Color.FromArgb(210, circleColor);
-                graphics.FillEllipse(dot, pill.Left + 10f * scale,
-                    pill.Top + 22f * scale, dotSize, dotSize);
-                dot.Color = circleColor;
-                graphics.FillEllipse(dot, pill.Left + 18f * scale,
-                    pill.Top + 22f * scale, dotSize, dotSize);
-            }
-
             float textLeft = pill.Left + 34f * scale;
             float textWidth = pill.Right - textLeft - 10f * scale;
             using (Font labelFont = new Font("Segoe UI",
