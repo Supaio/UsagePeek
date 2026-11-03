@@ -75,6 +75,7 @@ namespace UsagePeek
             form.SetCurrencyState(currencyState);
             form.FormClosed += delegate { ExitApplication(); };
             petForm.DetailsRequested += delegate { ShowDetails(); };
+            petForm.RefreshRequested += async delegate { await RefreshAsync(); };
             petForm.LocationCommitted += delegate
             {
                 displayPreference.SetPetLocation(petForm.Location);
@@ -236,6 +237,7 @@ namespace UsagePeek
             refreshing = true;
             lastRefreshAttemptUtc = DateTime.UtcNow;
             form.SetLoading(true);
+            petForm.SetRefreshing(true);
 
             try
             {
@@ -281,6 +283,7 @@ namespace UsagePeek
             {
                 refreshing = false;
                 form.SetLoading(false);
+                petForm.SetRefreshing(false);
                 if (settingsDialog != null && !settingsDialog.IsDisposed)
                     settingsDialog.RefreshDiagnosticsIfVisible();
             }
@@ -537,7 +540,12 @@ namespace UsagePeek
                 {
                     petForm.EnsureVisibleOnAvailableScreen();
                 }
+                petForm.WindowState = FormWindowState.Normal;
                 form.ShowNearAnchor(petForm.Bounds);
+                // Keep the panel focused so its Deactivate handler does not hide it.
+                petForm.BringToFrontWithoutActivation();
+                form.BringToFront();
+                form.Activate();
                 return;
             }
 

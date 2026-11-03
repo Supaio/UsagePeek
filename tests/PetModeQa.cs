@@ -1,6 +1,8 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Reflection;
+using System.Windows.Forms;
 using UsagePeek;
 
 internal static class PetModeQa
@@ -19,7 +21,12 @@ internal static class PetModeQa
             VerifyLayeredWindowRendering();
             VerifyResetDatesAndBubbleThemes();
             VerifyStatusHudLayout();
+            VerifyQuotaCircleClicks();
+            VerifyDragResponsiveness();
+            VerifyRefreshSpinnerRendering();
+            VerifyRefreshSpinnerCompletion();
             VerifyStatusHudContent();
+            VerifyWeeklyExhaustionHud();
             VerifyWeeklyWatermark();
             VerifyWeeklyOnlyStatusHud();
             VerifyPlanSwitchPreservesArtwork();
@@ -446,6 +453,345 @@ internal static class PetModeQa
         }
     }
 
+    private static void VerifyQuotaCircleClicks()
+    {
+        int[] scalePercents = { 50, 100, 200, 100, 100 };
+        int[] displayDpis = { 96, 96, 96, 144, 192 };
+        foreach (bool pro in new[] { false, true })
+            for (int index = 0; index < scalePercents.Length; index++)
+                using (PetForm form = new PetForm())
+                {
+                    if (form.Handle == IntPtr.Zero)
+                        throw new InvalidOperationException("The pointer test requires a native form handle.");
+                    form.ApplyDpiForTesting(displayDpis[index]);
+                    form.SetScalePercent(scalePercents[index]);
+                    DateTime reset = DateTime.UtcNow.AddDays(3);
+                    form.SetUsage(pro ? WeeklyProSnapshot(25, reset)
+                        : Snapshot(25, 25, reset.AddHours(-1), reset));
+                    int refreshes = 0;
+                    int details = 0;
+                    int locations = 0;
+                    form.RefreshRequested += delegate { refreshes++; };
+                    form.DetailsRequested += delegate { details++; };
+                    form.LocationCommitted += delegate { locations++; };
+                    string name = (pro ? "Pro" : "Plus") + " " + scalePercents[index] +
+                        "% at " + displayDpis[index] + " DPI";
+                    Point center = PointerPoint(form, 162, 44);
+
+                    ClickPointer(form, MouseButtons.Left, center);
+                    Check(refreshes == 1 && details == 0 && locations == 0 && !form.Capture,
+                        "clicking the quota circle requests refresh without details or movement: " + name);
+
+                    refreshes = details = locations = 0;
+                    ClickPointer(form, MouseButtons.Left, PointerPoint(form, 86, 44));
+                    Check(refreshes == 0 && details == 1 && locations == 0,
+                        "clicking the date area still opens usage details: " + name);
+
+                    refreshes = details = locations = 0;
+                    ClickPointer(form, MouseButtons.Left, PointerPoint(form, 110, 200));
+                    Check(refreshes == 0 && details == 1 && locations == 0,
+                        "clicking the character still opens usage details: " + name);
+
+                    refreshes = details = locations = 0;
+                    ClickPointer(form, MouseButtons.Left, PointerPoint(form, 145, 27));
+                    Check(refreshes == 0 && details == 1 && locations == 0,
+                        "a capsule point outside the circular edge does not trigger refresh: " + name);
+
+                    refreshes = details = locations = 0;
+                    int circleRight = (int)Math.Round(form.ClientSize.Width * 184d / 220d);
+                    RaisePointer(form, "OnMouseDown", MouseButtons.Left,
+                        new Point(circleRight - 1, center.Y));
+                    RaisePointer(form, "OnMouseUp", MouseButtons.Left,
+                        new Point(circleRight + 1, center.Y));
+                    Check(refreshes == 0 && details == 0 && locations == 0 && !form.Capture,
+                        "releasing outside the circle cancels a circle press without opening details: " + name);
+
+                    RaisePointer(form, "OnMouseUp", MouseButtons.Left, center);
+                    Check(refreshes == 0 && details == 0,
+                        "an unmatched mouse release does not refresh or open details: " + name);
+
+                    ClickPointer(form, MouseButtons.Right, center);
+                    Check(refreshes == 0 && details == 0 && locations == 0,
+                        "right-clicking the quota circle does not request a left-click action: " + name);
+
+                    RaisePointer(form, "OnMouseDown", MouseButtons.Left, center);
+                    Point cursor = Cursor.Position;
+                    typeof(PetForm).GetField("dragStartCursor",
+                        BindingFlags.Instance | BindingFlags.NonPublic).SetValue(form,
+                        new Point(cursor.X - 12, cursor.Y));
+                    RaisePointer(form, "OnMouseMove", MouseButtons.Left,
+                        new Point(center.X + 12, center.Y));
+                    RaisePointer(form, "OnMouseUp", MouseButtons.Left, center);
+                    Check(refreshes == 0 && details == 0 && locations == 1 && !form.Capture,
+                        "dragging from the circle commits movement without refreshing or opening details: " + name);
+
+                    refreshes = details = locations = 0;
+                    ClickPointer(form, MouseButtons.Left, PointerPoint(form, 110, 200));
+                    Check(refreshes == 0 && details == 1 && locations == 0,
+                        "a character click works normally after a canceled or dragged circle press: " + name);
+                }
+
+        using (PetForm form = new PetForm())
+        {
+            int refreshes = 0;
+            int details = 0;
+            form.SetUsage(null);
+            form.RefreshRequested += delegate { refreshes++; };
+            form.DetailsRequested += delegate { details++; };
+            if (form.Handle == IntPtr.Zero)
+                throw new InvalidOperationException("The pointer test requires a native form handle.");
+            form.ApplyDpiForTesting(96);
+            ClickPointer(form, MouseButtons.Left, PointerPoint(form, 162, 44));
+            Check(refreshes == 1 && details == 0,
+                "the quota circle can request a refresh before any quota data is available");
+
+            form.SetRefreshing(true);
+            Check(form.Cursor == Cursors.AppStarting,
+                "starting a refresh gives the pet a busy cursor");
+            ClickPointer(form, MouseButtons.Left, PointerPoint(form, 162, 44));
+            Check(refreshes == 1 && details == 0 && !form.Capture &&
+                    form.Cursor == Cursors.AppStarting,
+                "repeated circle clicks are ignored while a refresh is in progress");
+            ClickPointer(form, MouseButtons.Left, PointerPoint(form, 86, 44));
+            Check(refreshes == 1 && details == 1,
+                "usage details remain accessible while the circle is refreshing");
+            form.SetRefreshing(false);
+            Check(form.Cursor == Cursors.Hand,
+                "ending a refresh restores the normal pointer");
+            ClickPointer(form, MouseButtons.Left, PointerPoint(form, 162, 44));
+            Check(refreshes == 2 && details == 1,
+                "the quota circle accepts the next refresh after the previous one finishes");
+        }
+    }
+
+    private static void VerifyDragResponsiveness()
+    {
+        using (PetForm form = new PetForm())
+        {
+            Rectangle area = Screen.FromPoint(Cursor.Position).WorkingArea;
+            form.ApplyDpiForTesting(96);
+            form.SetScalePercent(100);
+            form.ShowAtPreferredLocation(new Point(area.Left + 40, area.Top + 40));
+            int refreshes = 0;
+            int details = 0;
+            int locations = 0;
+            form.RefreshRequested += delegate { refreshes++; };
+            form.DetailsRequested += delegate { details++; };
+            form.LocationCommitted += delegate { locations++; };
+            MethodInfo advance = typeof(PetForm).GetMethod("AdvanceDesktopMotion",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo dragCursor = typeof(PetForm).GetField("dragStartCursor",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            FieldInfo dragging = typeof(PetForm).GetField("dragging",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Point point = PointerPoint(form, 110, 200);
+            Point pressedAt = form.PointToScreen(point);
+            form.SetPettingProgressForTesting(0.3f);
+            long frames = form.PresentedFramesForTesting;
+            RaisePointer(form, "OnMouseDown", MouseButtons.Left, point);
+            Check((Point)dragCursor.GetValue(form) == pressedAt && form.Capture &&
+                    (bool)dragging.GetValue(form),
+                "dragging anchors to the original mouse-down point before rendering");
+            Check(form.PresentedFramesForTesting == frames && !form.IsPettingForTesting,
+                "mouse-down stops petting without synchronously rendering the pet again");
+            double animation = form.AnimationTimeForTesting;
+            for (int index = 0; index < 5; index++) advance.Invoke(form, null);
+            Check(form.PresentedFramesForTesting == frames &&
+                    form.AnimationTimeForTesting == animation,
+                "animation ticks leave the cached pet image untouched while dragging");
+
+            Point beforeMove = form.Location;
+            Point cursor = Cursor.Position;
+            dragCursor.SetValue(form, new Point(cursor.X - 17, cursor.Y - 9));
+            RaisePointer(form, "OnMouseMove", MouseButtons.Left, point);
+            Check(form.Location == form.ClampLocationForTesting(
+                    new Point(beforeMove.X + 17, beforeMove.Y + 9),
+                    Screen.FromPoint(cursor).WorkingArea),
+                "drag movement still follows the latest pointer and respects screen bounds");
+            RaisePointer(form, "OnMouseUp", MouseButtons.Left, point);
+            Check(!form.Capture && !(bool)dragging.GetValue(form) &&
+                    locations == 1 && refreshes == 0 && details == 0 &&
+                    form.PresentedFramesForTesting > frames,
+                "releasing a drag redraws the pet and saves movement without opening details");
+            frames = form.PresentedFramesForTesting;
+            advance.Invoke(form, null);
+            Check(form.PresentedFramesForTesting > frames &&
+                    form.AnimationTimeForTesting > animation,
+                "the animation resumes on the next frame after dragging ends");
+
+            refreshes = details = locations = 0;
+            form.SetRefreshing(true);
+            RaisePointer(form, "OnMouseDown", MouseButtons.Left,
+                PointerPoint(form, 162, 44));
+            form.Capture = false;
+            frames = form.PresentedFramesForTesting;
+            advance.Invoke(form, null);
+            RaisePointer(form, "OnMouseUp", MouseButtons.Left,
+                PointerPoint(form, 162, 44));
+            Check(!(bool)dragging.GetValue(form) && form.Cursor == Cursors.AppStarting &&
+                    refreshes == 0 && details == 0 && locations == 0 &&
+                    form.PresentedFramesForTesting > frames,
+                "losing mouse capture cancels a circle press and resumes animation without a click");
+
+            form.SetRefreshing(false);
+            RaisePointer(form, "OnMouseDown", MouseButtons.Left, point);
+            cursor = Cursor.Position;
+            dragCursor.SetValue(form, new Point(cursor.X - 13, cursor.Y));
+            RaisePointer(form, "OnMouseMove", MouseButtons.Left, point);
+            form.Capture = false;
+            RaisePointer(form, "OnMouseUp", MouseButtons.Left, point);
+            Check(!(bool)dragging.GetValue(form) && !form.Capture &&
+                    form.Cursor == Cursors.Hand && locations == 1 &&
+                    refreshes == 0 && details == 0,
+                "losing capture after moving saves the position once without firing a click");
+            ClickPointer(form, MouseButtons.Left, point);
+            Check(details == 1 && refreshes == 0 && locations == 1,
+                "normal character clicks work again after canceled dragging");
+        }
+    }
+
+    private static Point PointerPoint(PetForm form, int designX, int designY)
+    {
+        return new Point((int)Math.Round(form.ClientSize.Width * designX / 220d),
+            (int)Math.Round(form.ClientSize.Height * designY / 310d));
+    }
+
+    private static void VerifyRefreshSpinnerRendering()
+    {
+        foreach (bool pro in new[] { false, true })
+            foreach (int percent in new[] { 50, 100, 200 })
+                using (PetForm form = new PetForm())
+                {
+                    form.SetScalePercent(percent);
+                    DateTime reset = DateTime.UtcNow.AddDays(3);
+                    form.SetUsage(pro ? WeeklyProSnapshot(25, reset)
+                        : Snapshot(40, 25, reset.AddHours(-1), reset));
+                    string name = (pro ? "Pro" : "Plus") + " at " + percent + "%";
+                    Point topLeft = PointerPoint(form, 145, 27);
+                    Point bottomRight = PointerPoint(form, 180, 62);
+                    Rectangle center = Rectangle.FromLTRB(topLeft.X, topLeft.Y,
+                        bottomRight.X, bottomRight.Y);
+                    Rectangle hud = new Rectangle(0, 0, form.ClientSize.Width,
+                        PointerPoint(form, 0, 78).Y);
+                    using (Bitmap normal = form.RenderImageForTesting())
+                    {
+                        form.SetRefreshing(true);
+                        using (Bitmap start = form.RenderImageForTesting())
+                        {
+                            int centerChanges = CountChangedPixels(normal, start, center);
+                            Check(centerChanges > 3 && CountChangedPixels(normal, start) == centerChanges,
+                                "the refresh symbol immediately replaces only the center value and watermark: " + name);
+                            form.AdvanceDesktopMotionForTesting(false, new Point(1200, 400),
+                                new Rectangle(0, 0, 1920, 1080), 0.1d, true);
+                            using (Bitmap rotated = form.RenderImageForTesting())
+                            {
+                                Check(CountChangedPixels(start, rotated, center) > 3 &&
+                                        CountChangedPixels(start, rotated, hud) ==
+                                        CountChangedPixels(start, rotated, center),
+                                    "the refresh arrows rotate while dates and quota arc remain unchanged: " + name);
+                                form.SetRefreshing(true);
+                                using (Bitmap repeated = form.RenderImageForTesting())
+                                    Check(CountChangedPixels(rotated, repeated, hud) == 0,
+                                        "an existing refresh does not restart the rotation: " + name);
+                            }
+                        }
+                        form.SetRefreshing(false);
+                        using (Bitmap restored = form.RenderImageForTesting())
+                            Check(CountChangedPixels(normal, restored, hud) == 0,
+                                "finishing a refresh restores the exact quota number and watermark: " + name);
+                    }
+                }
+
+        using (PetForm form = new PetForm())
+        {
+            form.SetRefreshing(true);
+            form.AdvanceDesktopMotionForTesting(false, new Point(1200, 400),
+                new Rectangle(0, 0, 1920, 1080), 0.1d, true);
+            FieldInfo phase = typeof(PetForm).GetField("quotaRefreshAnimationSeconds",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            double before = (double)phase.GetValue(form);
+            form.SetAppearance(PetAppearance.PhoebeChibi);
+            Check(before > 0d && (double)phase.GetValue(form) == before,
+                "changing pet artwork does not reset an in-progress refresh rotation");
+        }
+    }
+
+    private static void VerifyRefreshSpinnerCompletion()
+    {
+        DateTime reset = DateTime.UtcNow.AddDays(3);
+        Rectangle center = new Rectangle(145, 27, 35, 35);
+        Rectangle hud = new Rectangle(0, 0, 220, 78);
+        using (PetForm form = new PetForm())
+        using (PetForm expected = new PetForm())
+        {
+            UsageSnapshot previous = Snapshot(40, 60, reset.AddHours(-1), reset);
+            UsageSnapshot latest = Snapshot(42, 65, reset.AddHours(-1), reset);
+            form.SetUsage(previous);
+            form.SetLiveUsage(previous);
+            expected.SetUsage(previous);
+            form.SetRefreshing(true);
+            form.SetLiveUsage(latest);
+            form.AdvanceDesktopMotionForTesting(false, new Point(1200, 400),
+                new Rectangle(0, 0, 1920, 1080), 0.1d, true);
+            Check(form.IsUsageTransitionActiveForTesting &&
+                    form.DisplayedArcPercentForTesting == 40f &&
+                    form.WeeklyTransitionDirectionForTesting == 1,
+                "fresh quota changes wait for refresh rotation to finish before animating");
+            form.SetRefreshing(false);
+            using (Bitmap ready = form.RenderImageForTesting())
+            using (Bitmap oldNumber = expected.RenderImageForTesting())
+                Check(CountChangedPixels(ready, oldNumber, new Rectangle(150, 34, 25, 20)) == 0,
+                    "ending refresh returns to the old value before the detected quota-change animation");
+            form.AdvanceUsageTransitionForTesting(0.5d);
+            using (Bitmap arrow = form.RenderImageForTesting())
+                Check(CountArrowPixels(arrow, center, 1) > 15 &&
+                        ArrowPointsInDirection(arrow, center, 1),
+                    "the detected quota increase still shows its red upward arrow after synchronization");
+            form.AdvanceUsageTransitionForTesting(1.6d);
+            expected.SetUsage(latest);
+            using (Bitmap current = form.RenderImageForTesting())
+            using (Bitmap expectedCurrent = expected.RenderImageForTesting())
+                Check(!form.IsUsageTransitionActiveForTesting &&
+                        CountChangedPixels(current, expectedCurrent, hud) == 0,
+                    "successful refresh ends with the exact latest values and normal watermark");
+
+            form.SetRefreshing(true);
+            latest.IsStale = true;
+            form.SetUsage(latest);
+            form.SetRefreshing(false);
+            using (Bitmap fallback = form.RenderImageForTesting())
+            using (Bitmap expectedCurrent = expected.RenderImageForTesting())
+                Check(CountChangedPixels(fallback, expectedCurrent, hud) == 0 &&
+                        !form.IsUsageTransitionActiveForTesting,
+                    "a failed refresh restores cached numbers without leaving a spinning symbol");
+
+            form.SetUsage(null);
+            expected.SetUsage(null);
+            form.SetRefreshing(true);
+            using (Bitmap loading = form.RenderImageForTesting())
+            using (Bitmap unknown = expected.RenderImageForTesting())
+                Check(CountChangedPixels(loading, unknown, center) > 3,
+                    "the refresh rotation is visible when quota data is not available yet");
+            form.SetRefreshing(false);
+            using (Bitmap stopped = form.RenderImageForTesting())
+            using (Bitmap unknown = expected.RenderImageForTesting())
+                Check(CountChangedPixels(stopped, unknown, hud) == 0,
+                    "ending an empty-data refresh restores the normal missing-value indicator");
+        }
+    }
+
+    private static void ClickPointer(PetForm form, MouseButtons button, Point point)
+    {
+        RaisePointer(form, "OnMouseDown", button, point);
+        RaisePointer(form, "OnMouseUp", button, point);
+    }
+
+    private static void RaisePointer(PetForm form, string method, MouseButtons button, Point point)
+    {
+        typeof(Control).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(form, new object[] { new MouseEventArgs(button, 1, point.X, point.Y, 0) });
+    }
+
     private static void VerifyStatusHudContent()
     {
         using (PetForm form = new PetForm())
@@ -523,9 +869,9 @@ internal static class PetModeQa
                 form.SetUsageDisplayMode(PetUsageDisplayMode.Remaining);
                 using (Bitmap reversed = form.RenderImageForTesting())
                 {
-                    Check(CountHudArcChanges(boundaries, reversed) > 6 &&
+                    Check(CountHudArcChanges(boundaries, reversed) == 0 &&
                             CountChangedPixels(boundaries, reversed, numberArea) > 3,
-                        "zero and full percentages reverse correctly for the separate 5-hour and 7-day indicators");
+                        "an exhausted weekly quota keeps the 5-hour arc neutral while its center reverses with display mode");
                 }
                 form.SetUsageDisplayMode(PetUsageDisplayMode.Used);
                 UsageSnapshot missingPrimary = Snapshot(0, 100, primary, secondary);
@@ -559,6 +905,97 @@ internal static class PetModeQa
                         "an unknown 7-day quota changes the center marker without clearing the full 5-hour arc");
                 }
             }
+        }
+    }
+
+    private static void VerifyWeeklyExhaustionHud()
+    {
+        DateTime reset = DateTime.UtcNow.AddDays(3);
+        Rectangle captionArea = new Rectangle(152, 26, 20, 6);
+        Rectangle numberArea = new Rectangle(152, 33, 20, 17);
+        foreach (PetUsageDisplayMode mode in new[]
+        {
+            PetUsageDisplayMode.Used, PetUsageDisplayMode.Remaining
+        })
+        using (PetForm form = new PetForm())
+        using (PetForm reference = new PetForm())
+        {
+            form.SetUsageDisplayMode(mode);
+            reference.SetUsageDisplayMode(mode);
+            form.SetUsage(Snapshot(0, 99, reset, reset));
+            using (Bitmap available = form.RenderImageForTesting())
+            {
+                form.SetUsage(Snapshot(0, 100, reset, reset));
+                reference.SetUsage(null);
+                using (Bitmap exhausted = form.RenderImageForTesting())
+                using (Bitmap unknown = reference.RenderImageForTesting())
+                {
+                    Check(!form.DisplayedArcPercentForTesting.HasValue &&
+                            CountHudArcChanges(exhausted, unknown) == 0 &&
+                            CountCaptionInkPixels(exhausted, captionArea) == 0,
+                        "weekly exhaustion clears the 5-hour progress and rim caption in " + mode + " mode");
+                    reference.SetUsage(WeeklyProSnapshot(100, reset));
+                    using (Bitmap weeklyOnly = reference.RenderImageForTesting())
+                        Check(CountChangedPixels(exhausted, weeklyOnly, numberArea) == 0,
+                            "weekly exhaustion retains the accurate weekly center number in " + mode + " mode");
+                    form.SetUsage(Snapshot(100, 100, reset, reset));
+                    using (Bitmap alsoSessionExhausted = form.RenderImageForTesting())
+                        Check(CountHudArcChanges(exhausted, alsoSessionExhausted) == 0 &&
+                                CountCaptionInkPixels(alsoSessionExhausted, captionArea) == 0,
+                            "5-hour changes cannot refill the ring while the weekly quota is exhausted in " + mode + " mode");
+                    form.SetUsage(Snapshot(0, 99, reset, reset));
+                    using (Bitmap restored = form.RenderImageForTesting())
+                        Check(form.DisplayedArcPercentForTesting ==
+                                (mode == PetUsageDisplayMode.Remaining ? 100f : 0f) &&
+                                CountHudArcChanges(available, restored) == 0 &&
+                                CountChangedPixels(available, restored, captionArea) == 0 &&
+                                CountChangedPixels(exhausted, restored, captionArea) > 3,
+                            "weekly recovery restores the true 5-hour ring and caption in " + mode + " mode");
+                }
+            }
+
+            form.SetLiveUsage(Snapshot(10, 99, reset, reset));
+            form.SetLiveUsage(Snapshot(70, 99, reset, reset));
+            form.AdvanceUsageTransitionForTesting(0.15d);
+            Check(form.DisplayedArcPercentForTesting.HasValue,
+                "a live 5-hour arc is active before weekly exhaustion in " + mode + " mode");
+            form.SetLiveUsage(Snapshot(0, 100, reset, reset));
+            reference.SetUsage(Snapshot(0, 100, reset, reset));
+            using (Bitmap exhaustedDuringTransition = form.RenderImageForTesting())
+            using (Bitmap neutral = reference.RenderImageForTesting())
+                Check(!form.DisplayedArcPercentForTesting.HasValue &&
+                        CountHudArcChanges(exhaustedDuringTransition, neutral) == 0 &&
+                        CountCaptionInkPixels(exhaustedDuringTransition, captionArea) == 0,
+                    "weekly exhaustion immediately overrides an in-flight 5-hour animation in " + mode + " mode");
+            form.AdvanceUsageTransitionForTesting(0.5d);
+            using (Bitmap weeklyArrow = form.RenderImageForTesting())
+                Check(!form.DisplayedArcPercentForTesting.HasValue &&
+                        CountCaptionInkPixels(weeklyArrow, captionArea) == 0,
+                    "the weekly arrow cannot restore a suppressed 5-hour caption in " + mode + " mode");
+            form.SetLiveUsage(Snapshot(0, 20, reset, reset));
+            form.AdvanceUsageTransitionForTesting(3d);
+            using (Bitmap stillBlocked = reference.RenderImageForTesting())
+            {
+                reference.SetUsage(Snapshot(0, 20, reset, reset));
+                using (Bitmap recovered = form.RenderImageForTesting())
+                using (Bitmap expected = reference.RenderImageForTesting())
+                    Check(form.DisplayedArcPercentForTesting ==
+                            (mode == PetUsageDisplayMode.Remaining ? 100f : 0f) &&
+                            CountHudArcChanges(recovered, expected) == 0 &&
+                            CountChangedPixels(recovered, expected, captionArea) == 0 &&
+                            CountChangedPixels(recovered, stillBlocked, captionArea) > 3,
+                        "a live weekly reset restores the real 5-hour ring after its transition in " + mode + " mode");
+            }
+
+            form.SetUsage(WeeklyProSnapshot(100, reset));
+            reference.SetUsage(WeeklyProSnapshot(50, reset));
+            using (Bitmap proExhausted = form.RenderImageForTesting())
+            using (Bitmap proHalf = reference.RenderImageForTesting())
+                Check(form.DisplayedArcPercentForTesting ==
+                        (mode == PetUsageDisplayMode.Remaining ? 0f : 100f) &&
+                        CountHudArcChanges(proExhausted, proHalf) > 6 &&
+                        CountCaptionInkPixels(proExhausted, captionArea) == 0,
+                    "an exhausted Pro quota keeps its accurate weekly ring in " + mode + " mode");
         }
     }
 
@@ -888,9 +1325,15 @@ internal static class PetModeQa
                             using (Bitmap sameRefresh = form.RenderImageForTesting())
                                 Check(CountChangedPixels(arrow, sameRefresh, center) == 0,
                                     "an identical refresh does not restart the weekly elevator for " + name);
+                            form.AdvanceUsageTransitionForTesting(1d);
+                            using (Bitmap heldArrow = form.RenderImageForTesting())
+                                Check(form.WeeklyTransitionDirectionForTesting == direction &&
+                                        CountArrowPixels(heldArrow, center, direction) > 15 &&
+                                        CountChangedPixels(arrow, heldArrow, center) == 0,
+                                    "the weekly " + name + " keeps its arrow fully visible for more than one second");
                         }
 
-                        form.AdvanceUsageTransitionForTesting(0.45d);
+                        form.AdvanceUsageTransitionForTesting(0.33d);
                         using (Bitmap entering = form.RenderImageForTesting())
                             Check(CountChangedPixels(final, entering, center) > 3 &&
                                     CountArrowPixels(entering, center, direction) == 0,
@@ -1040,7 +1483,7 @@ internal static class PetModeQa
             Check(form.IsUsageTransitionActiveForTesting &&
                     form.WeeklyTransitionDirectionForTesting == 1,
                 "a newer weekly value replaces an in-flight target and updates the arrow direction");
-            form.AdvanceUsageTransitionForTesting(1.2d);
+            form.AdvanceUsageTransitionForTesting(2.1d);
             expected.SetUsage(Snapshot(40, 65, reset, reset));
             using (Bitmap actual = form.RenderImageForTesting())
             using (Bitmap final = expected.RenderImageForTesting())
@@ -1526,6 +1969,53 @@ internal static class PetModeQa
                 nextReset.AddHours(5), weeklyReset.AddDays(7)));
             Check(form.MoodForTesting == PetMood.Happy,
                 "a secondary quota rollover also starts the happy state");
+        }
+
+        foreach (PetUsageDisplayMode displayMode in new[]
+        {
+            PetUsageDisplayMode.Used, PetUsageDisplayMode.Remaining
+        })
+        using (PetForm form = new PetForm())
+        {
+            form.SetUsageDisplayMode(displayMode);
+            form.SetUsage(Snapshot(0, 0, null, null));
+            Check(form.MoodHintForTesting == string.Empty,
+                "zero used quota does not report exhaustion in " + displayMode + " mode");
+
+            form.SetUsage(Snapshot(99, 34, null, null));
+            Check(form.MoodHintForTesting == "（额度快到上限啦…）",
+                "99 percent used keeps the near-limit hint in " + displayMode + " mode");
+
+            form.SetUsage(Snapshot(100, 34, null, null));
+            Check(form.MoodHintForTesting == "（额度已到上限）",
+                "an exhausted 5-hour quota reports the reached limit in " + displayMode + " mode");
+
+            form.SetUsage(Snapshot(34, 100, null, null));
+            Check(form.MoodHintForTesting == "（额度已到上限）",
+                "an exhausted 7-day quota reports the reached limit in " + displayMode + " mode");
+        }
+
+        using (PetForm form = new PetForm())
+        {
+            form.SetUsage(Snapshot(100, 34, null, null));
+            form.SetUsage(null);
+            Check(form.MoodHintForTesting == string.Empty,
+                "missing quota data clears the exhausted hint");
+
+            UsageSnapshot pro = Snapshot(100, 20, null, null);
+            pro.PlanType = "Pro";
+            pro.Primary.WindowDurationMinutes = 300;
+            pro.Secondary.WindowDurationMinutes = 10080;
+            form.SetUsage(pro);
+            Check(form.MoodHintForTesting == string.Empty,
+                "a legacy Pro session quota cannot create a false exhausted hint");
+
+            DateTime reset = new DateTime(2026, 11, 2, 5, 0, 0, DateTimeKind.Utc);
+            form.SetLiveUsage(Snapshot(90, 100, reset, reset.AddDays(7)));
+            form.SetLiveUsage(Snapshot(0, 100, reset.AddHours(5), reset.AddDays(7)));
+            Check(form.MoodForTesting == PetMood.Happy &&
+                    form.MoodHintForTesting == "（额度已到上限）",
+                "an exhausted weekly quota takes hint priority over a session reset celebration");
         }
     }
 

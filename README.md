@@ -30,8 +30,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 
 推荐从 [GitLab Releases](https://gitlab.com/Supaio/usagepeek/-/releases)
 下载单文件版，也可以[直接下载最新版 UsagePeek.exe](https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/UsagePeek.exe)。
-也可直接下载 [2.0.4 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.4/dist/UsagePeek.exe)。
-2.0.4 已重新发布；已安装早期 2.0.4 的用户请重新下载覆盖，同版本替换不会触发旧客户端的版本升级提示。
+也可直接下载 [2.0.5 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.5/dist/UsagePeek.exe)。
 无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
 点击“修复连接”即可获取官方 Codex CLI 运行组件。
 Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈希，诊断技术详情可查看完整值。
@@ -96,8 +95,12 @@ Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈�
   右侧内嵌缩小后的圆环，数字、水印和箭头同步缩放。外圈进度表示 5h，`5h` 百分比嵌在
   圆环顶部的缺口中；圆心显示 7d 百分比，背后带淡灰色 `7d` 水印。
   Pro 不显示 5h 窗口，改用完整的 7d 圆环，环上不显示文字。
+  点击额度圆环可立即刷新同步，正在同步时圈内显示持续旋转的双箭头；
+  同步结束后恢复额度数字，连续点击会等待当前请求完成。
+  从圆环拖动仍可移动桌宠，点击角色或日期可打开用量详情。
   运行时检测到 7d 数值变化，会按“旧值 → 方向箭头 → 新值”滚动切换，
-  数值下降为绿色向下箭头，上升为红色向上箭头；5h 外圈平滑变化。
+  数值下降为绿色向下箭头，上升为红色向上箭头；箭头完整停留约 1.2 秒后
+  切换到新数值，5h 外圈平滑变化。
   切换已用/剩余口径、首次读取及缓存回退时直接显示当前数值，不播放变化动画。
   时间未知时显示 `--/-- --:--`，7d 未知时显示 `--`，5h 未知时只显示中性圆环。
   状态栏支持 50%–200% 缩放，随角色转向保持正向。
@@ -248,7 +251,7 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```json
 {
-  "version": "2.0.4",
+  "version": "2.0.5",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"

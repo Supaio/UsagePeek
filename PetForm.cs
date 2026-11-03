@@ -111,6 +111,9 @@ namespace UsagePeek
         private Point dragStartWindow;
         private bool dragging;
         private bool moved;
+        private bool quotaCirclePressed;
+        private bool quotaRefreshInProgress;
+        private double quotaRefreshAnimationSeconds;
         private int? primaryUsedPercent;
         private int? secondaryUsedPercent;
         private DateTime? primaryResetsAtUtc;
@@ -137,7 +140,12 @@ namespace UsagePeek
         private ImageAttributes quotaValueOpacity;
         private readonly ColorMatrix quotaValueColorMatrix = new ColorMatrix();
         private const double QuotaArcDurationSeconds = 0.75d;
-        private const double QuotaWeeklyDurationSeconds = 1.15d;
+        private const double QuotaWeeklyArrowStartSeconds = 0.28d;
+        private const double QuotaWeeklyArrowFadeSeconds = 0.08d;
+        private const double QuotaWeeklyArrowEndSeconds =
+            QuotaWeeklyArrowStartSeconds + 1.2d + QuotaWeeklyArrowFadeSeconds * 2d;
+        private const double QuotaWeeklyDurationSeconds = QuotaWeeklyArrowEndSeconds + 0.38d;
+        private const double QuotaRefreshRotationSeconds = 1.2d;
         private string shortQuotaLabel = "5h";
         private string secondaryQuotaLabel = "7d";
         private int petScalePercent;
@@ -159,6 +167,7 @@ namespace UsagePeek
         internal bool LayeredImageApplied { get; private set; }
 
         public event EventHandler DetailsRequested;
+        public event EventHandler RefreshRequested;
         public event EventHandler LocationCommitted;
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -175,6 +184,10 @@ namespace UsagePeek
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter,
+            int x, int y, int width, int height, uint flags);
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetDesktopWindow();
@@ -302,10 +315,17 @@ namespace UsagePeek
             get { return quotaArcAnimating || quotaWeeklyAnimating; }
         }
 
+        private bool ShortQuotaBlocked
+        {
+            get { return !singleQuotaWindow && secondaryUsedPercent.HasValue &&
+                secondaryUsedPercent.Value >= 100; }
+        }
+
         private float? AnimatedArcPercent
         {
             get
             {
+                if (ShortQuotaBlocked) return null;
                 if (!quotaArcAnimating)
                     return GetDisplayedPercent(singleQuotaWindow
                         ? secondaryUsedPercent : primaryUsedPercent);
@@ -321,7 +341,7 @@ namespace UsagePeek
             if (animate && QuotaTransitionActive && nextPrimary == primaryUsedPercent &&
                 nextSecondary == secondaryUsedPercent) return;
             float? previousArc = AnimatedArcPercent;
-            int? previousWeekly = quotaWeeklyAnimating && quotaTransitionSeconds < 0.77d
+            int? previousWeekly = quotaWeeklyAnimating && quotaTransitionSeconds < QuotaWeeklyArrowEndSeconds
                 ? quotaWeeklyFromPercent : GetDisplayedPercent(secondaryUsedPercent);
             int? nextArc = GetDisplayedPercent(singleQuotaWindow ? nextSecondary : nextPrimary);
             int? nextWeekly = GetDisplayedPercent(nextSecondary);
@@ -422,9 +442,34 @@ namespace UsagePeek
             ApplyLayeredImage();
         }
 
+        public void SetRefreshing(bool value)
+        {
+            if (IsDisposed || Disposing) return;
+            bool changed = quotaRefreshInProgress != value;
+            if (changed && value) quotaRefreshAnimationSeconds = 0d;
+            quotaRefreshInProgress = value;
+            if (!dragging)
+                Cursor = value ? Cursors.AppStarting : Cursors.Hand;
+            if (changed)
+            {
+                InvalidateUsageBubble();
+                ApplyLayeredImage();
+            }
+        }
+
         public void SetAlwaysOnTop(bool enabled)
         {
             TopMost = enabled;
+        }
+
+        public void BringToFrontWithoutActivation()
+        {
+            const uint SwpNoSize = 0x0001;
+            const uint SwpNoMove = 0x0002;
+            const uint SwpNoActivate = 0x0010;
+            if (Visible && IsHandleCreated)
+                SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0,
+                    SwpNoSize | SwpNoMove | SwpNoActivate);
         }
 
         public void SetScalePercent(int value)
@@ -999,6 +1044,7 @@ namespace UsagePeek
 
             double elapsed = desktopMotionStopwatch.Elapsed.TotalSeconds;
             desktopMotionStopwatch.Restart();
+            if (dragging) return;
             AdvancePettingAnimation();
             AdvanceMoodAnimation();
             Point cursor = Cursor.Position;
@@ -1112,7 +1158,11 @@ namespace UsagePeek
                 watchingTilt = targetTilt;
             }
             animationSeconds += elapsed;
-            AdvanceQuotaTransition(elapsed);
+            if (quotaRefreshInProgress)
+                quotaRefreshAnimationSeconds =
+                    (quotaRefreshAnimationSeconds + elapsed) % QuotaRefreshRotationSeconds;
+            else
+                AdvanceQuotaTransition(elapsed);
             float targetBlend = desktopActivity == PetActivity.Walking ? 1f : 0f;
             walkingBlend += (targetBlend - walkingBlend) *
                 (float)(1d - Math.Exp(-elapsed * 10d));
@@ -1853,7 +1903,7 @@ namespace UsagePeek
                 }
             }
 
-            if (weeklyWatermarkVisible)
+            if (weeklyWatermarkVisible && !quotaRefreshInProgress)
             {
                 GraphicsState watermarkState = graphics.Save();
                 using (GraphicsPath clip = new GraphicsPath())
@@ -1875,7 +1925,7 @@ namespace UsagePeek
                 graphics.Restore(watermarkState);
             }
 
-            if (!singleQuotaWindow)
+            if (!singleQuotaWindow && !ShortQuotaBlocked)
             using (Font captionFont = new Font("Segoe UI",
                 Math.Max(3.5f, 7.8f * indicatorScale), FontStyle.Bold, GraphicsUnit.Pixel))
             using (SolidBrush captionBrush = new SolidBrush(Color.FromArgb(34, 38, 54)))
@@ -1960,6 +2010,12 @@ namespace UsagePeek
                     circle.Width - 14f * scale, circle.Height - 14f * scale);
                 graphics.SetClip(clip, CombineMode.Intersect);
             }
+            if (quotaRefreshInProgress)
+            {
+                DrawRefreshIndicator(graphics, circle, scale, accent);
+                graphics.Restore(state);
+                return;
+            }
             string value = FormatPercent(GetDisplayedPercent(secondaryUsedPercent));
             float offset = 0f;
             float opacity = 1f;
@@ -1967,19 +2023,21 @@ namespace UsagePeek
             if (quotaWeeklyAnimating)
             {
                 int direction = Math.Sign(quotaWeeklyToPercent.Value - quotaWeeklyFromPercent.Value);
-                if (quotaTransitionSeconds >= 0.28d && quotaTransitionSeconds < 0.77d)
+                if (quotaTransitionSeconds >= QuotaWeeklyArrowStartSeconds &&
+                    quotaTransitionSeconds < QuotaWeeklyArrowEndSeconds)
                 {
                     float fade = (float)Math.Min(1d, Math.Min(
-                        (quotaTransitionSeconds - 0.28d) / 0.08d,
-                        (0.77d - quotaTransitionSeconds) / 0.08d));
+                        (quotaTransitionSeconds - QuotaWeeklyArrowStartSeconds) / QuotaWeeklyArrowFadeSeconds,
+                        (QuotaWeeklyArrowEndSeconds - quotaTransitionSeconds) / QuotaWeeklyArrowFadeSeconds));
                     DrawQuotaChangeArrow(graphics, circle, scale, direction, fade);
                     graphics.Restore(state);
                     return;
                 }
-                bool entering = quotaTransitionSeconds >= 0.77d;
+                bool entering = quotaTransitionSeconds >= QuotaWeeklyArrowEndSeconds;
                 imageSlot = entering ? 1 : 0;
-                double progress = entering ? (quotaTransitionSeconds - 0.77d) / 0.38d
-                    : quotaTransitionSeconds / 0.28d;
+                double progress = entering ? (quotaTransitionSeconds - QuotaWeeklyArrowEndSeconds) /
+                    (QuotaWeeklyDurationSeconds - QuotaWeeklyArrowEndSeconds)
+                    : quotaTransitionSeconds / QuotaWeeklyArrowStartSeconds;
                 progress = Math.Max(0d, Math.Min(1d, progress));
                 float eased = (float)(progress * progress * (3d - 2d * progress));
                 value = FormatPercent(entering ? quotaWeeklyToPercent : quotaWeeklyFromPercent);
@@ -1999,6 +2057,39 @@ namespace UsagePeek
                     0, 0, valueImage.Width, valueImage.Height, GraphicsUnit.Pixel, quotaValueOpacity);
             }
             graphics.Restore(state);
+        }
+
+        private void DrawRefreshIndicator(Graphics graphics, Rectangle circle,
+            float scale, Color color)
+        {
+            float centerX = circle.Left + circle.Width / 2f;
+            float centerY = circle.Top + circle.Height / 2f;
+            float radius = 12f * scale;
+            RectangleF arc = new RectangleF(centerX - radius, centerY - radius,
+                radius * 2f, radius * 2f);
+            float rotation = (float)(quotaRefreshAnimationSeconds / QuotaRefreshRotationSeconds * 360d);
+            using (Pen pen = new Pen(color, Math.Max(1.1f, 2.4f * scale)))
+            using (SolidBrush brush = new SolidBrush(color))
+            {
+                pen.StartCap = pen.EndCap = LineCap.Round;
+                for (int index = 0; index < 2; index++)
+                {
+                    float start = rotation - 90f + index * 180f;
+                    graphics.DrawArc(pen, arc, start, 113f);
+                    double angle = (start + 125f) * Math.PI / 180d;
+                    float normalX = (float)Math.Cos(angle);
+                    float normalY = (float)Math.Sin(angle);
+                    float tangentX = -normalY;
+                    float tangentY = normalX;
+                    PointF tip = new PointF(centerX + radius * normalX, centerY + radius * normalY);
+                    PointF tail = new PointF(tip.X - tangentX * 4.8f * scale,
+                        tip.Y - tangentY * 4.8f * scale);
+                    graphics.FillPolygon(brush, new PointF[] {
+                        tip,
+                        new PointF(tail.X + normalX * 2.8f * scale, tail.Y + normalY * 2.8f * scale),
+                        new PointF(tail.X - normalX * 2.8f * scale, tail.Y - normalY * 2.8f * scale) });
+                }
+            }
         }
 
         private Bitmap GetQuotaValueImage(string value, Size size, float scale, int slot)
@@ -2096,6 +2187,10 @@ namespace UsagePeek
 
         private string GetMoodHint()
         {
+            if (GetHighestUsedPercent() >= 100)
+            {
+                return "（额度已到上限）";
+            }
             if (mood == PetMood.Happy)
             {
                 return "（额度重置啦！）";
@@ -2468,16 +2563,16 @@ namespace UsagePeek
                 return;
             }
 
-            StopPettingAnimation(true);
-            ResetPettingGesture();
-            ResetDesktopMotion();
-            ApplyLayeredImage();
             dragging = true;
             moved = false;
-            dragStartCursor = Cursor.Position;
+            quotaCirclePressed = IsQuotaCirclePoint(e.Location);
             dragStartWindow = Location;
+            dragStartCursor = PointToScreen(e.Location);
             Capture = true;
             Cursor = Cursors.SizeAll;
+            StopPettingAnimation(false);
+            ResetPettingGesture();
+            ResetDesktopMotion();
         }
 
         private void ContinueDrag(object sender, MouseEventArgs e)
@@ -2495,10 +2590,6 @@ namespace UsagePeek
                 return;
             }
 
-            if (!moved)
-            {
-                StopPettingAnimation(true);
-            }
             moved = true;
             Point requested = new Point(
                 dragStartWindow.X + deltaX,
@@ -2515,11 +2606,24 @@ namespace UsagePeek
             }
 
             dragging = false;
+            bool refreshCircle = quotaCirclePressed;
+            quotaCirclePressed = false;
             Capture = false;
-            Cursor = Cursors.Hand;
+            Cursor = quotaRefreshInProgress ? Cursors.AppStarting : Cursors.Hand;
+            ApplyLayeredImage();
             if (moved)
             {
                 RaiseLocationCommitted();
+                return;
+            }
+
+            if (refreshCircle)
+            {
+                if (!quotaRefreshInProgress && IsQuotaCirclePoint(e.Location))
+                {
+                    EventHandler refresh = RefreshRequested;
+                    if (refresh != null) refresh(this, EventArgs.Empty);
+                }
                 return;
             }
 
@@ -2528,6 +2632,29 @@ namespace UsagePeek
             {
                 requested(this, EventArgs.Empty);
             }
+        }
+
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            if (!dragging || Capture) return;
+            dragging = false;
+            quotaCirclePressed = false;
+            Cursor = quotaRefreshInProgress ? Cursors.AppStarting : Cursors.Hand;
+            if (Disposing || IsDisposed) return;
+            ApplyLayeredImage();
+            if (moved) RaiseLocationCommitted();
+        }
+
+        private bool IsQuotaCirclePoint(Point point)
+        {
+            float scale = ClientSize.Height / (float)WindowDesignHeight;
+            Rectangle circle = GetQuotaCircleBounds(ClientSize.Width, scale);
+            float radiusX = circle.Width / 2f;
+            float radiusY = circle.Height / 2f;
+            float x = (point.X - circle.Left - radiusX) / radiusX;
+            float y = (point.Y - circle.Top - radiusY) / radiusY;
+            return x * x + y * y <= 1f;
         }
 
         private struct PettingPose
