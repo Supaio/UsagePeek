@@ -46,6 +46,7 @@ namespace UsagePeek
         public string PetUsageMode { get; set; }
         public int? PetScalePercent { get; set; }
         public bool? PetAlwaysOnTop { get; set; }
+        public bool? PetAutoMoveEnabled { get; set; }
         public string ThemeMode { get; set; }
 
         public UsageThemeMode GetThemeMode()
@@ -152,6 +153,16 @@ namespace UsagePeek
             PetAlwaysOnTop = value;
         }
 
+        public bool GetPetAutoMoveEnabled()
+        {
+            return !PetAutoMoveEnabled.HasValue || PetAutoMoveEnabled.Value;
+        }
+
+        public void SetPetAutoMoveEnabled(bool value)
+        {
+            PetAutoMoveEnabled = value;
+        }
+
         public Point? GetPetLocation()
         {
             if (!PetLeft.HasValue || !PetTop.HasValue)
@@ -207,6 +218,8 @@ namespace UsagePeek
                             value.GetPetScalePercent());
                         value.SetPetAlwaysOnTop(
                             value.GetPetAlwaysOnTop());
+                        value.SetPetAutoMoveEnabled(
+                            value.GetPetAutoMoveEnabled());
                         value.SetThemeMode(value.GetThemeMode());
                         return value;
                     }
@@ -223,6 +236,7 @@ namespace UsagePeek
             fallback.SetPetUsageDisplayMode(PetUsageDisplayMode.Used);
             fallback.SetPetScalePercent(100);
             fallback.SetPetAlwaysOnTop(false);
+            fallback.SetPetAutoMoveEnabled(true);
             fallback.SetThemeMode(UsageThemeMode.System);
             return fallback;
         }

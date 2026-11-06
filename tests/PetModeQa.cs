@@ -37,6 +37,7 @@ internal static class PetModeQa
             VerifyNewPets();
             VerifyContinuousAnimations();
             VerifyDesktopActivity();
+            VerifyAutoMovementSwitch();
             VerifyArtworkDirection();
             VerifyMoodStates();
         }
@@ -81,6 +82,8 @@ internal static class PetModeQa
             "new installs use the standard pet size");
         Check(!initial.GetPetAlwaysOnTop(),
             "new installs do not force the pet above other windows");
+        Check(initial.GetPetAutoMoveEnabled(),
+            "new installs allow automatic pet movement");
 
         initial.SetDisplayMode(UsageDisplayMode.Pet);
         initial.SetPetLocation(new Point(321, 654));
@@ -88,6 +91,7 @@ internal static class PetModeQa
         initial.SetPetUsageDisplayMode(PetUsageDisplayMode.Remaining);
         initial.SetPetScalePercent(137);
         initial.SetPetAlwaysOnTop(true);
+        initial.SetPetAutoMoveEnabled(false);
         settings.Save(initial);
 
         DisplayModePreference restored = settings.Load();
@@ -104,6 +108,18 @@ internal static class PetModeQa
             "custom pet size survives restart");
         Check(restored.GetPetAlwaysOnTop(),
             "optional pet topmost mode survives restart");
+        Check(!restored.GetPetAutoMoveEnabled(),
+            "disabled automatic movement survives restart");
+        restored.SetPetAutoMoveEnabled(true);
+        settings.Save(restored);
+        Check(settings.Load().GetPetAutoMoveEnabled(),
+            "automatic movement can be enabled again and survives restart");
+
+        string legacyPath = Path.Combine(root, "legacy-display.json");
+        File.WriteAllText(legacyPath, "{\"Mode\":\"pet\",\"PetAlwaysOnTop\":true}");
+        DisplayModePreference legacy = new DisplayModeSettings(legacyPath).Load();
+        Check(legacy.GetPetAutoMoveEnabled() && legacy.GetPetAlwaysOnTop(),
+            "older preferences without the movement option retain automatic walking and existing settings");
 
         restored.SetPetScalePercent(10);
         Check(restored.GetPetScalePercent() == 50,
@@ -1863,6 +1879,78 @@ internal static class PetModeQa
                 !PetForm.IsDesktopForegroundClass("Chrome_WidgetWin_1") &&
                 !PetForm.IsDesktopForegroundClass(null),
             "File Explorer and browser application windows are not mistaken for the desktop");
+    }
+
+    private static void VerifyAutoMovementSwitch()
+    {
+        Rectangle workArea = new Rectangle(0, 0, 1920, 1080);
+        Point cursorRight = new Point(1800, 200);
+        Point cursorLeft = new Point(50, 200);
+        using (PetForm form = new PetForm())
+        {
+            if (form.Handle == IntPtr.Zero)
+                throw new InvalidOperationException("The movement switch test requires a native form handle.");
+            form.ApplyDpiForTesting(96);
+            form.Location = new Point(700, 400);
+            form.SetUsage(Snapshot(45, 25, null, null));
+            form.AdvanceDesktopMotionForTesting(true, cursorRight, workArea, 0.1d, false);
+            Point stopped = form.Location;
+            Check(form.ActivityForTesting == PetActivity.Walking,
+                "automatic movement is initially enabled for the pet");
+
+            form.SetAutoMoveEnabled(false);
+            Check(form.ActivityForTesting == PetActivity.Watching &&
+                    form.WalkingBlendForTesting == 0f && form.Location == stopped,
+                "turning automatic movement off immediately ends an active walk");
+            double animation = form.AnimationTimeForTesting;
+            for (int frame = 0; frame < 80; frame++)
+                form.AdvanceDesktopMotionForTesting(true, cursorLeft, workArea, 0.1d, false);
+            Check(form.Location == stopped && form.ActivityForTesting == PetActivity.Watching &&
+                    form.FacingLeftForTesting && form.AnimationTimeForTesting > animation,
+                "disabled automatic movement keeps the pet stationary while it watches and animates");
+
+            form.SetUsage(Snapshot(55, 65, null, null));
+            Check(form.UsageSummaryForTesting.IndexOf("65%", StringComparison.Ordinal) >= 0,
+                "quota data continues updating while automatic movement is disabled");
+            form.SetRefreshing(true);
+            using (Bitmap first = form.RenderImageForTesting())
+            {
+                form.AdvanceDesktopMotionForTesting(true, cursorRight, workArea, 0.1d, false);
+                using (Bitmap next = form.RenderImageForTesting())
+                    Check(form.Location == stopped && CountChangedPixels(first, next,
+                            new Rectangle(145, 27, 35, 35)) > 3,
+                        "refresh arrows keep rotating without restarting disabled automatic movement");
+            }
+            form.SetRefreshing(false);
+
+            int refreshes = 0;
+            int details = 0;
+            int locations = 0;
+            form.RefreshRequested += delegate { refreshes++; };
+            form.DetailsRequested += delegate { details++; };
+            form.LocationCommitted += delegate { locations++; };
+            Point point = PointerPoint(form, 110, 200);
+            Point beforeDrag = form.Location;
+            RaisePointer(form, "OnMouseDown", MouseButtons.Left, point);
+            Point cursor = Cursor.Position;
+            typeof(PetForm).GetField("dragStartCursor",
+                BindingFlags.Instance | BindingFlags.NonPublic).SetValue(form,
+                new Point(cursor.X - 17, cursor.Y - 9));
+            RaisePointer(form, "OnMouseMove", MouseButtons.Left, point);
+            Point expected = form.ClampLocationForTesting(
+                new Point(beforeDrag.X + 17, beforeDrag.Y + 9),
+                Screen.FromPoint(cursor).WorkingArea);
+            RaisePointer(form, "OnMouseUp", MouseButtons.Left, point);
+            Check(form.Location == expected && locations == 1 && refreshes == 0 && details == 0,
+                "manual dragging still moves and saves the pet while automatic movement is disabled");
+
+            form.Location = new Point(700, 400);
+            form.SetAutoMoveEnabled(true);
+            Point original = form.Location;
+            form.AdvanceDesktopMotionForTesting(true, cursorRight, workArea, 0.1d, false);
+            Check(form.ActivityForTesting == PetActivity.Walking && form.Location != original,
+                "turning automatic movement on lets the pet walk again on the desktop");
+        }
     }
 
     private static void VerifyMoodStates()

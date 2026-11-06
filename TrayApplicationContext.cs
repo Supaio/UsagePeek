@@ -25,6 +25,7 @@ namespace UsagePeek
         private readonly PetForm petForm;
         private readonly ContextMenuStrip menu;
         private readonly ToolStripMenuItem petAlwaysOnTopMenuItem;
+        private readonly ToolStripMenuItem petAutoMoveMenuItem;
         private readonly NotifyIcon trayIcon;
         private readonly TaskbarCreatedListener taskbarCreatedListener;
         private readonly Timer refreshTimer;
@@ -67,6 +68,8 @@ namespace UsagePeek
                 displayPreference.GetPetScalePercent());
             petForm.SetAlwaysOnTop(
                 displayPreference.GetPetAlwaysOnTop());
+            petForm.SetAutoMoveEnabled(
+                displayPreference.GetPetAutoMoveEnabled());
             form.RefreshRequested += async delegate { await RefreshAsync(); };
             form.CurrencyToggleRequested += async delegate { await ToggleCurrencyAsync(); };
             form.RepairRequested += async delegate { await RepairCodexAsync(); };
@@ -104,6 +107,13 @@ namespace UsagePeek
             {
                 TogglePetAlwaysOnTopFromMenu();
             };
+            petAutoMoveMenuItem = new ToolStripMenuItem("桌宠自动移动");
+            petAutoMoveMenuItem.Checked =
+                displayPreference.GetPetAutoMoveEnabled();
+            petAutoMoveMenuItem.Click += delegate
+            {
+                TogglePetAutoMoveFromMenu();
+            };
             ToolStripMenuItem settingsItem =
                 new ToolStripMenuItem("设置与诊断…");
             settingsItem.Click += delegate { ShowSettings(); };
@@ -117,6 +127,7 @@ namespace UsagePeek
             menu.Items.Add(refreshItem);
             menu.Items.Add(modelUsageItem);
             menu.Items.Add(petAlwaysOnTopMenuItem);
+            menu.Items.Add(petAutoMoveMenuItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(settingsItem);
             menu.Items.Add(updateItem);
@@ -1031,6 +1042,26 @@ namespace UsagePeek
             }
 
             ApplyPetAlwaysOnTop(enabled);
+        }
+
+        private void TogglePetAutoMoveFromMenu()
+        {
+            bool previous = displayPreference.GetPetAutoMoveEnabled();
+            bool enabled = !previous;
+            displayPreference.SetPetAutoMoveEnabled(enabled);
+            if (!displayModeSettings.TrySave(displayPreference))
+            {
+                displayPreference.SetPetAutoMoveEnabled(previous);
+                petAutoMoveMenuItem.Checked = previous;
+                MessageBox.Show(
+                    "无法保存桌宠自动移动设置，请检查本机数据目录的写入权限。",
+                    "UsagePeek", MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            petForm.SetAutoMoveEnabled(enabled);
+            petAutoMoveMenuItem.Checked = enabled;
         }
 
         private void ApplyPetAlwaysOnTop(bool enabled)

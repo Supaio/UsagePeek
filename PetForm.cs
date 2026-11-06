@@ -89,6 +89,7 @@ namespace UsagePeek
         private readonly Stopwatch desktopMotionStopwatch;
         private readonly Random desktopMotionRandom;
         private PetActivity desktopActivity;
+        private bool autoMoveEnabled = true;
         private bool facingLeft;
         private double animationSeconds;
         private float walkingBlend;
@@ -460,6 +461,15 @@ namespace UsagePeek
         public void SetAlwaysOnTop(bool enabled)
         {
             TopMost = enabled;
+        }
+
+        public void SetAutoMoveEnabled(bool enabled)
+        {
+            if (autoMoveEnabled == enabled) return;
+            autoMoveEnabled = enabled;
+            ResetDesktopMotion();
+            walkingBlend = 0f;
+            ApplyLayeredImage();
         }
 
         public void BringToFrontWithoutActivation()
@@ -1088,7 +1098,7 @@ namespace UsagePeek
             bool roomToWalk = workArea.Width > Width + 16 &&
                 workArea.Height >= Height + 16;
 
-            if (!desktopIsActive ||
+            if (!autoMoveEnabled || !desktopIsActive ||
                 interactionPaused || !roomToWalk)
             {
                 desktopActivity = PetActivity.Watching;

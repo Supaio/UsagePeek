@@ -28,9 +28,10 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 
 ## 下载
 
-推荐从 [GitLab Releases](https://gitlab.com/Supaio/usagepeek/-/releases)
-下载单文件版，也可以[直接下载最新版 UsagePeek.exe](https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/UsagePeek.exe)。
-也可直接下载 [2.0.5 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.5/dist/UsagePeek.exe)。
+可从 [GitHub Releases](https://github.com/Supaio/UsagePeek/releases) 或
+[GitLab Releases](https://gitlab.com/Supaio/usagepeek/-/releases) 下载同版本单文件版，
+也可以[直接下载最新版 UsagePeek.exe](https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/UsagePeek.exe)。
+也可直接下载 [2.0.6 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.6/dist/UsagePeek.exe)。
 无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
 点击“修复连接”即可获取官方 Codex CLI 运行组件。
 Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈希，诊断技术详情可查看完整值。
@@ -70,6 +71,8 @@ Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈�
   小步走动、停留和转向，并带动各自的局部关节；浏览器、编辑器等应用窗口
   处于前台时，桌宠停下并朝向鼠标，不再使用键鼠空闲倒计时。
   顶部用量气泡保持正向，不随角色翻转。
+  右键桌宠或托盘可切换“桌宠自动移动”，立即开启或停止散步，选择会自动保存，
+  重启后保留；关闭自动移动时仍可手动拖动、摸头和查看用量。
   拖动、摸头、打开菜单或面板时暂停散步，切换到经典模式或隐藏桌宠后停止
   动画计时。只读取前台窗口类型和鼠标位置，不读取窗口内容或调用摄像头。
 - **连续 2D 角色动画**：以原始角色图片作为纹理，实时计算局部骨骼与网格变形，
@@ -251,7 +254,7 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```json
 {
-  "version": "2.0.5",
+  "version": "2.0.6",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"
