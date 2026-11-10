@@ -31,7 +31,7 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 可从 [GitHub Releases](https://github.com/Supaio/UsagePeek/releases) 或
 [GitLab Releases](https://gitlab.com/Supaio/usagepeek/-/releases) 下载同版本单文件版，
 也可以[直接下载最新版 UsagePeek.exe](https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/UsagePeek.exe)。
-也可直接下载 [2.0.6 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.6/dist/UsagePeek.exe)。
+也可直接下载 [2.0.7 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.7/dist/UsagePeek.exe)。
 无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
 点击“修复连接”即可获取官方 Codex CLI 运行组件。
 Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈希，诊断技术详情可查看完整值。
@@ -57,6 +57,12 @@ Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈�
   账号不支持，则回退为这台电脑现存本地记录的累计值。
 - **模型用量占比**：按本机持久账本统计每个模型的累计 Token、数量和百分比；
   可从主面板底部或托盘菜单打开。
+- **用量历史**：同一张图并排显示官方每日 Token 和本机用途分项。可按 7 天或
+  30 天翻页，点击图例筛选本机用途。独立的 5 小时和 7 天额度趋势支持悬停查看采样与重置。
+- **会话排行与明细**：按单日或整个区间查看本机 Token 用量前五名。点会话名可查看输入、
+  缓存命中、输出、模型、子智能体和待补价 Token。
+- **累计估价对账**：点主面板的本机累计估值，查看最近一次变动的新增入账、历史补价和人民币汇率影响。
+  首次读取本机账本后建立基线，最近一次对账会随缓存保存。
 - **双显示模式**：通过集中设置，可在“一页看完”的经典面板与
   五种桌宠外形之间切换；紧凑轮廓减少屏幕占用，桌宠支持拖动并
   记住位置，左键点击后在旁边打开
@@ -148,8 +154,10 @@ UsagePeek 通过 Codex app-server 调用：
 ### 本机用量与模型占比
 
 UsagePeek 从 `CODEX_HOME`（默认 `%USERPROFILE%\.codex`）下的 `sessions` 与
-`archived_sessions` 发现用量。扫描器只解析 `turn_context` 和 `token_count`
-元数据，不读取或保存提示词、回复及工具输出。
+`archived_sessions` 发现用量。扫描器只解析 `session_meta` 来源标记、
+`turn_context` 和 `token_count` 元数据，不读取或保存提示词、回复及工具输出。
+「最高用量会话」按去重后的本机 Token 排序，可用 `session_index.jsonl` 的标题元数据识别会话。
+有明确父会话的子智能体会合并统计，无法归属的历史用量单列并计入本机总量。排行金额使用 API 等价估价。
 
 统计按累计计数的增量计算，并以时间戳和各类累计 Token 组成稳定指纹；写入前
 会与账本逐条核对，因此重复刷新、恢复旧日志以及复制到分叉或子代理会话中的
@@ -254,7 +262,7 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```json
 {
-  "version": "2.0.6",
+  "version": "2.0.7",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"

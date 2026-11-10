@@ -10,6 +10,9 @@ namespace UsagePeek
     {
         private UsageSnapshot snapshot;
         private CurrencyDisplayState currency = new CurrencyDisplayState();
+        private bool estimateHovered;
+
+        public event EventHandler EstimateAuditRequested;
 
         public UsageDetailsControl()
         {
@@ -20,6 +23,9 @@ namespace UsagePeek
                 ControlStyles.UserPaint, true);
             BackColor = Color.Transparent;
             Size = new Size(384, 258);
+            TabStop = true;
+            AccessibleRole = AccessibleRole.PushButton;
+            AccessibleName = "本机累计估值 · 查看对账";
         }
 
         public void SetSnapshot(UsageSnapshot value)
@@ -32,6 +38,71 @@ namespace UsagePeek
         {
             currency = value ?? new CurrencyDisplayState();
             Invalidate();
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            SetEstimateHover(IsOverEstimate(e.Location));
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            SetEstimateHover(false);
+        }
+
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            base.OnMouseClick(e);
+            if (e.Button == MouseButtons.Left && IsOverEstimate(e.Location)) RequestEstimateAudit();
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.KeyCode != Keys.Enter && e.KeyCode != Keys.Space) return;
+            e.SuppressKeyPress = true;
+            RequestEstimateAudit();
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            base.OnGotFocus(e);
+            Invalidate();
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            base.OnLostFocus(e);
+            Invalidate();
+        }
+
+        private void RequestEstimateAudit()
+        {
+            EventHandler handler = EstimateAuditRequested;
+            if (handler != null) handler(this, EventArgs.Empty);
+        }
+
+        private void SetEstimateHover(bool hovered)
+        {
+            if (estimateHovered == hovered) return;
+            estimateHovered = hovered;
+            Cursor = hovered ? Cursors.Hand : Cursors.Default;
+            Invalidate();
+        }
+
+        private Rectangle EstimateBounds()
+        {
+            int half = UiDrawing.LogicalWidth(this) / 2;
+            return new Rectangle(half + 8, 9, Math.Max(1, half - 17), 73);
+        }
+
+        private bool IsOverEstimate(Point point)
+        {
+            DpiAwareForm form = FindForm() as DpiAwareForm;
+            float scale = form == null ? 1f : Math.Max(1f, form.DpiScaleFactor);
+            return EstimateBounds().Contains((int)(point.X / scale), (int)(point.Y / scale));
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -52,6 +123,12 @@ namespace UsagePeek
                 e.Graphics.DrawPath(border, path);
             }
 
+            if (estimateHovered || (Focused && ShowFocusCues))
+            {
+                using (GraphicsPath hit = UiDrawing.RoundedRectangle(EstimateBounds(), 10))
+                using (SolidBrush fill = new SolidBrush(UiColors.Field))
+                    e.Graphics.FillPath(fill, hit);
+            }
             DrawRows(e.Graphics);
         }
 
@@ -73,7 +150,7 @@ namespace UsagePeek
                 float half = width / 2f;
                 DrawText(graphics, "累计 Token", labelFont, labelBrush,
                     new RectangleF(18, 14, half - 32, 18), false);
-                DrawText(graphics, "本机累计估值", labelFont, labelBrush,
+                DrawText(graphics, "本机累计估值 ›", labelFont, labelBrush,
                     new RectangleF(half + 18, 14, half - 36, 18), false);
                 string lifetimeTokens = DisplayFormatting.FormatLifetimeTokens(snapshot);
                 string lifetimeCost = FormatLifetimeCost();

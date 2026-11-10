@@ -50,8 +50,9 @@ namespace UsagePeek
             UsageAccumulator lifetime = new UsageAccumulator();
             Dictionary<string, long> modelTokens =
                 new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-            HashSet<string> seenEvents = new HashSet<string>(StringComparer.Ordinal);
-            List<UsageLedgerEvent> observedEvents = new List<UsageLedgerEvent>();
+            Dictionary<string, UsageLedgerEvent> observedEvents =
+                new Dictionary<string, UsageLedgerEvent>(StringComparer.Ordinal);
+            Dictionary<string, string> sessionParents = new Dictionary<string, string>(StringComparer.Ordinal);
             DateTime localToday = DateTime.Now.Date;
             DateTime last30Start = localToday.AddDays(-29);
             DateTime? firstSeen = null;
@@ -59,9 +60,9 @@ namespace UsagePeek
 
             foreach (string path in FindRolloutFiles())
             {
-                if (ScanFile(path, seenEvents, localToday, last30Start,
+                if (ScanFile(path, localToday, last30Start,
                     today, yesterday, last30Days, lifetime, modelTokens,
-                    observedEvents, ref firstSeen))
+                    observedEvents, sessionParents, ref firstSeen))
                 {
                     filesScanned++;
                 }
@@ -75,12 +76,56 @@ namespace UsagePeek
             snapshot.ModelUsage = BuildModelUsage(modelTokens);
             snapshot.FirstSeenAtUtc = firstSeen;
             snapshot.FilesScanned = filesScanned;
-            return MergeWithPersistentLedger(snapshot, observedEvents);
+            return MergeWithPersistentLedger(snapshot, observedEvents.Values, sessionParents);
+        }
+
+        internal Dictionary<DateTime, LocalUsageDay> ReadDailyHistory(DateTime firstDay, DateTime lastDay)
+        {
+            bool fromBackup;
+            bool unreadable;
+            UsageLedgerState state = LoadLedger(out fromBackup, out unreadable);
+            if (unreadable) return null;
+
+            Dictionary<DateTime, LocalUsageDay> daily = new Dictionary<DateTime, LocalUsageDay>();
+            if (state == null || state.Events == null) return daily;
+
+            ConversationIndex conversations = new ConversationIndex(state.SessionParents, ReadSessionTitles());
+            firstDay = firstDay.Date;
+            lastDay = lastDay.Date;
+            HashSet<string> verified = new HashSet<string>(StringComparer.Ordinal);
+            foreach (UsageLedgerEvent item in state.Events)
+            {
+                if (!IsValidLedgerEvent(item) || !verified.Add(item.Fingerprint))
+                    continue;
+
+                DateTime day = item.EventUtc.ToUniversalTime().ToLocalTime().Date;
+                if (day < firstDay || day > lastDay) continue;
+                AddDailyHistoryEvent(daily, day, item, conversations);
+            }
+            return daily;
+        }
+
+        private static void AddDailyHistoryEvent(Dictionary<DateTime, LocalUsageDay> daily,
+            DateTime day, UsageLedgerEvent item, ConversationIndex conversations)
+        {
+            LocalUsageDay usage;
+            if (!daily.TryGetValue(day, out usage))
+            {
+                usage = new LocalUsageDay();
+                daily.Add(day, usage);
+            }
+            LocalUsageCategory category = item.Category >= LocalUsageCategory.Unknown &&
+                item.Category <= LocalUsageCategory.OtherTask ? item.Category : LocalUsageCategory.Unknown;
+            string id = conversations.FindRoot(item.SessionId);
+            LocalConversationUsage conversation = usage.Add(NormalizeModelName(item.Model), category, item.TotalTokens,
+                id, conversations.FindTitle(id), item.EventUtc, item.HasPriceEstimate ? (decimal?)item.EstimatedCostUsd : null);
+            conversation.AddTokenBreakdown(item.InputTokens, item.CachedInputTokens, item.OutputTokens, item.TotalTokens);
+            if (id != null && category == LocalUsageCategory.Subagent && !string.IsNullOrEmpty(item.SessionId))
+                conversation.AddSubagent(item.SessionId, conversations.FindTitle(item.SessionId), item.TotalTokens);
         }
 
         private bool ScanFile(
             string path,
-            HashSet<string> seenEvents,
             DateTime localToday,
             DateTime last30Start,
             UsageAccumulator today,
@@ -88,7 +133,8 @@ namespace UsagePeek
             UsageAccumulator last30Days,
             UsageAccumulator lifetime,
             IDictionary<string, long> modelTokens,
-            ICollection<UsageLedgerEvent> observedEvents,
+            IDictionary<string, UsageLedgerEvent> observedEvents,
+            IDictionary<string, string> sessionParents,
             ref DateTime? firstSeen)
         {
             try
@@ -101,6 +147,10 @@ namespace UsagePeek
                     string model = null;
                     TokenVector previous = null;
                     long? historyBoundaryOrdinal = null;
+                    LocalUsageCategory sessionCategory = LocalUsageCategory.Unknown;
+                    DateTime? sessionStartedAtUtc = null;
+                    string sessionId = null;
+                    bool foundSessionMeta = false;
                     string line;
                     while ((line = reader.ReadLine()) != null)
                     {
@@ -118,6 +168,14 @@ namespace UsagePeek
                                 0, line.Length, out parsedBoundary))
                             {
                                 historyBoundaryOrdinal = parsedBoundary;
+                            }
+                            if (!foundSessionMeta && line.Length <= MaximumMetadataLineLength)
+                            {
+                                string parentId;
+                                sessionCategory = ReadSessionCategory(line, out sessionStartedAtUtc, out sessionId, out parentId);
+                                if (sessionId != null && parentId != null)
+                                    MergeSessionParent(sessionParents, sessionId, parentId);
+                                foundSessionMeta = true;
                             }
                             continue;
                         }
@@ -174,15 +232,21 @@ namespace UsagePeek
                             continue;
                         }
 
-                        string fingerprint = BuildFingerprint(tokenEvent.TimestampText, current);
-                        if (!seenEvents.Add(fingerprint))
-                        {
-                            continue;
-                        }
-
                         DateTime eventUtc;
                         if (!TryParseTimestamp(tokenEvent.TimestampText, out eventUtc))
                         {
+                            continue;
+                        }
+                        // A fork can replay earlier events before its own start time.
+                        bool replayed = !historyBoundaryOrdinal.HasValue && sessionStartedAtUtc > eventUtc;
+                        LocalUsageCategory category = replayed ? LocalUsageCategory.Unknown : sessionCategory;
+                        string attributedId = !replayed && (sessionStartedAtUtc.HasValue || historyBoundaryOrdinal.HasValue)
+                            ? sessionId : null;
+                        string fingerprint = BuildFingerprint(tokenEvent.TimestampText, current);
+                        UsageLedgerEvent recorded;
+                        if (observedEvents.TryGetValue(fingerprint, out recorded))
+                        {
+                            MergeEventMetadata(recorded, category, attributedId);
                             continue;
                         }
 
@@ -195,8 +259,8 @@ namespace UsagePeek
                         DateTime localDate = eventUtc.ToLocalTime().Date;
                         lifetime.Add(delta.TotalTokens, cost);
                         AddModelTokens(modelTokens, model, delta.TotalTokens);
-                        observedEvents.Add(UsageLedgerEvent.From(
-                            fingerprint, eventUtc, NormalizeModelName(model), delta));
+                        observedEvents.Add(fingerprint, UsageLedgerEvent.From(
+                            fingerprint, eventUtc, NormalizeModelName(model), category, delta, attributedId));
                         if (localDate >= last30Start && localDate <= localToday)
                         {
                             last30Days.Add(delta.TotalTokens, cost);
@@ -226,7 +290,8 @@ namespace UsagePeek
 
         private LocalTokenUsageSnapshot MergeWithPersistentLedger(
             LocalTokenUsageSnapshot current,
-            ICollection<UsageLedgerEvent> observedEvents)
+            ICollection<UsageLedgerEvent> observedEvents,
+            Dictionary<string, string> sessionParents)
         {
             bool repairFromBackup;
             bool unreadableLedger;
@@ -238,55 +303,74 @@ namespace UsagePeek
                 // than silently replacing history that may still be recoverable.
                 // A larger startup cache can still preserve the last good total.
                 UsageLedgerState fallback = CreateLedgerState(
-                    current, observedEvents);
-                return BuildLedgerSnapshot(fallback, current.FilesScanned);
+                    current, observedEvents, sessionParents);
+                return BuildLedgerSnapshot(fallback, current.FilesScanned, false);
             }
 
             bool changed = repairFromBackup;
             if (state == null)
             {
-                state = CreateLedgerState(current, observedEvents);
+                state = CreateLedgerState(current, observedEvents, sessionParents);
                 changed = true;
             }
             else
             {
                 changed = NormalizeLedgerState(state) || changed;
-                HashSet<string> known = new HashSet<string>(
-                    StringComparer.Ordinal);
+                if (state.EstimateTotals == null || !state.EstimateTotals.IsValid)
+                {
+                    state.EstimateTotals = new EstimateLedgerTotals { LedgerId = Guid.NewGuid().ToString("N") };
+                    changed = true;
+                }
+                changed = UpgradeMissingPriceEstimates(state) || changed;
+                Dictionary<string, UsageLedgerEvent> known =
+                    new Dictionary<string, UsageLedgerEvent>(StringComparer.Ordinal);
                 foreach (UsageLedgerEvent item in state.Events)
                 {
-                    known.Add(item.Fingerprint);
+                    known.Add(item.Fingerprint, item);
                 }
 
                 foreach (UsageLedgerEvent item in observedEvents)
                 {
-                    if (IsValidLedgerEvent(item) &&
-                        known.Add(item.Fingerprint))
+                    if (!IsValidLedgerEvent(item)) continue;
+                    UsageLedgerEvent saved;
+                    if (!known.TryGetValue(item.Fingerprint, out saved))
                     {
                         state.Events.Add(item);
+                        known.Add(item.Fingerprint, item);
+                        state.EstimateTotals.AddedTokens += item.TotalTokens;
+                        if (item.HasPriceEstimate) state.EstimateTotals.AddedUsd += item.EstimatedCostUsd;
                         changed = true;
                     }
+                    else if (MergeEventMetadata(saved, item.Category, item.SessionId)) changed = true;
+                }
+                foreach (KeyValuePair<string, string> entry in sessionParents)
+                {
+                    if (state.SessionParents == null)
+                        state.SessionParents = new Dictionary<string, string>(StringComparer.Ordinal);
+                    if (MergeSessionParent(state.SessionParents, entry.Key, entry.Value)) changed = true;
                 }
             }
 
-            changed = UpgradeMissingPriceEstimates(state) || changed;
-
+            bool ledgerSaved = true;
             if (changed)
             {
                 state.UpdatedAtUtc = DateTime.UtcNow;
-                TrySaveLedger(state, repairFromBackup);
+                ledgerSaved = TrySaveLedger(state, repairFromBackup);
             }
 
-            return BuildLedgerSnapshot(state, current.FilesScanned);
+            return BuildLedgerSnapshot(state, current.FilesScanned, ledgerSaved);
         }
 
         private UsageLedgerState CreateLedgerState(
             LocalTokenUsageSnapshot current,
-            ICollection<UsageLedgerEvent> observedEvents)
+            ICollection<UsageLedgerEvent> observedEvents,
+            Dictionary<string, string> sessionParents)
         {
             UsageLedgerState state = new UsageLedgerState();
             state.Version = LedgerVersion;
             state.Events = new List<UsageLedgerEvent>();
+            state.SessionParents = sessionParents.Count == 0 ? null : sessionParents;
+            state.EstimateTotals = new EstimateLedgerTotals { LedgerId = Guid.NewGuid().ToString("N") };
             foreach (UsageLedgerEvent item in observedEvents)
             {
                 if (IsValidLedgerEvent(item))
@@ -305,6 +389,37 @@ namespace UsagePeek
             state.UpdatedAtUtc = DateTime.UtcNow;
             NormalizeLedgerState(state);
             return state;
+        }
+
+        private static bool MergeEventMetadata(UsageLedgerEvent item, LocalUsageCategory category, string sessionId)
+        {
+            bool changed = false;
+            if (item.Category == LocalUsageCategory.Unknown && category != LocalUsageCategory.Unknown)
+            {
+                item.Category = category;
+                changed = true;
+            }
+            if (sessionId != null && item.SessionId != string.Empty && item.SessionId != sessionId)
+            {
+                // Empty marks conflicting ownership. Null permits a later backfill from a rollout.
+                item.SessionId = item.SessionId == null ? sessionId : string.Empty;
+                changed = true;
+            }
+            return changed;
+        }
+
+        private static bool MergeSessionParent(IDictionary<string, string> parents, string sessionId, string parentId)
+        {
+            string existing;
+            if (!parents.TryGetValue(sessionId, out existing))
+            {
+                parents.Add(sessionId, parentId);
+                return true;
+            }
+            if (existing == null || existing == parentId) return false;
+            // A conflicting parent cannot be used to infer a root conversation.
+            parents[sessionId] = null;
+            return true;
         }
 
         private TokenPeriodSnapshot BuildLegacyBaseline(
@@ -401,7 +516,8 @@ namespace UsagePeek
 
         private LocalTokenUsageSnapshot BuildLedgerSnapshot(
             UsageLedgerState state,
-            int filesScanned)
+            int filesScanned,
+            bool includeDailyHistory)
         {
             UsageAccumulator today = new UsageAccumulator();
             UsageAccumulator yesterday = new UsageAccumulator();
@@ -409,6 +525,10 @@ namespace UsagePeek
             UsageAccumulator lifetime = new UsageAccumulator();
             Dictionary<string, long> modelTokens =
                 new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<DateTime, LocalUsageDay> dailyHistory = includeDailyHistory
+                ? new Dictionary<DateTime, LocalUsageDay>() : null;
+            ConversationIndex conversations = includeDailyHistory
+                ? new ConversationIndex(state.SessionParents, ReadSessionTitles()) : null;
             DateTime localToday = DateTime.Now.Date;
             DateTime last30Start = localToday.AddDays(-29);
             DateTime? firstSeen = state.BaselineFirstSeenAtUtc;
@@ -445,6 +565,8 @@ namespace UsagePeek
                 }
 
                 DateTime localDate = eventUtc.ToLocalTime().Date;
+                if (dailyHistory != null && localDate <= localToday)
+                    AddDailyHistoryEvent(dailyHistory, localDate, item, conversations);
                 if (localDate >= last30Start && localDate <= localToday)
                 {
                     last30Days.Add(usage.TotalTokens, cost);
@@ -467,7 +589,9 @@ namespace UsagePeek
                 Lifetime = lifetime.ToSnapshot(),
                 ModelUsage = BuildModelUsage(modelTokens),
                 FirstSeenAtUtc = firstSeen,
-                FilesScanned = filesScanned
+                FilesScanned = filesScanned,
+                DailyHistory = dailyHistory,
+                EstimateTotals = includeDailyHistory ? state.EstimateTotals : null
             };
         }
 
@@ -506,8 +630,12 @@ namespace UsagePeek
                     return false;
                 }
 
-                UsageLedgerState parsed = ledgerSerializer.Deserialize<UsageLedgerState>(
-                    File.ReadAllText(path, Encoding.UTF8));
+                UsageLedgerState parsed;
+                // The history page may read while the scanner atomically replaces the ledger.
+                using (FileStream stream = new FileStream(path, FileMode.Open,
+                    FileAccess.Read, FileShare.Read | FileShare.Delete))
+                using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+                    parsed = ledgerSerializer.Deserialize<UsageLedgerState>(reader.ReadToEnd());
                 if (parsed == null || parsed.Version != LedgerVersion)
                 {
                     return false;
@@ -706,6 +834,8 @@ namespace UsagePeek
                 {
                     item.EstimatedCostUsd = estimate.Value;
                     item.HasPriceEstimate = true;
+                    state.EstimateTotals.BackfilledTokens += item.TotalTokens;
+                    state.EstimateTotals.BackfilledUsd += estimate.Value;
                     changed = true;
                 }
             }
@@ -732,6 +862,118 @@ namespace UsagePeek
             }
 
             return ReadJsonString(line, "model", 0, line.Length);
+        }
+
+        private IDictionary<string, object> ReadMetadataObject(string line)
+        {
+            try { return ledgerSerializer.DeserializeObject(line) as IDictionary<string, object>; }
+            catch (ArgumentException) { return null; }
+            catch (InvalidOperationException) { return null; }
+        }
+
+        private static string ReadMetadataString(IDictionary<string, object> data, string field)
+        {
+            object value;
+            return data != null && data.TryGetValue(field, out value) ? value as string : null;
+        }
+
+        private static string ReadSessionId(IDictionary<string, object> data, string field)
+        {
+            Guid id;
+            return Guid.TryParse(ReadMetadataString(data, field), out id) ? id.ToString("D") : null;
+        }
+
+        private Dictionary<string, string> ReadSessionTitles()
+        {
+            Dictionary<string, string> titles = new Dictionary<string, string>(StringComparer.Ordinal);
+            string path = Path.Combine(codexHome, "session_index.jsonl");
+            try
+            {
+                using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete))
+                using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+                {
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (line.Length == 0 || line.Length > MaximumMetadataLineLength) continue;
+                        IDictionary<string, object> row = ReadMetadataObject(line);
+                        string id = ReadSessionId(row, "id");
+                        string title = ReadMetadataString(row, "thread_name");
+                        if (id != null && !string.IsNullOrWhiteSpace(title))
+                            titles[id] = title.Replace('\r', ' ').Replace('\n', ' ').Trim();
+                    }
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            return titles;
+        }
+
+        private LocalUsageCategory ReadSessionCategory(string line, out DateTime? startedAtUtc,
+            out string sessionId, out string parentId)
+        {
+            startedAtUtc = null;
+            sessionId = null;
+            parentId = null;
+            IDictionary<string, object> record = ReadMetadataObject(line);
+            object type;
+            object payload;
+            if (record == null || !record.TryGetValue("type", out type) ||
+                !string.Equals(type as string, "session_meta", StringComparison.Ordinal) ||
+                !record.TryGetValue("payload", out payload)) return LocalUsageCategory.Unknown;
+            IDictionary<string, object> metadata = payload as IDictionary<string, object>;
+            if (metadata == null) return LocalUsageCategory.Unknown;
+            sessionId = ReadSessionId(metadata, "id");
+
+            object timestamp;
+            DateTime parsed;
+            if ((metadata.TryGetValue("timestamp", out timestamp) && TryParseTimestamp(timestamp as string, out parsed)) ||
+                (record.TryGetValue("timestamp", out timestamp) && TryParseTimestamp(timestamp as string, out parsed)))
+                startedAtUtc = parsed;
+
+            object source;
+            object threadSource;
+            metadata.TryGetValue("source", out source);
+            metadata.TryGetValue("thread_source", out threadSource);
+            IDictionary<string, object> structured = source as IDictionary<string, object>;
+            object subagent;
+            if (structured != null && structured.TryGetValue("subagent", out subagent) && subagent != null)
+            {
+                IDictionary<string, object> child = subagent as IDictionary<string, object>;
+                object spawn;
+                if (child != null && child.TryGetValue("thread_spawn", out spawn))
+                    parentId = ReadSessionId(spawn as IDictionary<string, object>, "parent_thread_id");
+                switch (subagent as string)
+                {
+                    case "review": return LocalUsageCategory.Review;
+                    case "compact": return LocalUsageCategory.Compaction;
+                    case "memory_consolidation": return LocalUsageCategory.OtherTask;
+                }
+                if (subagent is string || subagent is IDictionary<string, object>)
+                    return LocalUsageCategory.Subagent;
+            }
+            if (structured != null && structured.ContainsKey("internal"))
+                return LocalUsageCategory.OtherTask;
+            if (string.Equals(threadSource as string, "subagent", StringComparison.Ordinal))
+                return LocalUsageCategory.Subagent;
+            switch (source as string)
+            {
+                case "cli":
+                case "vscode":
+                case "app_server":
+                case "appServer":
+                case "app-server":
+                    return LocalUsageCategory.Conversation;
+                case "exec":
+                case "mcp":
+                    return LocalUsageCategory.OtherTask;
+                case "subagent":
+                    return LocalUsageCategory.Subagent;
+                default:
+                    return string.Equals(threadSource as string, "user", StringComparison.Ordinal)
+                        ? LocalUsageCategory.Conversation : LocalUsageCategory.Unknown;
+            }
         }
 
         private TokenEvent TryReadTokenEvent(string line)
@@ -1056,6 +1298,49 @@ namespace UsagePeek
             }
         }
 
+        private sealed class ConversationIndex
+        {
+            private readonly Dictionary<string, string> parents;
+            private readonly Dictionary<string, string> titles;
+            private readonly Dictionary<string, string> roots = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            public ConversationIndex(Dictionary<string, string> parents, Dictionary<string, string> titles)
+            {
+                this.parents = parents;
+                this.titles = titles;
+            }
+
+            public string FindRoot(string sessionId)
+            {
+                if (string.IsNullOrEmpty(sessionId)) return null;
+                string root;
+                if (roots.TryGetValue(sessionId, out root)) return root;
+
+                Guid parsed;
+                root = Guid.TryParseExact(sessionId, "D", out parsed) ? sessionId : null;
+                HashSet<string> seen = null;
+                string parent;
+                while (root != null && parents != null && parents.TryGetValue(root, out parent))
+                {
+                    if (seen == null) seen = new HashSet<string>(StringComparer.Ordinal);
+                    if (!seen.Add(root) || !Guid.TryParseExact(parent, "D", out parsed))
+                    {
+                        root = null;
+                        break;
+                    }
+                    root = parent;
+                }
+                roots[sessionId] = root;
+                return root;
+            }
+
+            public string FindTitle(string sessionId)
+            {
+                string title;
+                return sessionId != null && titles.TryGetValue(sessionId, out title) ? title : null;
+            }
+        }
+
         private sealed class UsageLedgerState
         {
             public UsageLedgerState()
@@ -1067,6 +1352,8 @@ namespace UsagePeek
             public Dictionary<string, long> BaselineModelTokens { get; set; }
             public DateTime? BaselineFirstSeenAtUtc { get; set; }
             public List<UsageLedgerEvent> Events { get; set; }
+            public Dictionary<string, string> SessionParents { get; set; }
+            public EstimateLedgerTotals EstimateTotals { get; set; }
             public DateTime UpdatedAtUtc { get; set; }
         }
 
@@ -1079,6 +1366,8 @@ namespace UsagePeek
             public string Fingerprint { get; set; }
             public DateTime EventUtc { get; set; }
             public string Model { get; set; }
+            public LocalUsageCategory Category { get; set; }
+            public string SessionId { get; set; }
             public long InputTokens { get; set; }
             public long CachedInputTokens { get; set; }
             public long CacheWriteInputTokens { get; set; }
@@ -1092,7 +1381,9 @@ namespace UsagePeek
                 string fingerprint,
                 DateTime eventUtc,
                 string model,
-                TokenVector usage)
+                LocalUsageCategory category,
+                TokenVector usage,
+                string sessionId)
             {
                 decimal? estimatedCost = PricingCatalog.Estimate(model, usage);
                 return new UsageLedgerEvent
@@ -1102,6 +1393,8 @@ namespace UsagePeek
                         ? eventUtc
                         : eventUtc.ToUniversalTime(),
                     Model = model,
+                    Category = category,
+                    SessionId = sessionId,
                     InputTokens = usage.InputTokens,
                     CachedInputTokens = usage.CachedInputTokens,
                     CacheWriteInputTokens = usage.CacheWriteInputTokens,

@@ -26,6 +26,7 @@ internal static class PetModeQa
             VerifyRefreshSpinnerRendering();
             VerifyRefreshSpinnerCompletion();
             VerifyStatusHudContent();
+            VerifyRemainingArcComplementsUsedArc();
             VerifyWeeklyExhaustionHud();
             VerifyWeeklyWatermark();
             VerifyWeeklyOnlyStatusHud();
@@ -885,9 +886,10 @@ internal static class PetModeQa
                 form.SetUsageDisplayMode(PetUsageDisplayMode.Remaining);
                 using (Bitmap reversed = form.RenderImageForTesting())
                 {
-                    Check(CountHudArcChanges(boundaries, reversed) == 0 &&
+                    Check(ShowsWeeklyProhibition(reversed) &&
+                            CountHudArcChanges(boundaries, reversed) == 0 &&
                             CountChangedPixels(boundaries, reversed, numberArea) > 3,
-                        "an exhausted weekly quota keeps the 5-hour arc neutral while its center reverses with display mode");
+                        "the weekly prohibition sign stays in place as the center number changes with display mode");
                 }
                 form.SetUsageDisplayMode(PetUsageDisplayMode.Used);
                 UsageSnapshot missingPrimary = Snapshot(0, 100, primary, secondary);
@@ -895,14 +897,16 @@ internal static class PetModeQa
                 form.SetUsage(missingPrimary);
                 using (Bitmap unknownPrimary = form.RenderImageForTesting())
                 {
-                    Check(CountHudArcChanges(boundaries, unknownPrimary) > 6 &&
+                    Check(ShowsWeeklyProhibition(unknownPrimary) &&
+                            form.DisplayedArcPercentForTesting == 0f &&
                             CountChangedPixels(boundaries, unknownPrimary, numberArea) == 0,
-                        "an unknown 5-hour quota uses the known 7-day quota for the arc and keeps its center number");
+                        "an exhausted weekly-only quota shows the prohibition sign and keeps its center number");
                 }
                 form.SetUsage(null);
                 using (Bitmap unknown = form.RenderImageForTesting())
                 {
-                    Check(CountHudArcChanges(boundaries, unknown) == 0 &&
+                    Check(!ShowsWeeklyProhibition(unknown) &&
+                            !form.DisplayedArcPercentForTesting.HasValue &&
                             CountChangedPixels(boundaries, unknown, numberArea) > 3,
                         "unknown quotas show a neutral 5-hour arc and a distinct 7-day missing marker");
                 }
@@ -919,6 +923,41 @@ internal static class PetModeQa
                     Check(CountHudArcChanges(fullPrimary, unknownSecondary) == 0 &&
                             CountChangedPixels(fullPrimary, unknownSecondary, numberArea) > 3,
                         "an unknown 7-day quota changes the center marker without clearing the full 5-hour arc");
+                }
+            }
+        }
+    }
+
+    private static void VerifyRemainingArcComplementsUsedArc()
+    {
+        DateTime reset = DateTime.UtcNow.AddHours(2);
+        foreach (bool weeklyOnly in new[] { false, true })
+        using (PetForm form = new PetForm())
+        {
+            form.SetScalePercent(200);
+            form.SetUsageDisplayMode(PetUsageDisplayMode.Used);
+            form.SetUsage(weeklyOnly ? WeeklyProSnapshot(0, reset)
+                : Snapshot(0, 30, reset, reset.AddDays(3)));
+            using (Bitmap neutral = form.RenderImageForTesting())
+            {
+                form.SetUsage(weeklyOnly ? WeeklyProSnapshot(78, reset)
+                    : Snapshot(78, 30, reset, reset.AddDays(3)));
+                using (Bitmap used = form.RenderImageForTesting())
+                {
+                    form.SetUsageDisplayMode(PetUsageDisplayMode.Remaining);
+                    using (Bitmap remaining = form.RenderImageForTesting())
+                    {
+                        // Sample the right and left sides away from the split.
+                        int neutralRight = neutral.GetPixel(358, 70).ToArgb();
+                        int neutralLeft = neutral.GetPixel(290, 66).ToArgb();
+                        Check(used.GetPixel(358, 70).ToArgb() == neutralRight &&
+                                used.GetPixel(290, 66).ToArgb() != neutralLeft &&
+                                remaining.GetPixel(358, 70).ToArgb() != neutralRight &&
+                                remaining.GetPixel(290, 66).ToArgb() == neutralLeft &&
+                                form.DisplayedArcPercentForTesting == 22f,
+                            "78 percent used fills from the left and 22 percent remaining fills from the right of the " +
+                                (weeklyOnly ? "weekly-only" : "5-hour") + " ring");
+                    }
                 }
             }
         }
@@ -942,14 +981,14 @@ internal static class PetModeQa
             using (Bitmap available = form.RenderImageForTesting())
             {
                 form.SetUsage(Snapshot(0, 100, reset, reset));
-                reference.SetUsage(null);
                 using (Bitmap exhausted = form.RenderImageForTesting())
-                using (Bitmap unknown = reference.RenderImageForTesting())
                 {
-                    Check(!form.DisplayedArcPercentForTesting.HasValue &&
-                            CountHudArcChanges(exhausted, unknown) == 0 &&
-                            CountCaptionInkPixels(exhausted, captionArea) == 0,
-                        "weekly exhaustion clears the 5-hour progress and rim caption in " + mode + " mode");
+                    Check(form.DisplayedArcPercentForTesting == 0f &&
+                            ShowsWeeklyProhibition(exhausted) &&
+                            CountCaptionInkPixels(exhausted, captionArea) > 0 &&
+                            form.UsageSummaryForTesting == (mode == PetUsageDisplayMode.Remaining
+                                ? "5h 剩余 100% · 7d 剩余 0%" : "5h 已用 0% · 7d 已用 100%"),
+                        "weekly exhaustion shows a prohibition sign behind the unchanged quota numbers in " + mode + " mode");
                     reference.SetUsage(WeeklyProSnapshot(100, reset));
                     using (Bitmap weeklyOnly = reference.RenderImageForTesting())
                         Check(CountChangedPixels(exhausted, weeklyOnly, numberArea) == 0,
@@ -957,16 +996,15 @@ internal static class PetModeQa
                     form.SetUsage(Snapshot(100, 100, reset, reset));
                     using (Bitmap alsoSessionExhausted = form.RenderImageForTesting())
                         Check(CountHudArcChanges(exhausted, alsoSessionExhausted) == 0 &&
-                                CountCaptionInkPixels(alsoSessionExhausted, captionArea) == 0,
-                            "5-hour changes cannot refill the ring while the weekly quota is exhausted in " + mode + " mode");
+                                CountChangedPixels(exhausted, alsoSessionExhausted, captionArea) > 3,
+                            "5-hour changes update the rim number without refilling an exhausted weekly ring in " + mode + " mode");
                     form.SetUsage(Snapshot(0, 99, reset, reset));
                     using (Bitmap restored = form.RenderImageForTesting())
                         Check(form.DisplayedArcPercentForTesting ==
                                 (mode == PetUsageDisplayMode.Remaining ? 100f : 0f) &&
                                 CountHudArcChanges(available, restored) == 0 &&
-                                CountChangedPixels(available, restored, captionArea) == 0 &&
-                                CountChangedPixels(exhausted, restored, captionArea) > 3,
-                            "weekly recovery restores the true 5-hour ring and caption in " + mode + " mode");
+                                CountChangedPixels(available, restored, captionArea) == 0,
+                            "weekly recovery restores the 5-hour progress in " + mode + " mode");
                 }
             }
 
@@ -977,41 +1015,42 @@ internal static class PetModeQa
                 "a live 5-hour arc is active before weekly exhaustion in " + mode + " mode");
             form.SetLiveUsage(Snapshot(0, 100, reset, reset));
             reference.SetUsage(Snapshot(0, 100, reset, reset));
-            using (Bitmap exhaustedDuringTransition = form.RenderImageForTesting())
-            using (Bitmap neutral = reference.RenderImageForTesting())
-                Check(!form.DisplayedArcPercentForTesting.HasValue &&
-                        CountHudArcChanges(exhaustedDuringTransition, neutral) == 0 &&
-                        CountCaptionInkPixels(exhaustedDuringTransition, captionArea) == 0,
-                    "weekly exhaustion immediately overrides an in-flight 5-hour animation in " + mode + " mode");
-            form.AdvanceUsageTransitionForTesting(0.5d);
-            using (Bitmap weeklyArrow = form.RenderImageForTesting())
-                Check(!form.DisplayedArcPercentForTesting.HasValue &&
-                        CountCaptionInkPixels(weeklyArrow, captionArea) == 0,
-                    "the weekly arrow cannot restore a suppressed 5-hour caption in " + mode + " mode");
+            using (Bitmap expectedSign = reference.RenderImageForTesting())
+            {
+                using (Bitmap exhaustedDuringTransition = form.RenderImageForTesting())
+                    Check(form.DisplayedArcPercentForTesting == 0f &&
+                            ShowsWeeklyProhibition(exhaustedDuringTransition) &&
+                            CountHudArcChanges(exhaustedDuringTransition, expectedSign) == 0 &&
+                            CountChangedPixels(exhaustedDuringTransition, expectedSign, captionArea) == 0,
+                        "weekly exhaustion immediately replaces in-flight progress with the prohibition sign in " + mode + " mode");
+                form.AdvanceUsageTransitionForTesting(0.5d);
+                using (Bitmap weeklyArrow = form.RenderImageForTesting())
+                    Check(form.DisplayedArcPercentForTesting == 0f &&
+                            ShowsWeeklyProhibition(weeklyArrow) &&
+                            CountChangedPixels(weeklyArrow, expectedSign, captionArea) == 0,
+                        "the weekly arrow leaves the prohibition sign and 5-hour number intact in " + mode + " mode");
+            }
             form.SetLiveUsage(Snapshot(0, 20, reset, reset));
             form.AdvanceUsageTransitionForTesting(3d);
-            using (Bitmap stillBlocked = reference.RenderImageForTesting())
-            {
-                reference.SetUsage(Snapshot(0, 20, reset, reset));
-                using (Bitmap recovered = form.RenderImageForTesting())
-                using (Bitmap expected = reference.RenderImageForTesting())
-                    Check(form.DisplayedArcPercentForTesting ==
-                            (mode == PetUsageDisplayMode.Remaining ? 100f : 0f) &&
-                            CountHudArcChanges(recovered, expected) == 0 &&
-                            CountChangedPixels(recovered, expected, captionArea) == 0 &&
-                            CountChangedPixels(recovered, stillBlocked, captionArea) > 3,
-                        "a live weekly reset restores the real 5-hour ring after its transition in " + mode + " mode");
-            }
-
-            form.SetUsage(WeeklyProSnapshot(100, reset));
-            reference.SetUsage(WeeklyProSnapshot(50, reset));
-            using (Bitmap proExhausted = form.RenderImageForTesting())
-            using (Bitmap proHalf = reference.RenderImageForTesting())
+            reference.SetUsage(Snapshot(0, 20, reset, reset));
+            using (Bitmap recovered = form.RenderImageForTesting())
+            using (Bitmap expected = reference.RenderImageForTesting())
                 Check(form.DisplayedArcPercentForTesting ==
-                        (mode == PetUsageDisplayMode.Remaining ? 0f : 100f) &&
-                        CountHudArcChanges(proExhausted, proHalf) > 6 &&
-                        CountCaptionInkPixels(proExhausted, captionArea) == 0,
-                    "an exhausted Pro quota keeps its accurate weekly ring in " + mode + " mode");
+                        (mode == PetUsageDisplayMode.Remaining ? 100f : 0f) &&
+                        !ShowsWeeklyProhibition(recovered) &&
+                        CountHudArcChanges(recovered, expected) == 0 &&
+                        CountChangedPixels(recovered, expected, captionArea) == 0,
+                    "a live weekly reset restores the real 5-hour ring after its transition in " + mode + " mode");
+
+            form.SetLiveUsage(WeeklyProSnapshot(50, reset));
+            form.SetLiveUsage(WeeklyProSnapshot(100, reset));
+            using (Bitmap proExhausted = form.RenderImageForTesting())
+                Check(form.DisplayedArcPercentForTesting == 0f &&
+                        ShowsWeeklyProhibition(proExhausted) &&
+                        CountCaptionInkPixels(proExhausted, captionArea) == 0 &&
+                        form.UsageSummaryForTesting == (mode == PetUsageDisplayMode.Remaining
+                            ? "7d 剩余 0%" : "7d 已用 100%"),
+                    "weekly exhaustion shows a Pro prohibition sign while preserving its number in " + mode + " mode");
         }
     }
 
@@ -1538,6 +1577,15 @@ internal static class PetModeQa
             else lowerWidth = Math.Max(lowerWidth, width);
         }
         return direction < 0 ? lowerWidth > upperWidth : upperWidth > lowerWidth;
+    }
+
+    private static bool ShowsWeeklyProhibition(Bitmap image)
+    {
+        // Check the red outline and the bottom-left to top-right diagonal.
+        return CountArrowPixels(image, new Rectangle(140, 40, 5, 8), 1) > 2 &&
+            CountArrowPixels(image, new Rectangle(150, 51, 5, 6), 1) > 2 &&
+            CountArrowPixels(image, new Rectangle(169, 30, 6, 7), 1) > 2 &&
+            CountArrowPixels(image, new Rectangle(151, 32, 5, 5), 1) == 0;
     }
 
     private static int CountCaptionInkPixels(Bitmap image, Rectangle area)

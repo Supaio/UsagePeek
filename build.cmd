@@ -44,9 +44,9 @@ if not "%~1"=="" set "OUTPUT=%~1"
   DisplayModeSettings.cs DiagnosticsSnapshot.cs SettingsForm.cs ^
   PetRigAnimation.cs AnimationFrameClock.cs LayeredPetSurface.cs ^
   PetForm.cs PetSizeDialog.cs TaskbarCreatedListener.cs ^
-  ResetCreditNotificationTracker.cs ^
+  ResetCreditNotificationTracker.cs QuotaHistory.cs ^
   DpiAwareForm.cs UiTheme.cs UiControls.cs SelectionControls.cs UsageCardControl.cs UsageDetailsControl.cs ^
-  MainForm.cs ModelUsageForm.cs AboutForm.cs IconFactory.cs TrayApplicationContext.cs
+  MainForm.cs ModelUsageForm.cs UsageHistoryForm.cs UsageBreakdownForm.cs AboutForm.cs IconFactory.cs TrayApplicationContext.cs
 
 if errorlevel 1 (
   echo.

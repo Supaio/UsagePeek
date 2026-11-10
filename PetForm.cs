@@ -316,17 +316,16 @@ namespace UsagePeek
             get { return quotaArcAnimating || quotaWeeklyAnimating; }
         }
 
-        private bool ShortQuotaBlocked
+        private bool WeeklyQuotaExhausted
         {
-            get { return !singleQuotaWindow && secondaryUsedPercent.HasValue &&
-                secondaryUsedPercent.Value >= 100; }
+            get { return secondaryUsedPercent >= 100; }
         }
 
         private float? AnimatedArcPercent
         {
             get
             {
-                if (ShortQuotaBlocked) return null;
+                if (WeeklyQuotaExhausted) return 0f;
                 if (!quotaArcAnimating)
                     return GetDisplayedPercent(singleQuotaWindow
                         ? secondaryUsedPercent : primaryUsedPercent);
@@ -1842,6 +1841,9 @@ namespace UsagePeek
                 graphics.FillEllipse(circleFill, circle);
             }
 
+            if (WeeklyQuotaExhausted)
+                DrawExhaustedQuotaRing(graphics, circle, indicatorScale);
+
             using (Font labelFont = new Font("Segoe UI",
                 Math.Max(4.5f, 10.5f * scale), FontStyle.Bold,
                 GraphicsUnit.Pixel))
@@ -1935,7 +1937,7 @@ namespace UsagePeek
                 graphics.Restore(watermarkState);
             }
 
-            if (!singleQuotaWindow && !ShortQuotaBlocked)
+            if (!singleQuotaWindow)
             using (Font captionFont = new Font("Segoe UI",
                 Math.Max(3.5f, 7.8f * indicatorScale), FontStyle.Bold, GraphicsUnit.Pixel))
             using (SolidBrush captionBrush = new SolidBrush(Color.FromArgb(34, 38, 54)))
@@ -1981,6 +1983,31 @@ namespace UsagePeek
                 Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
         }
 
+        private static RectangleF GetQuotaArcBounds(Rectangle circle, float scale, float stroke)
+        {
+            float inset = stroke / 2f + Math.Max(1f, scale);
+            return new RectangleF(circle.Left + inset, circle.Top + inset,
+                circle.Width - 2f * inset, circle.Height - 2f * inset);
+        }
+
+        private static void DrawExhaustedQuotaRing(Graphics graphics, Rectangle circle, float scale)
+        {
+            float stroke = Math.Max(1.2f, 3f * scale);
+            RectangleF arc = GetQuotaArcBounds(circle, scale, stroke);
+            float centerX = arc.Left + arc.Width / 2f;
+            float centerY = arc.Top + arc.Height / 2f;
+            float diagonalX = arc.Width * 0.3535534f;
+            float diagonalY = arc.Height * 0.3535534f;
+            using (Pen pen = new Pen(Color.FromArgb(225, 69, 80), stroke))
+            {
+                graphics.DrawEllipse(pen, arc);
+                pen.Color = Color.FromArgb(190, pen.Color);
+                pen.StartCap = pen.EndCap = LineCap.Round;
+                graphics.DrawLine(pen, centerX - diagonalX, centerY + diagonalY,
+                    centerX + diagonalX, centerY - diagonalY);
+            }
+        }
+
         private void DrawQuotaIndicators(Graphics graphics, Rectangle circle, float scale)
         {
             GraphicsState state = graphics.Save();
@@ -1993,9 +2020,8 @@ namespace UsagePeek
             Color circleColor = BlendColor(average, Color.White, 0.9f);
             Color accent = BlendColor(average, Color.FromArgb(28, 33, 52), 0.2f);
             float stroke = Math.Max(1.2f, 3f * scale);
-            float inset = stroke / 2f + Math.Max(1f, scale);
-            RectangleF arc = new RectangleF(circle.Left + inset, circle.Top + inset,
-                circle.Width - 2f * inset, circle.Height - 2f * inset);
+            RectangleF arc = GetQuotaArcBounds(circle, scale, stroke);
+            if (!WeeklyQuotaExhausted)
             using (Pen track = new Pen(BlendColor(circleColor, accent, 0.18f), stroke))
             using (Pen progress = new Pen(accent, stroke))
             {
@@ -2010,7 +2036,14 @@ namespace UsagePeek
                 if (percent.HasValue && percent.Value > 0f)
                 {
                     if (singleQuotaWindow && percent.Value >= 100f) graphics.DrawEllipse(progress, arc);
-                    else graphics.DrawArc(progress, arc, startAngle, percent.Value / 100f * totalSweep);
+                    else
+                    {
+                        float sweep = percent.Value / 100f * totalSweep;
+                        float progressStart = usageDisplayMode == PetUsageDisplayMode.Remaining
+                            ? startAngle
+                            : startAngle + totalSweep - sweep;
+                        graphics.DrawArc(progress, arc, progressStart, sweep);
+                    }
                 }
             }
 

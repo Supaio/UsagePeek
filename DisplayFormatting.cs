@@ -198,6 +198,14 @@ namespace UsagePeek
                 CultureInfo.InvariantCulture);
         }
 
+        public static string FormatConversationEstimate(LocalConversationUsage usage, CurrencyDisplayState currency)
+        {
+            return usage.PricedTokens == usage.TotalTokens
+                ? FormatEstimatedMoney(usage.EstimatedCostUsd, currency)
+                : usage.PricedTokens > 0 ? FormatPartialEstimatedMoney(usage.EstimatedCostUsd, currency)
+                    : "价格待补充";
+        }
+
         public static string FormatEstimatedMoney(
             decimal amountUsd,
             CurrencyDisplayState currency)

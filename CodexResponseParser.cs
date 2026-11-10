@@ -75,6 +75,10 @@ namespace UsagePeek
             if (summary != null)
             {
                 usage.LifetimeTokens = GetNullableLong(summary, "lifetimeTokens");
+                usage.PeakDailyTokens = GetNullableLong(summary, "peakDailyTokens");
+                usage.LongestRunningTurnSec = GetNullableLong(summary, "longestRunningTurnSec");
+                usage.CurrentStreakDays = GetNullableLong(summary, "currentStreakDays");
+                usage.LongestStreakDays = GetNullableLong(summary, "longestStreakDays");
             }
 
             IEnumerable buckets = GetArray(result, "dailyUsageBuckets");
@@ -97,7 +101,9 @@ namespace UsagePeek
                 }
             }
 
-            if (!usage.LifetimeTokens.HasValue && usage.DailyTokens.Count == 0)
+            if (!usage.LifetimeTokens.HasValue && !usage.PeakDailyTokens.HasValue &&
+                !usage.LongestRunningTurnSec.HasValue && !usage.CurrentStreakDays.HasValue &&
+                !usage.LongestStreakDays.HasValue && usage.DailyTokens.Count == 0)
             {
                 return null;
             }

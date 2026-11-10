@@ -20,6 +20,7 @@ internal static class ParserQa
         FormatsCompactWindowLabels();
         ParsesAccountUsageShape();
         RoundTripsAggregateSnapshot();
+        ReconcilesEstimateChanges();
         RejectsMissingRateLimitPayload();
 
         if (failures > 0)
@@ -281,7 +282,8 @@ internal static class ParserQa
         const string json = "{" +
             "\"id\":3," +
             "\"result\":{" +
-              "\"summary\":{\"lifetimeTokens\":123456789}," +
+              "\"summary\":{\"lifetimeTokens\":123456789,\"peakDailyTokens\":5000," +
+                "\"longestRunningTurnSec\":540,\"currentStreakDays\":0,\"longestStreakDays\":14}," +
               "\"dailyUsageBuckets\":[" +
                 "{\"startDate\":\"2026-09-18\",\"tokens\":4000}," +
                 "{\"startDate\":\"2026-09-19\",\"tokens\":5000}]}}";
@@ -294,9 +296,18 @@ internal static class ParserQa
 
         Check(usage != null && usage.LifetimeTokens == 123456789,
             "account lifetime tokens are parsed");
+        Check(usage != null && usage.PeakDailyTokens == 5000 &&
+            usage.LongestRunningTurnSec == 540 && usage.CurrentStreakDays == 0 &&
+            usage.LongestStreakDays == 14, "all supported account summary fields are parsed");
         Check(usage != null && usage.DailyTokens.Count == 2 &&
             usage.DailyTokens["2026-09-19"] == 5000,
             "account daily token buckets are parsed");
+
+        reply = serializer.DeserializeObject("{\"result\":{\"summary\":{\"lifetimeTokens\":null," +
+            "\"longestStreakDays\":2},\"dailyUsageBuckets\":null}}") as IDictionary<string, object>;
+        usage = CodexResponseParser.ParseAccountUsageReply(reply);
+        Check(usage != null && usage.LongestStreakDays == 2 && !usage.LifetimeTokens.HasValue &&
+            usage.DailyTokens.Count == 0, "account summary remains usable when daily buckets are absent");
     }
 
     private static void RoundTripsAggregateSnapshot()
@@ -313,6 +324,7 @@ internal static class ParserQa
             },
             LocalTokenUsage = new LocalTokenUsageSnapshot
             {
+                DailyHistory = new Dictionary<DateTime, LocalUsageDay> { { DateTime.Today, new LocalUsageDay() } },
                 Today = new TokenPeriodSnapshot
                 {
                     HasData = true,
@@ -343,10 +355,71 @@ internal static class ParserQa
             serializer.Serialize(source));
         Check(restored != null && restored.ResetCredits.Count == 1 &&
             restored.LocalTokenUsage.Today.TotalTokens == 42 &&
+            restored.LocalTokenUsage.DailyHistory == null &&
             restored.LocalTokenUsage.ModelUsage.Count == 1 &&
             restored.LocalTokenUsage.ModelUsage[0].Model == "gpt-6-sol" &&
             restored.AccountTokenUsage.DailyTokens["2026-09-19"] == 42,
             "aggregate snapshot survives cache serialization");
+    }
+
+    private static void ReconcilesEstimateChanges()
+    {
+        const string ledgerId = "10000000000040008000000000000001";
+        DateTime at = new DateTime(2026, 11, 11, 1, 0, 0, DateTimeKind.Utc);
+        LocalTokenUsageSnapshot before = new LocalTokenUsageSnapshot
+        {
+            Lifetime = new TokenPeriodSnapshot { TotalTokens = 1000, PricedTokens = 800, EstimatedCostUsd = 100.10m },
+            EstimateTotals = new EstimateLedgerTotals { LedgerId = ledgerId }
+        };
+        LocalTokenUsageSnapshot after = new LocalTokenUsageSnapshot
+        {
+            Lifetime = new TokenPeriodSnapshot { TotalTokens = 1150, PricedTokens = 1000, EstimatedCostUsd = 112.10m },
+            EstimateTotals = new EstimateLedgerTotals
+            {
+                LedgerId = ledgerId, AddedTokens = 150, AddedUsd = 10m, BackfilledTokens = 75, BackfilledUsd = 2m
+            }
+        };
+        EstimateAudit audit = new EstimateAudit();
+        CurrencyDisplayState currency = new CurrencyDisplayState { UsdToCnyRate = 6.8m };
+        Check(audit.RecordLedger(before, currency, at) && audit.Compare(false) == null,
+            "the first observation establishes an estimate baseline");
+        currency.UsdToCnyRate = 6.9m;
+        audit.RecordLedger(after, currency, at.AddMinutes(1));
+        EstimateComparison usd = audit.Compare(false);
+        EstimateComparison cny = audit.Compare(true);
+        Check(usd.CanAttribute && usd.AddedTokens == 150 && usd.BackfilledTokens == 75 &&
+            usd.Added == 10m && usd.Backfilled == 2m && usd.Exchange == 0m && usd.Total == 12m &&
+            cny.Added == 69m && cny.Backfilled == 13.8m && cny.Exchange == 10.01m && cny.Total == 92.81m &&
+            cny.Rounding == 0m && cny.Adjustment == 0m,
+            "new usage, backfill, and foreign exchange reconcile to the displayed difference");
+
+        Check(!audit.RecordLedger(after, currency, at.AddMinutes(2)) && audit.Current.AtUtc == at.AddMinutes(1),
+            "an unchanged refresh preserves the most recent reconciliation");
+        JavaScriptSerializer serializer = new JavaScriptSerializer();
+        UsageSnapshot restored = serializer.Deserialize<UsageSnapshot>(
+            serializer.Serialize(new UsageSnapshot { EstimateAudit = audit }));
+        Check(restored.EstimateAudit.Compare(true).Exchange == 10.01m &&
+            restored.EstimateAudit.Current.CnyRate == 6.9m,
+            "the comparison and reference exchange rate survive a cache reload");
+
+        currency.UsdToCnyRate = 7m;
+        restored.EstimateAudit.RecordRate(currency, at.AddMinutes(3));
+        Check(restored.EstimateAudit.Compare(false).Total == 0m &&
+            restored.EstimateAudit.Compare(true).Exchange == 11.21m,
+            "a rate-only change is isolated from usage and pricing");
+        audit.RecordLedger(before, currency, at.AddMinutes(4));
+        Check(!audit.Compare(false).CanAttribute && audit.Compare(false).Adjustment == -12m,
+            "a restored ledger checkpoint is shown as an adjustment");
+
+        before.Lifetime.EstimatedCostUsd = 0.001m;
+        after.Lifetime.EstimatedCostUsd = 0.006m;
+        after.EstimateTotals.AddedUsd = 0.004m;
+        after.EstimateTotals.BackfilledUsd = 0.001m;
+        EstimateAudit rounded = new EstimateAudit();
+        rounded.RecordLedger(before, currency, at);
+        rounded.RecordLedger(after, currency, at.AddMinutes(1));
+        Check(rounded.Compare(false).Total == 0.01m && rounded.Compare(false).Rounding == 0.01m,
+            "the displayed components include any one-cent rounding difference");
     }
 
     private static void RejectsMissingRateLimitPayload()

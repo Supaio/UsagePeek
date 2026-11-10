@@ -9,6 +9,7 @@ namespace UsagePeek
 {
     internal sealed class MainForm : DpiAwareForm
     {
+        internal const string OfficialUsageUrl = "https://chatgpt.com/codex/settings/usage";
         private const int WmNclButtonDown = 0xA1;
         private const int HtCaption = 0x2;
 
@@ -31,6 +32,8 @@ namespace UsagePeek
         public event EventHandler CurrencyToggleRequested;
         public event EventHandler RepairRequested;
         public event EventHandler ModelUsageRequested;
+        public event EventHandler UsageHistoryRequested;
+        public event EventHandler EstimateAuditRequested;
         public event EventHandler SettingsRequested;
 
         [DllImport("user32.dll")]
@@ -103,7 +106,7 @@ namespace UsagePeek
             dashboardButton.Location = new Point(124, 654);
             dashboardButton.Click += delegate
             {
-                OpenUrl("https://chatgpt.com/codex/settings/usage");
+                OpenUrl(OfficialUsageUrl);
             };
 
             currencyButton = new GlyphButtonControl("$ USD  ·  换算", false);
@@ -141,8 +144,22 @@ namespace UsagePeek
             usageHeading.Location = new Point(24, 328);
             usageHeading.Text = "用量与估值";
 
+            GlyphButtonControl historyButton = new GlyphButtonControl("用量历史", false);
+            historyButton.Size = new Size(88, 30);
+            historyButton.Location = new Point(121, 321);
+            historyButton.Click += delegate
+            {
+                EventHandler handler = UsageHistoryRequested;
+                if (handler != null) handler(this, EventArgs.Empty);
+            };
+
             detailsPanel = new UsageDetailsControl();
             detailsPanel.Location = new Point(22, 358);
+            detailsPanel.EstimateAuditRequested += delegate
+            {
+                EventHandler handler = EstimateAuditRequested;
+                if (handler != null) handler(this, EventArgs.Empty);
+            };
 
             statusLabel = new Label();
             statusLabel.AutoSize = false;
@@ -195,7 +212,7 @@ namespace UsagePeek
 
             foreach (GlyphButtonControl button in new[]
             {
-                statusButton, dashboardButton, currencyButton, settingsButton,
+                statusButton, dashboardButton, currencyButton, historyButton, settingsButton,
                 modelUsageButton, repairButton, refreshButton
             })
             {
@@ -219,6 +236,7 @@ namespace UsagePeek
             Controls.Add(primaryCard);
             Controls.Add(secondaryCard);
             Controls.Add(usageHeading);
+            Controls.Add(historyButton);
             Controls.Add(detailsPanel);
             Controls.Add(statusLabel);
             Controls.Add(modelUsageButton);
@@ -575,17 +593,24 @@ namespace UsagePeek
 
         private void OpenUrl(string url)
         {
+            if (TryOpenUrl(url)) return;
+            statusLabel.ForeColor = UiColors.Warning;
+            statusLabel.Text = "无法打开链接，请检查默认浏览器设置。";
+        }
+
+        internal static bool TryOpenUrl(string url)
+        {
             try
             {
                 ProcessStartInfo info = new ProcessStartInfo();
                 info.FileName = url;
                 info.UseShellExecute = true;
                 Process.Start(info);
+                return true;
             }
             catch
             {
-                statusLabel.ForeColor = UiColors.Warning;
-                statusLabel.Text = "无法打开链接，请检查默认浏览器设置。";
+                return false;
             }
         }
 

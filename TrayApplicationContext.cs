@@ -13,6 +13,8 @@ namespace UsagePeek
 
         private readonly IUsageProvider provider;
         private readonly UsageCache cache;
+        private readonly EstimateAudit estimateAudit;
+        private readonly QuotaHistory quotaHistory = new QuotaHistory();
         private readonly ResetCreditNotificationTracker resetCreditNotificationTracker;
         private readonly ExchangeRateService exchangeRateService;
         private readonly CurrencyDisplayState currencyState;
@@ -34,6 +36,8 @@ namespace UsagePeek
         private readonly System.Threading.EventWaitHandle activationEvent;
         private readonly Icon icon;
         private SettingsForm settingsDialog;
+        private UsageHistoryForm historyDialog;
+        private UsageBreakdownForm estimateDialog;
         private UsageSnapshot lastSnapshot;
         private bool refreshing;
         private bool exiting;
@@ -74,6 +78,8 @@ namespace UsagePeek
             form.CurrencyToggleRequested += async delegate { await ToggleCurrencyAsync(); };
             form.RepairRequested += async delegate { await RepairCodexAsync(); };
             form.ModelUsageRequested += delegate { ShowModelUsage(); };
+            form.UsageHistoryRequested += delegate { ShowUsageHistory(); };
+            form.EstimateAuditRequested += delegate { ShowEstimateAudit(); };
             form.SettingsRequested += delegate { ShowSettings(); };
             form.SetCurrencyState(currencyState);
             form.FormClosed += delegate { ExitApplication(); };
@@ -191,6 +197,12 @@ namespace UsagePeek
             activationTimer.Start();
 
             lastSnapshot = cache.Load();
+            estimateAudit = lastSnapshot == null ? new EstimateAudit() : lastSnapshot.EstimateAudit ?? new EstimateAudit();
+            if (estimateAudit.Current != null && estimateAudit.Current.IsValid)
+            {
+                currencyState.UsdToCnyRate = estimateAudit.Current.CnyRate;
+                currencyState.RateDateUtc = estimateAudit.Current.RateDateUtc;
+            }
             if (lastSnapshot != null)
             {
                 form.ShowSnapshot(lastSnapshot, null);
@@ -253,7 +265,10 @@ namespace UsagePeek
             try
             {
                 UsageSnapshot snapshot = await provider.FetchAsync();
+                if (exiting) return;
                 snapshot.IsStale = false;
+                await Task.Run(delegate { quotaHistory.Record(snapshot); });
+                if (exiting) return;
                 ResetCreditGrantNotification resetCreditGrant =
                     resetCreditNotificationTracker.Observe(snapshot);
                 ResetCreditExpiryNotification resetCreditExpiry =
@@ -261,9 +276,12 @@ namespace UsagePeek
                 lastSnapshot = snapshot;
                 lastRefreshSuccessUtc = DateTime.UtcNow;
                 lastRefreshErrorCode = null;
+                estimateAudit.RecordLedger(snapshot.LocalTokenUsage, currencyState, lastRefreshSuccessUtc.Value);
+                snapshot.EstimateAudit = estimateAudit;
                 cache.Save(snapshot);
                 form.ShowSnapshot(snapshot, null);
                 petForm.SetLiveUsage(snapshot);
+                if (historyDialog != null) historyDialog.SetUsage(snapshot);
                 UpdateTrayText(snapshot, false);
                 if (resetCreditExpiry != null)
                 {
@@ -273,15 +291,19 @@ namespace UsagePeek
                 {
                     ShowResetCreditGrant(resetCreditGrant);
                 }
+                if (historyDialog != null && historyDialog.Visible)
+                    await historyDialog.ReloadLocalHistoryAsync();
             }
             catch (Exception ex)
             {
+                if (exiting) return;
                 lastRefreshErrorCode = ClassifyRefreshError(ex.Message);
                 if (lastSnapshot != null)
                 {
                     lastSnapshot.IsStale = true;
                     form.ShowSnapshot(lastSnapshot, ex.Message);
                     petForm.SetUsage(lastSnapshot);
+                    if (historyDialog != null) historyDialog.SetUsage(lastSnapshot);
                     UpdateTrayText(lastSnapshot, true);
                 }
                 else
@@ -293,10 +315,13 @@ namespace UsagePeek
             finally
             {
                 refreshing = false;
-                form.SetLoading(false);
-                petForm.SetRefreshing(false);
-                if (settingsDialog != null && !settingsDialog.IsDisposed)
-                    settingsDialog.RefreshDiagnosticsIfVisible();
+                if (!exiting)
+                {
+                    form.SetLoading(false);
+                    petForm.SetRefreshing(false);
+                    if (settingsDialog != null && !settingsDialog.IsDisposed)
+                        settingsDialog.RefreshDiagnosticsIfVisible();
+                }
             }
         }
 
@@ -318,6 +343,11 @@ namespace UsagePeek
                 currencyState.UsdToCnyRate = rate.UsdToCnyRate;
                 currencyState.RateDateUtc = rate.RateDateUtc;
                 currencyState.ShowCny = true;
+                if (estimateAudit.RecordRate(currencyState, DateTime.UtcNow) && lastSnapshot != null)
+                {
+                    lastSnapshot.EstimateAudit = estimateAudit;
+                    cache.Save(lastSnapshot);
+                }
                 form.SetCurrencyState(currencyState);
                 string date = rate.RateDateUtc.HasValue
                     ? rate.RateDateUtc.Value.ToLocalTime().ToString("yyyy-MM-dd")
@@ -540,6 +570,17 @@ namespace UsagePeek
 
         private void ShowDetails()
         {
+            if (estimateDialog != null)
+            {
+                if (estimateDialog.Visible) estimateDialog.BringToForeground();
+                return;
+            }
+            if (historyDialog != null)
+            {
+                if (historyDialog.Visible) historyDialog.BringToForeground();
+                return;
+            }
+
             if (displayPreference.GetDisplayMode() == UsageDisplayMode.Pet)
             {
                 if (!petForm.Visible)
@@ -561,6 +602,39 @@ namespace UsagePeek
             }
 
             form.ShowNearTray();
+        }
+
+        private void ShowUsageHistory()
+        {
+            if (exiting || historyDialog != null || estimateDialog != null) return;
+
+            Screen screen = Screen.FromControl(form);
+            using (UsageHistoryForm dialog = new UsageHistoryForm(quotaHistory, currencyState))
+            {
+                dialog.SetUsage(lastSnapshot);
+                dialog.PlaceOnScreen(screen);
+                form.Hide();
+                historyDialog = dialog;
+                try { dialog.ShowDialog(); }
+                finally { historyDialog = null; }
+            }
+            if (!exiting) ShowDetails();
+        }
+
+        private void ShowEstimateAudit()
+        {
+            if (exiting || estimateDialog != null || historyDialog != null) return;
+            Screen screen = Screen.FromControl(form);
+            LocalTokenUsageSnapshot local = lastSnapshot == null ? null : lastSnapshot.LocalTokenUsage;
+            using (UsageBreakdownForm dialog = UsageBreakdownForm.ForEstimate(estimateAudit, local))
+            {
+                dialog.PlaceOnScreen(screen);
+                form.Hide();
+                estimateDialog = dialog;
+                try { dialog.ShowDialog(); }
+                finally { estimateDialog = null; }
+            }
+            if (!exiting) ShowDetails();
         }
 
         private void ShowSettings()
@@ -1113,6 +1187,8 @@ namespace UsagePeek
             trayIcon.Visible = false;
             trayIcon.Dispose();
             icon.Dispose();
+            if (historyDialog != null) historyDialog.Close();
+            if (estimateDialog != null) estimateDialog.Close();
             if (settingsDialog != null)
             {
                 settingsDialog.Dispose();
