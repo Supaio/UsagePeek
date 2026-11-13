@@ -15,6 +15,7 @@ namespace UsagePeek
         private readonly UsageCache cache;
         private readonly EstimateAudit estimateAudit;
         private readonly QuotaHistory quotaHistory = new QuotaHistory();
+        private readonly CodexTpsMonitor tpsMonitor = new CodexTpsMonitor(LocalUsageScanner.ResolveCodexHome());
         private readonly ResetCreditNotificationTracker resetCreditNotificationTracker;
         private readonly ExchangeRateService exchangeRateService;
         private readonly CurrencyDisplayState currencyState;
@@ -31,6 +32,7 @@ namespace UsagePeek
         private readonly NotifyIcon trayIcon;
         private readonly TaskbarCreatedListener taskbarCreatedListener;
         private readonly Timer refreshTimer;
+        private readonly Timer tpsTimer;
         private readonly Timer initialRefreshTimer;
         private readonly Timer activationTimer;
         private readonly System.Threading.EventWaitHandle activationEvent;
@@ -40,6 +42,7 @@ namespace UsagePeek
         private UsageBreakdownForm estimateDialog;
         private UsageSnapshot lastSnapshot;
         private bool refreshing;
+        private bool pollingTps;
         private bool exiting;
         private bool checkingUpdate;
         private bool repairingCodex;
@@ -171,6 +174,10 @@ namespace UsagePeek
             refreshTimer.Interval = RefreshIntervalMilliseconds;
             refreshTimer.Tick += async delegate { await RefreshAsync(); };
             refreshTimer.Start();
+
+            tpsTimer = new Timer { Interval = 1000 };
+            tpsTimer.Tick += async delegate { await PollCodexTpsAsync(); };
+            petForm.VisibleChanged += delegate { tpsTimer.Enabled = !exiting && petForm.Visible; };
 
             initialRefreshTimer = new Timer();
             initialRefreshTimer.Interval = 300;
@@ -323,6 +330,20 @@ namespace UsagePeek
                         settingsDialog.RefreshDiagnosticsIfVisible();
                 }
             }
+        }
+
+        private async Task PollCodexTpsAsync()
+        {
+            if (exiting || pollingTps || !petForm.Visible) return;
+            pollingTps = true;
+            try
+            {
+                CodexTpsReading reading = await Task.Run(delegate { return tpsMonitor.Poll(DateTime.UtcNow); });
+                if (!exiting && petForm.Visible)
+                    petForm.SetCodexTps(reading != null,
+                        reading == null ? null : reading.TokensPerSecond, reading != null && reading.IsPreviousTurn);
+            }
+            finally { pollingTps = false; }
         }
 
         private async Task ToggleCurrencyAsync()
@@ -1179,6 +1200,7 @@ namespace UsagePeek
             exiting = true;
             UiTheme.Changed -= HandleThemeChanged;
             refreshTimer.Stop();
+            tpsTimer.Stop();
             initialRefreshTimer.Stop();
             initialRefreshTimer.Dispose();
             activationTimer.Stop();
@@ -1195,6 +1217,7 @@ namespace UsagePeek
                 settingsDialog = null;
             }
             petForm.Dispose();
+            tpsTimer.Dispose();
             form.Dispose();
             menu.Dispose();
             ExitThread();

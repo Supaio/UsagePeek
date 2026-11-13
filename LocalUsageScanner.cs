@@ -1266,7 +1266,7 @@ namespace UsagePeek
             return result;
         }
 
-        private static string ResolveCodexHome()
+        internal static string ResolveCodexHome()
         {
             string configured = Environment.GetEnvironmentVariable("CODEX_HOME");
             if (!string.IsNullOrWhiteSpace(configured))

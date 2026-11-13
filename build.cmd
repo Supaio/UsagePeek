@@ -39,7 +39,7 @@ if not "%~1"=="" set "OUTPUT=%~1"
   /reference:System.Web.Extensions.dll ^
   /out:"%OUTPUT%" ^
   Program.cs UsageModels.cs IUsageProvider.cs CodexResponseParser.cs ^
-  CodexExecutableLocator.cs CodexUsageProvider.cs LocalUsageScanner.cs UsageCache.cs DisplayFormatting.cs ^
+  CodexExecutableLocator.cs CodexUsageProvider.cs CodexTpsMonitor.cs LocalUsageScanner.cs UsageCache.cs DisplayFormatting.cs ^
   ExchangeRateService.cs StartupManager.cs ExecutableIntegrity.cs UpdateService.cs CodexBootstrapService.cs ^
   DisplayModeSettings.cs DiagnosticsSnapshot.cs SettingsForm.cs ^
   PetRigAnimation.cs AnimationFrameClock.cs LayeredPetSurface.cs ^

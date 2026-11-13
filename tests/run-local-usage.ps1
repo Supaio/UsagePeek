@@ -23,6 +23,7 @@ $output = Join-Path $outputDirectory 'LocalUsageQa.exe'
     (Join-Path $root 'UsageCache.cs') `
     (Join-Path $root 'CodexResponseParser.cs') `
     (Join-Path $root 'LocalUsageScanner.cs') `
+    (Join-Path $root 'CodexTpsMonitor.cs') `
     (Join-Path $root 'QuotaHistory.cs') `
     (Join-Path $root 'DisplayFormatting.cs') `
     (Join-Path $PSScriptRoot 'LocalUsageQa.cs')

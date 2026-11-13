@@ -354,7 +354,11 @@ internal static class DpiLayoutQa
                 form.AutoScrollMinSize.Height >= Scale(designSize.Height, 1.5f),
                 "combined history stays within a small monitor while retaining scrollable content");
             form.ApplyDpiForTesting(96);
-            AssertEqual(designSize, form.ClientSize, "usage history scales back without rounding drift");
+            form.FitToWorkingAreaForTesting(new Rectangle(-1000, 0, 1000, 728));
+            AssertEqual(new Rectangle(18, 118, 484, 329), usageCard.Bounds,
+                "usage history restores its chart geometry at 100 percent DPI");
+            AssertEqual(true, form.Height <= 712 && form.AutoScrollMinSize.Height >= designSize.Height,
+                "usage history scrolls on a short screen at 100 percent DPI");
             FindControl<RoundedButton>(form, "← 返回详情").PerformClick();
             AssertEqual(false, form.Visible, "usage history has a working return action");
         }

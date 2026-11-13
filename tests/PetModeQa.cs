@@ -26,6 +26,7 @@ internal static class PetModeQa
             VerifyRefreshSpinnerRendering();
             VerifyRefreshSpinnerCompletion();
             VerifyStatusHudContent();
+            VerifyTpsRotation();
             VerifyRemainingArcComplementsUsedArc();
             VerifyWeeklyExhaustionHud();
             VerifyWeeklyWatermark();
@@ -731,6 +732,45 @@ internal static class PetModeQa
             Check(before > 0d && (double)phase.GetValue(form) == before,
                 "changing pet artwork does not reset an in-progress refresh rotation");
         }
+    }
+
+    private static void VerifyTpsRotation()
+    {
+        foreach (bool pro in new[] { false, true })
+            foreach (int percent in new[] { 50, 100, 200 })
+                using (PetForm form = new PetForm())
+                {
+                    DateTime reset = DateTime.UtcNow.AddDays(3);
+                    form.SetScalePercent(percent);
+                    form.SetUsage(pro ? WeeklyProSnapshot(25, reset) : Snapshot(40, 25, reset.AddHours(-1), reset));
+                    Point lower = PointerPoint(form, 142, 74);
+                    Rectangle text = new Rectangle(0, 0, lower.X, lower.Y);
+                    Point circleTopLeft = PointerPoint(form, 144, 24);
+                    Point circleBottomRight = PointerPoint(form, 183, 64);
+                    Rectangle circle = Rectangle.FromLTRB(circleTopLeft.X, circleTopLeft.Y,
+                        circleBottomRight.X, circleBottomRight.Y);
+                    string scope = (pro ? "Pro" : "Plus") + " at " + percent + "%";
+                    using (Bitmap dates = form.RenderImageForTesting())
+                    {
+                        form.SetCodexTps(true, 42.5d, false);
+                        using (Bitmap tps = form.RenderImageForTesting())
+                        {
+                            int changes = CountChangedPixels(dates, tps, text);
+                            Check(changes > 8 && CountChangedPixels(dates, tps) == changes &&
+                                CountChangedPixels(dates, tps, circle) == 0,
+                                "TPS replaces only the reset text at " + scope);
+                            form.UpdateTpsPage(3000);
+                            using (Bitmap rotated = form.RenderImageForTesting())
+                                Check(CountChangedPixels(dates, rotated) == 0, "TPS returns to dates after three seconds at " + scope);
+                            form.UpdateTpsPage(6000);
+                            using (Bitmap again = form.RenderImageForTesting())
+                                Check(CountChangedPixels(tps, again) == 0, "TPS repeats the rotation at " + scope);
+                        }
+                        form.SetCodexTps(false, null, false);
+                        using (Bitmap stopped = form.RenderImageForTesting())
+                            Check(CountChangedPixels(dates, stopped) == 0, "TPS stops rotating after the turn at " + scope);
+                    }
+                }
     }
 
     private static void VerifyRefreshSpinnerCompletion()

@@ -60,6 +60,7 @@ namespace UsagePeek
         private const int PetSurfaceMinimumYDesign = 86;
         private const int WmDisplayChange = 0x007E;
         private const int DisplayRecoveryDelayMilliseconds = 300;
+        private const long TpsPageMilliseconds = 3000;
         private const int NervousUsedPercentThreshold = 80;
         private const int HappyMoodDurationMilliseconds = 6000;
         private const int ResetFallbackMinimumDropPercent = 50;
@@ -103,6 +104,11 @@ namespace UsagePeek
         private Bitmap renderedImage;
         private LayeredPetSurface layeredSurface;
         private Bitmap usageBubbleImage;
+        private readonly Stopwatch tpsRotationClock = new Stopwatch();
+        private string latestTpsText;
+        private string latestTpsCaption;
+        private string visibleTpsText;
+        private string visibleTpsCaption;
         private long presentedFrames;
         private string animationDisplayName;
         private readonly PointF[] overlayAnchors = new PointF[2];
@@ -258,6 +264,46 @@ namespace UsagePeek
                 nextSecondaryUsedPercent,
                 ReadResetAt(snapshot == null ? null : snapshot.Primary),
                 ReadResetAt(snapshot == null ? null : snapshot.Secondary), false);
+        }
+
+        public void SetCodexTps(bool active, double? tokensPerSecond, bool isPreviousTurn)
+        {
+            if (!active)
+            {
+                tpsRotationClock.Reset();
+                latestTpsText = null;
+                latestTpsCaption = null;
+            }
+            else
+            {
+                if (!tpsRotationClock.IsRunning) tpsRotationClock.Start();
+                latestTpsText = tokensPerSecond.HasValue
+                    ? "≈ " + FormatTps(tokensPerSecond.Value) + " TPS"
+                    : "— TPS";
+                latestTpsCaption = !tokensPerSecond.HasValue ? "采样中"
+                    : isPreviousTurn ? "上一轮参考" : "输出均速";
+            }
+            if (UpdateTpsPage(tpsRotationClock.ElapsedMilliseconds) && Visible && !dragging)
+                ApplyLayeredImage();
+        }
+
+        private static string FormatTps(double rate)
+        {
+            if (rate >= 1000000d) return (rate / 1000000d).ToString("0.#", CultureInfo.InvariantCulture) + "M";
+            if (rate >= 1000d) return (rate / 1000d).ToString("0.#", CultureInfo.InvariantCulture) + "K";
+            return rate.ToString("0.#", CultureInfo.InvariantCulture);
+        }
+
+        internal bool UpdateTpsPage(long elapsedMilliseconds)
+        {
+            bool showTps = (elapsedMilliseconds / TpsPageMilliseconds) % 2 == 0;
+            string text = showTps ? latestTpsText : null;
+            string caption = showTps ? latestTpsCaption : null;
+            if (text == visibleTpsText && caption == visibleTpsCaption) return false;
+            visibleTpsText = text;
+            visibleTpsCaption = caption;
+            InvalidateUsageBubble();
+            return true;
         }
 
         public void SetLiveUsage(UsageSnapshot snapshot)
@@ -827,6 +873,7 @@ namespace UsagePeek
                 desktopMotionTimer.Start();
                 ApplyLayeredImage();
             }
+            else SetCodexTps(false, null, false);
         }
 
         protected override void OnDpiScaleChanged()
@@ -1054,6 +1101,7 @@ namespace UsagePeek
             double elapsed = desktopMotionStopwatch.Elapsed.TotalSeconds;
             desktopMotionStopwatch.Restart();
             if (dragging) return;
+            UpdateTpsPage(tpsRotationClock.ElapsedMilliseconds);
             AdvancePettingAnimation();
             AdvanceMoodAnimation();
             Point cursor = Cursor.Position;
@@ -1844,6 +1892,75 @@ namespace UsagePeek
             if (WeeklyQuotaExhausted)
                 DrawExhaustedQuotaRing(graphics, circle, indicatorScale);
 
+            if (visibleTpsText != null)
+            {
+                DrawTpsPage(graphics, pill, pillColor, scale);
+            }
+            else DrawQuotaDates(graphics, pill, pillColor, scale);
+
+            if (weeklyWatermarkVisible && !quotaRefreshInProgress)
+            {
+                GraphicsState watermarkState = graphics.Save();
+                using (GraphicsPath clip = new GraphicsPath())
+                using (Font watermarkFont = new Font("Segoe UI",
+                    Math.Max(6f, 29f * indicatorScale), FontStyle.Bold, GraphicsUnit.Pixel))
+                using (SolidBrush watermark = new SolidBrush(Color.FromArgb(80, 105, 109, 120)))
+                using (StringFormat format = new StringFormat(StringFormat.GenericTypographic))
+                {
+                    clip.AddEllipse(circle.Left + 7f * indicatorScale, circle.Top + 7f * indicatorScale,
+                        circle.Width - 14f * indicatorScale, circle.Height - 14f * indicatorScale);
+                    graphics.SetClip(clip, CombineMode.Intersect);
+                    format.Alignment = StringAlignment.Center;
+                    format.LineAlignment = StringAlignment.Center;
+                    format.FormatFlags = StringFormatFlags.NoWrap;
+                    graphics.DrawString(secondaryQuotaLabel, watermarkFont, watermark,
+                        new RectangleF(circle.Left, circle.Top + 2f * indicatorScale,
+                            circle.Width, circle.Height), format);
+                }
+                graphics.Restore(watermarkState);
+            }
+
+            if (!singleQuotaWindow)
+            using (Font captionFont = new Font("Segoe UI",
+                Math.Max(3.5f, 7.8f * indicatorScale), FontStyle.Bold, GraphicsUnit.Pixel))
+            using (SolidBrush captionBrush = new SolidBrush(Color.FromArgb(34, 38, 54)))
+            using (StringFormat format = new StringFormat())
+            {
+                format.Alignment = StringAlignment.Center;
+                format.LineAlignment = StringAlignment.Center;
+                format.FormatFlags = StringFormatFlags.NoWrap;
+                graphics.DrawString(shortQuotaLabel + " " +
+                    FormatPercent(GetDisplayedPercent(primaryUsedPercent)), captionFont, captionBrush,
+                    new RectangleF(circle.Left + 5f * indicatorScale, circle.Top + 2f * indicatorScale,
+                        circle.Width - 10f * indicatorScale, 12f * indicatorScale), format);
+            }
+        }
+
+        private void DrawTpsPage(Graphics graphics, Rectangle pill, Color pillColor, float scale)
+        {
+            float padding = 8f * scale;
+            float contentWidth = Math.Max(1f, pill.Width - 2f * padding);
+            using (Font valueFont = new Font("Segoe UI", 15f * scale, FontStyle.Bold, GraphicsUnit.Pixel))
+            using (Font captionFont = new Font("Microsoft YaHei UI", 9f * scale, FontStyle.Regular, GraphicsUnit.Pixel))
+            using (SolidBrush valueBrush = new SolidBrush(Color.FromArgb(248, 249, 252)))
+            using (SolidBrush captionBrush = new SolidBrush(BlendColor(pillColor, Color.White, 0.78f)))
+            using (StringFormat format = new StringFormat(StringFormat.GenericTypographic))
+            {
+                format.Alignment = StringAlignment.Center;
+                format.LineAlignment = StringAlignment.Center;
+                format.FormatFlags |= StringFormatFlags.NoWrap;
+                float valueHeight = 20f * scale;
+                float captionHeight = 13f * scale;
+                float top = pill.Top + (pill.Height - valueHeight - captionHeight) / 2f;
+                graphics.DrawString(visibleTpsText, valueFont, valueBrush,
+                    new RectangleF(pill.Left + padding, top, contentWidth, valueHeight), format);
+                graphics.DrawString(visibleTpsCaption, captionFont, captionBrush,
+                    new RectangleF(pill.Left + padding, top + valueHeight, contentWidth, captionHeight), format);
+            }
+        }
+
+        private void DrawQuotaDates(Graphics graphics, Rectangle pill, Color pillColor, float scale)
+        {
             using (Font labelFont = new Font("Segoe UI",
                 Math.Max(4.5f, 10.5f * scale), FontStyle.Bold,
                 GraphicsUnit.Pixel))
@@ -1915,42 +2032,6 @@ namespace UsagePeek
                 }
             }
 
-            if (weeklyWatermarkVisible && !quotaRefreshInProgress)
-            {
-                GraphicsState watermarkState = graphics.Save();
-                using (GraphicsPath clip = new GraphicsPath())
-                using (Font watermarkFont = new Font("Segoe UI",
-                    Math.Max(6f, 29f * indicatorScale), FontStyle.Bold, GraphicsUnit.Pixel))
-                using (SolidBrush watermark = new SolidBrush(Color.FromArgb(80, 105, 109, 120)))
-                using (StringFormat format = new StringFormat(StringFormat.GenericTypographic))
-                {
-                    clip.AddEllipse(circle.Left + 7f * indicatorScale, circle.Top + 7f * indicatorScale,
-                        circle.Width - 14f * indicatorScale, circle.Height - 14f * indicatorScale);
-                    graphics.SetClip(clip, CombineMode.Intersect);
-                    format.Alignment = StringAlignment.Center;
-                    format.LineAlignment = StringAlignment.Center;
-                    format.FormatFlags = StringFormatFlags.NoWrap;
-                    graphics.DrawString(secondaryQuotaLabel, watermarkFont, watermark,
-                        new RectangleF(circle.Left, circle.Top + 2f * indicatorScale,
-                            circle.Width, circle.Height), format);
-                }
-                graphics.Restore(watermarkState);
-            }
-
-            if (!singleQuotaWindow)
-            using (Font captionFont = new Font("Segoe UI",
-                Math.Max(3.5f, 7.8f * indicatorScale), FontStyle.Bold, GraphicsUnit.Pixel))
-            using (SolidBrush captionBrush = new SolidBrush(Color.FromArgb(34, 38, 54)))
-            using (StringFormat format = new StringFormat())
-            {
-                format.Alignment = StringAlignment.Center;
-                format.LineAlignment = StringAlignment.Center;
-                format.FormatFlags = StringFormatFlags.NoWrap;
-                graphics.DrawString(shortQuotaLabel + " " +
-                    FormatPercent(GetDisplayedPercent(primaryUsedPercent)), captionFont, captionBrush,
-                    new RectangleF(circle.Left + 5f * indicatorScale, circle.Top + 2f * indicatorScale,
-                        circle.Width - 10f * indicatorScale, 12f * indicatorScale), format);
-            }
         }
 
         private static Rectangle FindVisibleTextBounds(Bitmap image)

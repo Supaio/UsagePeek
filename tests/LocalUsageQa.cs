@@ -25,6 +25,7 @@ internal static class LocalUsageQa
             VerifiesConversationRanking(Path.Combine(root, "conversations"));
             VerifiesEstimateLedgerTotals(Path.Combine(root, "estimate-ledger"));
             VerifiesQuotaHistory(Path.Combine(root, "quota-history"));
+            VerifiesLiveTps(Path.Combine(root, "tps"));
         }
         finally
         {
@@ -47,6 +48,73 @@ internal static class LocalUsageQa
         }
 
         Console.WriteLine("Local usage QA passed.");
+    }
+
+    private static void VerifiesLiveTps(string root)
+    {
+        string directory = Path.Combine(root, "sessions", "2026", "11", "13");
+        Directory.CreateDirectory(directory);
+        string rollout = Path.Combine(directory, "rollout-test.jsonl");
+        DateTime at = DateTime.UtcNow;
+        CodexTpsMonitor monitor = new CodexTpsMonitor(root);
+        File.WriteAllLines(rollout, new[] { SessionMeta(20), TpsEvent(at, 10, "task_started"),
+            TpsCount(at.AddSeconds(1), 11, 1000, 1000) });
+        Check(monitor.Poll(at.AddSeconds(2)) == null, "TPS ignores a subagent's replayed lifecycle and counts");
+
+        File.AppendAllText(rollout, TpsEvent(at.AddSeconds(2), 20, "task_started", turnId: "active-turn") + "\n");
+        CodexTpsReading waiting = monitor.Poll(at.AddSeconds(3));
+        Check(waiting != null && !waiting.TokensPerSecond.HasValue, "a new turn waits for a usable TPS sample");
+
+        string count = TpsCount(at.AddSeconds(6), 21, 1100, 100);
+        File.AppendAllText(rollout, count.Substring(0, count.Length - 3));
+        waiting = monitor.Poll(at.AddSeconds(6));
+        Check(waiting != null && !waiting.TokensPerSecond.HasValue, "TPS waits for an appended JSONL record to finish");
+        File.AppendAllText(rollout, count.Substring(count.Length - 3) + "\n" + count + "\n");
+        CodexTpsReading live = monitor.Poll(at.AddSeconds(7));
+        Check(live != null && Math.Abs(live.TokensPerSecond.GetValueOrDefault() - 25d) < 0.01d && !live.IsPreviousTurn,
+            "TPS uses only the output delta and ignores a duplicate cumulative count");
+
+        File.AppendAllText(rollout, TpsEvent(at.AddSeconds(7), 22, "task_complete", turnId: "other-turn") + "\n");
+        Check(monitor.Poll(at.AddSeconds(8)) != null, "completion of another turn does not clear the active TPS");
+
+        File.AppendAllText(rollout, TpsEvent(at.AddSeconds(7), 23, "task_complete", new string('a', 10000), "active-turn") + "\n");
+        Check(monitor.Poll(at.AddSeconds(8)) == null, "a completion with a long payload clears TPS");
+
+        File.AppendAllText(rollout, TpsEvent(at.AddSeconds(9), 24, "task_started") + "\n");
+        CodexTpsReading reference = monitor.Poll(at.AddSeconds(10));
+        Check(reference != null && Math.Abs(reference.TokensPerSecond.GetValueOrDefault() - 25d) < 0.01d && reference.IsPreviousTurn,
+            "a later turn can show a labeled estimate from the same conversation");
+        File.AppendAllText(rollout, TpsEvent(at.AddSeconds(10), 25, "turn_aborted") + "\n");
+        Check(monitor.Poll(at.AddSeconds(11)) == null, "an aborted turn restores idle status");
+        File.AppendAllText(rollout, TpsEvent(at.AddSeconds(11), 26, "task_started") + "\n");
+        Check(monitor.Poll(at.AddSeconds(12)) != null && monitor.Poll(at.AddMinutes(6)) == null,
+            "TPS expires a rollout that stopped receiving events");
+
+        string older = Path.Combine(directory, "rollout-active.jsonl");
+        string start = TpsEvent(at.AddSeconds(12), 1, "task_started");
+        string firstCount = TpsCount(at.AddSeconds(14), 2, 210, 50);
+        File.WriteAllLines(older, new[] { start, firstCount });
+        File.SetLastWriteTimeUtc(older, at.AddSeconds(14));
+        File.SetLastWriteTimeUtc(rollout, at.AddSeconds(15));
+        live = monitor.Poll(at.AddSeconds(16));
+        Check(live != null && Math.Abs(live.TokensPerSecond.GetValueOrDefault() - 25d) < 0.01d && !live.IsPreviousTurn,
+            "a fresh turn can start from last output metadata without using its cumulative history");
+    }
+
+    private static string TpsEvent(DateTime at, int ordinal, string kind, string message = null, string turnId = null)
+    {
+        return "{\"timestamp\":\"" + Stamp(at) + "\",\"ordinal\":" + ordinal +
+            ",\"type\":\"event_msg\",\"payload\":{\"type\":\"" + kind + "\"" +
+            (turnId == null ? "" : ",\"turn_id\":\"" + turnId + "\"") +
+            (message == null ? "" : ",\"last_agent_message\":\"" + message + "\"") + "}}";
+    }
+
+    private static string TpsCount(DateTime at, int ordinal, long output, long latestOutput)
+    {
+        return "{\"timestamp\":\"" + Stamp(at) + "\",\"ordinal\":" + ordinal +
+            ",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{" +
+            "\"total_token_usage\":{\"input_tokens\":10000,\"cached_input_tokens\":9000,\"output_tokens\":" + output + "}," +
+            "\"last_token_usage\":{\"output_tokens\":" + latestOutput + "}}}}";
     }
 
     private static void VerifiesDailyHistory(string root)
