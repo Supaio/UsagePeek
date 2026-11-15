@@ -160,19 +160,6 @@ namespace UsagePeek
             }
         }
 
-        protected override void OnPaintBackground(PaintEventArgs e)
-        {
-            UiDrawing.BeginLogicalPaint(this, e.Graphics);
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            int logicalWidth = UiDrawing.LogicalWidth(this);
-            int logicalHeight = UiDrawing.LogicalHeight(this);
-            Rectangle bounds = new Rectangle(0, 0, logicalWidth, logicalHeight);
-            using (SolidBrush background = new SolidBrush(BackColor))
-            {
-                e.Graphics.FillRectangle(background, bounds);
-            }
-        }
-
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -343,9 +330,6 @@ namespace UsagePeek
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
             int logicalWidth = UiDrawing.LogicalWidth(this);
-            Rectangle card = new Rectangle(0, 0, logicalWidth - 1, 64);
-            using (GraphicsPath path = UiDrawing.RoundedRectangle(card, 11))
-            using (SolidBrush background = new SolidBrush(UiColors.Surface))
             using (Pen border = new Pen(UiColors.Border))
             using (Font modelFont = UiDrawing.LogicalFont(
                 this, "Segoe UI", 9.2f, FontStyle.Regular))
@@ -367,8 +351,7 @@ namespace UsagePeek
                 UiColors.Accent))
             using (StringFormat modelFormat = new StringFormat())
             {
-                e.Graphics.FillPath(background, path);
-                e.Graphics.DrawPath(border, path);
+                e.Graphics.DrawLine(border, 0, 1, logicalWidth, 1);
 
                 modelFormat.Trimming = StringTrimming.EllipsisCharacter;
                 modelFormat.FormatFlags = StringFormatFlags.NoWrap;

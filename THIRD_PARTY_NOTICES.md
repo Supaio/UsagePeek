@@ -6,6 +6,9 @@ UsagePeek is a Windows-oriented adaptation and independent C# reimplementation
 based on the interface, usage-metering concepts, pace projection, provider
 abstraction, and local-usage aggregation ideas from
 [OpenUsage](https://github.com/robinebers/openusage).
+The Antigravity conversation-accounting field layout follows the format
+documented by FelixIsaac and the OpenUsage contributors in
+[OpenUsage #1120](https://github.com/robinebers/openusage/issues/1120).
 
 UsagePeek is an independent community project. It is not an official OpenUsage
 release and does not use the OpenUsage name or logo as its own branding.
@@ -36,6 +39,14 @@ OpenUsage is distributed under the MIT License:
 
 The upstream license is available at
 <https://github.com/robinebers/openusage/blob/main/LICENSE>.
+
+## Usage source icons
+
+The sidebar uses the Codex icon from the OpenAI Windows desktop app, the
+[Google Antigravity press icon](https://antigravity.google/press), the Claude Spark
+from the [Anthropic press kit](https://www.anthropic.com/press-kit), and the blue
+[University of Science and Technology of China seal](https://djyszw.ustc.edu.cn/info/1070/6835.htm).
+These marks identify their respective usage sources and belong to their owners.
 
 ## Desktop pet artwork
 
@@ -69,3 +80,11 @@ to their derived animation frames; those frames are not relicensed under MIT.
 These studies are kept as design references and are not embedded in the current
 executable. The continuous 2D rig uses the original character PNGs as textures;
 their existing artwork credits and rights continue to apply.
+
+## Clawd animations
+
+The GIFs under `assets/clawd/` are unchanged GIFs from
+[Clawd Tank's animation gallery](https://github.com/marciogranzotto/clawd-tank/tree/ee5c079c45a39e06e79b7a39f3e6d9beca223021/assets/slack-emojis)
+by Marcio Granzotto Rodrigues. The upstream MIT license and copyright notice
+are in `assets/clawd/LICENSE.txt` and are embedded in the executable.
+Clawd is Anthropic's character.

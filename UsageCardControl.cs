@@ -7,9 +7,11 @@ namespace UsagePeek
 {
     internal sealed class UsageCardControl : Control
     {
+        internal const int RowHeight = 61;
+        private readonly string windowTitle;
         private UsageWindowSnapshot window;
 
-        public UsageCardControl()
+        public UsageCardControl(string title)
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer |
@@ -17,13 +19,23 @@ namespace UsagePeek
                 ControlStyles.SupportsTransparentBackColor |
                 ControlStyles.UserPaint, true);
             BackColor = Color.Transparent;
-            Size = new Size(186, 174);
+            Size = new Size(372, RowHeight);
+            AccessibleRole = AccessibleRole.StaticText;
+            windowTitle = title;
+            SetWindow(null);
         }
 
         public void SetWindow(UsageWindowSnapshot value)
         {
             window = value;
+            AccessibleName = WindowLabel + (value == null ? "，暂无额度数据" :
+                "，已用 " + value.UsedPercent + "%");
             Invalidate();
+        }
+
+        private string WindowLabel
+        {
+            get { return window == null || string.IsNullOrWhiteSpace(window.Label) ? windowTitle : window.Label; }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -32,40 +44,19 @@ namespace UsagePeek
             UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
-            int logicalWidth = UiDrawing.LogicalWidth(this);
-            int logicalHeight = UiDrawing.LogicalHeight(this);
-            Rectangle bounds = new Rectangle(
-                1, 1, logicalWidth - 2, logicalHeight - 2);
+            int width = UiDrawing.LogicalWidth(this);
             UsageProjectionSnapshot projection = window == null
                 ? null
                 : DisplayFormatting.ProjectUsage(window, DateTime.UtcNow);
-            Color accent = ResolveAccent(window);
 
-            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 18))
-            using (SolidBrush background = new SolidBrush(UiColors.Surface))
-            using (Pen border = new Pen(UiColors.Border))
-            {
-                e.Graphics.FillPath(background, path);
-                e.Graphics.DrawPath(border, path);
-            }
-
-            if (window == null)
-            {
-                DrawEmpty(e.Graphics);
-                return;
-            }
-
-            DrawHeader(e.Graphics, accent);
-            DrawProgress(e.Graphics, accent, projection);
-            DrawDetails(e.Graphics);
+            Color accent = window == null ? UiColors.Muted : ResolveAccent(window);
+            DrawHeader(e.Graphics, accent, width);
+            DrawProgress(e.Graphics, accent, projection, width);
+            if (window != null) DrawDetails(e.Graphics, width);
         }
 
         private static Color ResolveAccent(UsageWindowSnapshot value)
         {
-            if (value == null)
-            {
-                return Color.FromArgb(166, 166, 173);
-            }
             if (value.UsedPercent >= 90)
             {
                 return UiColors.Danger;
@@ -75,128 +66,96 @@ namespace UsagePeek
                 return UiColors.Warning;
             }
             return value.Key == "secondary"
-                ? Color.FromArgb(136, 115, 217)
+                ? UiColors.WeeklyQuota
                 : UiColors.Accent;
         }
 
-        private void DrawHeader(Graphics graphics, Color accent)
+        private void DrawHeader(Graphics graphics, Color accent, int width)
         {
             using (Font titleFont = UiDrawing.LogicalFont(
                 this, "Microsoft YaHei UI", 9.5f, FontStyle.Bold))
             using (Font numberFont = UiDrawing.LogicalFont(
-                this, "Segoe UI", 30f, FontStyle.Bold))
-            using (Font signFont = UiDrawing.LogicalFont(
-                this, "Segoe UI", 11f, FontStyle.Regular))
+                this, "Segoe UI", 15f, FontStyle.Bold))
             using (Font captionFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
+                this, "Microsoft YaHei UI", 8.5f, FontStyle.Regular))
             using (SolidBrush titleBrush = new SolidBrush(UiColors.Secondary))
-            using (SolidBrush numberBrush = new SolidBrush(window.UsedPercent >= 90
-                ? accent : UiColors.Text))
+            using (SolidBrush numberBrush = new SolidBrush(window == null || window.UsedPercent >= 90 ? accent : UiColors.Text))
             using (SolidBrush mutedBrush = new SolidBrush(UiColors.Muted))
             {
-                DrawText(graphics, window.Label, titleFont, titleBrush, 14);
-
-                string number = window.UsedPercent.ToString();
-                SizeF numberSize = graphics.MeasureString(number, numberFont);
-                graphics.DrawString(number, numberFont, numberBrush, 14, 35);
-                graphics.DrawString("%", signFont, mutedBrush,
-                    14 + numberSize.Width - 5, 57);
-                graphics.DrawString("已用", captionFont, mutedBrush,
-                    UiDrawing.LogicalWidth(this) - 45, 61);
+                DrawText(graphics, WindowLabel, titleFont, titleBrush,
+                    new RectangleF(0, 7, width - 96, 20));
+                int numberRight = window == null ? width : width - 29;
+                DrawText(graphics, window == null ? "—" : window.UsedPercent + "%", numberFont, numberBrush,
+                    new RectangleF(numberRight - 68, 0, 68, 27), StringAlignment.Far);
+                if (window != null)
+                    DrawText(graphics, "已用", captionFont, mutedBrush,
+                        new RectangleF(width - 29, 8, 29, 19), StringAlignment.Far);
             }
         }
 
         private void DrawProgress(
             Graphics graphics,
             Color accent,
-            UsageProjectionSnapshot projection)
+            UsageProjectionSnapshot projection,
+            int width)
         {
-            Rectangle track = new Rectangle(18, 95,
-                Math.Max(1, UiDrawing.LogicalWidth(this) - 36), 6);
-            using (GraphicsPath trackPath = UiDrawing.RoundedRectangle(track, 5))
-            using (SolidBrush trackBrush = new SolidBrush(UiColors.Track))
-            {
-                graphics.FillPath(trackBrush, trackPath);
-            }
+            const int y = 33;
+            const int inset = 3;
+            int length = Math.Max(1, width - inset * 2);
+            using (Pen track = new Pen(UiColors.Track, 5f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                graphics.DrawLine(track, inset, y, inset + length, y);
 
-            int fillWidth = (int)Math.Round(track.Width * window.UsedPercent / 100d);
-            if (fillWidth > 0)
-            {
-                Rectangle fill = new Rectangle(track.X, track.Y,
-                    Math.Min(track.Width, Math.Max(6, fillWidth)), track.Height);
-                using (GraphicsPath fillPath = UiDrawing.RoundedRectangle(fill, 5))
-                using (SolidBrush fillBrush = new SolidBrush(accent))
-                {
-                    graphics.FillPath(fillBrush, fillPath);
-                }
-            }
+            if (window != null && window.UsedPercent > 0)
+            using (Pen fill = new Pen(accent, 5f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                graphics.DrawLine(fill, inset, y, inset + length * Math.Min(100, window.UsedPercent) / 100f, y);
 
             if (projection != null && projection.ExpectedUsedPercent > 0 &&
                 projection.ExpectedUsedPercent < 100)
             {
-                int markerX = track.Left + (int)Math.Round(
-                    track.Width * projection.ExpectedUsedPercent / 100d);
-                using (Pen marker = new Pen(Color.FromArgb(150, 99, 99, 105), 1.2f))
-                {
-                    graphics.DrawLine(marker, markerX, track.Top - 2,
-                        markerX, track.Bottom + 2);
-                }
+                float markerX = inset + length * (float)(projection.ExpectedUsedPercent / 100d);
+                using (Pen marker = new Pen(UiColors.Muted, 1.1f))
+                    graphics.DrawLine(marker, markerX, y - 5, markerX, y + 5);
             }
         }
 
-        private void DrawDetails(Graphics graphics)
+        private void DrawDetails(Graphics graphics, int width)
         {
             using (Font primaryFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
+                this, "Microsoft YaHei UI", 8.5f, FontStyle.Regular))
             using (Font secondaryFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 7.5f, FontStyle.Regular))
+                this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
             using (SolidBrush valueBrush = new SolidBrush(UiColors.Secondary))
             using (SolidBrush mutedBrush = new SolidBrush(UiColors.Muted))
             using (SolidBrush warningBrush = new SolidBrush(UiColors.Warning))
             {
                 string reset = DisplayFormatting.FormatResetCompact(window.ResetsAtUtc);
-                DrawText(graphics, reset, primaryFont, valueBrush, 113);
-
                 string pace = DisplayFormatting.FormatPace(window);
                 string runout = DisplayFormatting.FormatRunout(window);
-                DrawText(graphics, pace, secondaryFont, mutedBrush, 136);
+                DrawText(graphics, pace, secondaryFont, mutedBrush, new RectangleF(0, 43, width / 3, 17));
+                DrawText(graphics, reset, primaryFont, valueBrush,
+                    new RectangleF(width * 2 / 3, 43, width - width * 2 / 3, 17), StringAlignment.Far);
                 DrawText(graphics, runout, secondaryFont,
                     runout.IndexOf("耗尽", StringComparison.Ordinal) >= 0
                         ? warningBrush
                         : mutedBrush,
-                    153);
+                    new RectangleF(width / 3, 43, width / 3, 17), StringAlignment.Center);
             }
         }
 
-        private void DrawText(
+        private static void DrawText(
             Graphics graphics,
             string text,
             Font font,
             Brush brush,
-            float y)
+            RectangleF bounds,
+            StringAlignment alignment = StringAlignment.Near)
         {
             using (StringFormat format = new StringFormat())
             {
                 format.FormatFlags = StringFormatFlags.NoWrap;
                 format.Trimming = StringTrimming.EllipsisCharacter;
-                graphics.DrawString(text, font, brush,
-                    new RectangleF(18, y, UiDrawing.LogicalWidth(this) - 36, 20), format);
-            }
-        }
-
-        private void DrawEmpty(Graphics graphics)
-        {
-            using (Font titleFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 9.5f, FontStyle.Bold))
-            using (Font detailFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
-            using (SolidBrush titleBrush = new SolidBrush(UiColors.Secondary))
-            using (SolidBrush detailBrush = new SolidBrush(UiColors.Muted))
-            {
-                graphics.DrawString("暂无额度数据", titleFont, titleBrush, 18, 45);
-                graphics.DrawString("完成 Codex 登录后\n即可自动读取", detailFont,
-                    detailBrush, new RectangleF(18, 76,
-                        UiDrawing.LogicalWidth(this) - 36, 50));
+                format.Alignment = alignment;
+                graphics.DrawString(text, font, brush, bounds, format);
             }
         }
     }

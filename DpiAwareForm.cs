@@ -110,6 +110,18 @@ namespace UsagePeek
             FitToWorkingArea(area);
         }
 
+        protected static void CreateChildHandles(Control root)
+        {
+            if (!root.IsHandleCreated)
+            {
+                IntPtr unused = root.Handle;
+            }
+            foreach (Control child in root.Controls)
+            {
+                CreateChildHandles(child);
+            }
+        }
+
         internal void FitToWorkingAreaForTesting(Rectangle area)
         {
             FitToWorkingArea(area);
@@ -249,35 +261,44 @@ namespace UsagePeek
             OnDpiScaleChanged();
         }
 
-        private void FitToWorkingArea(Rectangle area)
+        protected void FitToWorkingArea(Rectangle area)
         {
             if (!AutoScroll || !layoutInitialized || area.Width <= 0 || area.Height <= 0)
             {
                 return;
             }
 
-            Size content = ScaleSize(designClientSize, DpiScaleFactor);
             // Windows may clamp a borderless window before WinForms refreshes
             // its cached client size; a non-client border cannot be negative.
             int availableWidth = Math.Max(1, area.Width - 16 -
                 Math.Max(0, Width - ClientSize.Width));
             int availableHeight = Math.Max(1, area.Height - 16 -
                 Math.Max(0, Height - ClientSize.Height));
+            Size content = GetContentSize(ScaleSize(designClientSize, DpiScaleFactor),
+                new Size(availableWidth, availableHeight));
             Size viewport = new Size(Math.Min(content.Width, availableWidth),
                 Math.Min(content.Height, availableHeight));
             SuspendLayout();
             try
             {
                 AutoScrollPosition = Point.Empty;
-                AutoScrollMinSize = viewport.Height < content.Height
-                    ? new Size(0, content.Height) : Size.Empty;
                 ClientSize = viewport;
+                OnWorkingAreaFitted();
+                AutoScrollMinSize = new Size(viewport.Width < content.Width ? content.Width : 0,
+                    viewport.Height < content.Height ? content.Height : 0);
             }
             finally
             {
                 ResumeLayout(true);
             }
         }
+
+        protected virtual Size GetContentSize(Size scaledDesignSize, Size availableSize)
+        {
+            return scaledDesignSize;
+        }
+
+        protected virtual void OnWorkingAreaFitted() { }
 
         private static Rectangle ReadSuggestedBounds(IntPtr pointer)
         {
@@ -342,12 +363,19 @@ namespace UsagePeek
             {
                 if (font != null)
                 {
-                    Font previous = ownedFont;
-                    ownedFont = font.Create(fontScale);
-                    control.Font = ownedFont;
-                    // A control's initial font may be borrowed by another control.
-                    // Dispose only the replacement fonts created by this layout.
-                    if (previous != null) previous.Dispose();
+                    Font replacement = font.Create(fontScale);
+                    if (replacement.Equals(control.Font))
+                    {
+                        // WinForms retains its current Font when the new value is equal.
+                        replacement.Dispose();
+                    }
+                    else
+                    {
+                        Font previous = ownedFont;
+                        control.Font = replacement;
+                        ownedFont = replacement;
+                        if (previous != null) previous.Dispose();
+                    }
                 }
 
                 control.Bounds = ScaleRectangle(bounds, geometryScale);

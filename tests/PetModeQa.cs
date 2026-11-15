@@ -37,6 +37,8 @@ internal static class PetModeQa
             VerifyQuotaTransitionCancellation();
             VerifyChatGptPet();
             VerifyNewPets();
+            VerifyFrogGlance();
+            VerifyClawd();
             VerifyContinuousAnimations();
             VerifyDesktopActivity();
             VerifyAutoMovementSwitch();
@@ -136,7 +138,7 @@ internal static class PetModeQa
             "the ChatGPT girl appearance survives restart");
         foreach (PetAppearance appearance in new[]
         {
-            PetAppearance.ClaudeGirl, PetAppearance.MilkFrog
+            PetAppearance.ClaudeGirl, PetAppearance.MilkFrog, PetAppearance.Clawd
         })
         {
             restored.SetPetAppearance(appearance);
@@ -1776,10 +1778,118 @@ internal static class PetModeQa
         }
     }
 
+    private static void VerifyFrogGlance()
+    {
+        using (PetForm form = new PetForm())
+        {
+            form.SetAppearance(PetAppearance.MilkFrog);
+            form.SetAutoMoveEnabled(false);
+            form.Location = new Point(700, 400);
+            Rectangle area = new Rectangle(0, 0, 1920, 1080);
+            Point cursorRight = new Point(1800, 400);
+            Point cursorLeft = new Point(200, 400);
+            for (int tick = 0; tick < 49; tick++)
+                form.AdvanceDesktopMotionForTesting(false, cursorRight, area, .1d, false);
+            Check(form.FrogGlanceAmount == 0f, "the frog waits before glancing");
+            form.AdvanceDesktopMotionForTesting(false, cursorRight, area, .1d, false);
+            form.AdvanceDesktopMotionForTesting(false, cursorRight, area, .07d, false);
+            Check(form.FrogGlanceAmount > 0f && form.FrogGlanceAmount < 1f,
+                "the frog eases into the glance");
+            form.AdvanceDesktopMotionForTesting(false, cursorRight, area, .1d, false);
+            form.AdvanceDesktopMotionForTesting(false, cursorLeft, area, .1d, false);
+            Check(form.FrogGlanceAmount == 1f && !form.FacingLeftForTesting,
+                "moving the cursor does not turn the frog away from the viewer during the glance");
+            for (int tick = 0; tick < 5; tick++)
+                form.AdvanceDesktopMotionForTesting(false, cursorLeft, area, .1d, false);
+            Check(form.FrogGlanceAmount > 0f && form.FrogGlanceAmount < 1f,
+                "the frog eases back to its usual gaze");
+            for (int tick = 0; tick < 5; tick++)
+                form.AdvanceDesktopMotionForTesting(false, cursorLeft, area, .1d, false);
+            Check(form.FrogGlanceAmount == 0f && form.FacingLeftForTesting,
+                "after glancing the frog resumes its usual idle animation");
+            form.SetAppearance(PetAppearance.PhoebeChibi);
+            for (int tick = 0; tick < 65; tick++)
+                form.AdvanceDesktopMotionForTesting(false, cursorRight, area, .1d, false);
+            Check(form.FrogGlanceAmount == 0f, "the viewer glance is specific to the frog");
+        }
+    }
+
+    private static void VerifyClawd()
+    {
+        using (PetGifAnimation walking = new PetGifAnimation("clawd-crab-walking.gif", 1.12f, 64, 77, true))
+        {
+            Bitmap first = walking.FrameAt(0d);
+            Check(first.GetPixel(0, 0).A == 0 && first.GetPixel(60, 38).A == 255,
+                "Clawd GIF preserves transparent surroundings and an opaque character");
+            Check(object.ReferenceEquals(first, walking.FrameAt(.079d)) &&
+                !object.ReferenceEquals(first, walking.FrameAt(.080d)) &&
+                object.ReferenceEquals(first, walking.FrameAt(3.84d)),
+                "Clawd walks at the GIF's own frame delays and restarts the loop");
+        }
+        using (PetGifAnimation nervous = new PetGifAnimation("clawd-working-confused.gif", 1.68f, 76, 109))
+        {
+            // Upstream has a held pose at the start and then shorter frame delays.
+            Check(object.ReferenceEquals(nervous.FrameAt(0d), nervous.FrameAt(.659d)) &&
+                !object.ReferenceEquals(nervous.FrameAt(0d), nervous.FrameAt(.660d)),
+                "Clawd preserves asymmetric frame timing");
+        }
+        using (PetForm form = new PetForm())
+        {
+            form.SetAppearance(PetAppearance.Clawd);
+            form.SetScalePercent(100);
+            Rectangle area = new Rectangle(0, 0, 1920, 1080);
+            Point cursor = new Point(1750, 120);
+            form.Location = new Point(700, 400);
+            form.AdvanceDesktopMotionForTesting(false, cursor, area, 0d, false);
+            Rectangle character = new Rectangle(0, 85, form.Width, form.Height - 85);
+            using (Bitmap idle = form.RenderImageForTesting())
+            {
+                form.AdvanceDesktopMotionForTesting(true, cursor, area, .1d, false);
+                Check(form.ActivityForTesting == PetActivity.Walking &&
+                    form.ArtworkMirroredForTesting != form.FacingLeftForTesting,
+                    "Clawd faces the direction of travel when the walk GIF plays");
+                using (Bitmap walking = form.RenderImageForTesting())
+                    Check(CountChangedPixels(idle, walking, character) > 1000,
+                        "Clawd uses a visibly distinct walk loop");
+                form.SetCodexTps(true, 25d, false);
+                Point stopped = form.Location;
+                form.AdvanceDesktopMotionForTesting(true, cursor, area, .1d, false);
+                Check(form.Location == stopped && form.ActivityForTesting == PetActivity.Watching,
+                    "Clawd pauses roaming when Codex is running");
+                using (Bitmap typing = form.RenderImageForTesting())
+                    Check(CountChangedPixels(idle, typing, character) > 1000,
+                        "Clawd types during an active Codex turn");
+                form.SetMoodForTesting(PetMood.Nervous, .25f);
+                using (Bitmap nervous = form.RenderImageForTesting())
+                    Check(CountChangedPixels(idle, nervous, character) > 1000,
+                        "Clawd shows its own low-quota expression");
+                form.SetMoodForTesting(PetMood.Happy, .3f);
+                using (Bitmap happy = form.RenderImageForTesting())
+                    Check(CountChangedPixels(idle, happy, character) > 1000,
+                        "Clawd shows its own quota-reset celebration");
+                form.SetPettingProgressForTesting(.15f);
+                using (Bitmap petted = form.RenderImageForTesting())
+                    Check(CountChangedPixels(idle, petted, character) > 1000,
+                        "Clawd supports the existing petting gesture");
+            }
+            form.SetPettingProgressForTesting(null);
+            form.SetScalePercent(150);
+            Check(form.ClientSize == new Size(330, 380),
+                "the compact Clawd surface honors the custom zoom");
+            form.SetAppearance(PetAppearance.ClaudeGirl);
+            Check(form.HasContinuousAnimationForTesting && form.ClientSize == new Size(330, 465),
+                "switching from Clawd restores the continuous rig and its dimensions");
+            form.SetAppearance(PetAppearance.Clawd);
+            using (Bitmap restored = form.RenderImageForTesting())
+                Check(restored.Width > 0, "switching back to Clawd reuses the decoded frames");
+        }
+    }
+
     private static void VerifyContinuousAnimations()
     {
         foreach (PetAppearance appearance in (PetAppearance[])Enum.GetValues(typeof(PetAppearance)))
         {
+            if (appearance == PetAppearance.Clawd) continue;
             using (PetForm form = new PetForm())
             {
                 form.SetAppearance(appearance);
@@ -1832,6 +1942,8 @@ internal static class PetModeQa
     {
         Rectangle workArea = new Rectangle(0, 0, 1920, 1080);
         foreach (PetAppearance appearance in (PetAppearance[])Enum.GetValues(typeof(PetAppearance)))
+        {
+            if (appearance == PetAppearance.Clawd) continue;
             using (PetForm form = new PetForm())
             {
                 form.SetAppearance(appearance);
@@ -1853,6 +1965,7 @@ internal static class PetModeQa
                             "turning renders the opposite pose while keeping the bubble upright: " + appearance);
                 }
             }
+        }
     }
 
     private static void VerifyDesktopActivity()

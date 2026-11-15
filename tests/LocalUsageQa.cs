@@ -73,17 +73,21 @@ internal static class LocalUsageQa
         CodexTpsReading live = monitor.Poll(at.AddSeconds(7));
         Check(live != null && Math.Abs(live.TokensPerSecond.GetValueOrDefault() - 25d) < 0.01d && !live.IsPreviousTurn,
             "TPS uses only the output delta and ignores a duplicate cumulative count");
+        Check(monitor.LiveTokensPerSecond == 20d, "the live chart uses output observed in the last five seconds");
 
         File.AppendAllText(rollout, TpsEvent(at.AddSeconds(7), 22, "task_complete", turnId: "other-turn") + "\n");
         Check(monitor.Poll(at.AddSeconds(8)) != null, "completion of another turn does not clear the active TPS");
 
         File.AppendAllText(rollout, TpsEvent(at.AddSeconds(7), 23, "task_complete", new string('a', 10000), "active-turn") + "\n");
         Check(monitor.Poll(at.AddSeconds(8)) == null, "a completion with a long payload clears TPS");
+        Check(monitor.LiveTokensPerSecond == 20d, "recent output remains visible when the count is written just before completion");
 
         File.AppendAllText(rollout, TpsEvent(at.AddSeconds(9), 24, "task_started") + "\n");
         CodexTpsReading reference = monitor.Poll(at.AddSeconds(10));
         Check(reference != null && Math.Abs(reference.TokensPerSecond.GetValueOrDefault() - 25d) < 0.01d && reference.IsPreviousTurn,
             "a later turn can show a labeled estimate from the same conversation");
+        monitor.Poll(at.AddSeconds(11));
+        Check(monitor.LiveTokensPerSecond == 0d, "live speed drops to zero when output ages out without substituting the last turn");
         File.AppendAllText(rollout, TpsEvent(at.AddSeconds(10), 25, "turn_aborted") + "\n");
         Check(monitor.Poll(at.AddSeconds(11)) == null, "an aborted turn restores idle status");
         File.AppendAllText(rollout, TpsEvent(at.AddSeconds(11), 26, "task_started") + "\n");
@@ -99,6 +103,7 @@ internal static class LocalUsageQa
         live = monitor.Poll(at.AddSeconds(16));
         Check(live != null && Math.Abs(live.TokensPerSecond.GetValueOrDefault() - 25d) < 0.01d && !live.IsPreviousTurn,
             "a fresh turn can start from last output metadata without using its cumulative history");
+        Check(monitor.LiveTokensPerSecond == 10d, "live TPS uses the new output delta rather than cumulative usage");
     }
 
     private static string TpsEvent(DateTime at, int ordinal, string kind, string message = null, string turnId = null)

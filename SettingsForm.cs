@@ -164,12 +164,13 @@ namespace UsagePeek
                 "菲比啾比",
                 "ChatGPT 娘",
                 "Claude 娘",
-                "奶蛙"
+                "奶蛙",
+                "Clawd"
             });
             appearanceInput.SelectedIndex = Math.Max(0,
                 Math.Min(appearanceInput.Items.Count - 1, (int)safe.PetAppearance));
             AddSettingRow(settingsPage, 152, "桌宠外形",
-                "五种外形，支持散步、摸头", appearanceInput);
+                "六种外形，支持散步、摸头", appearanceInput);
 
             usageModeInput = CreateComboBox();
             usageModeInput.Items.AddRange(new object[]
@@ -190,7 +191,7 @@ namespace UsagePeek
                 Math.Min((int)scaleInput.Maximum, safe.PetScalePercent));
             scaleInput.TextAlign = HorizontalAlignment.Center;
             scaleInput.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
-            scaleInput.BackColor = UiColors.Surface;
+            scaleInput.BackColor = UiColors.Background;
             scaleInput.ForeColor = ForeColor;
             AddSettingRow(settingsPage, 252, "桌宠大小",
                 "50%–200%，随显示器缩放适配", scaleInput);
@@ -204,7 +205,7 @@ namespace UsagePeek
             petAlwaysOnTopInput.Font = new Font("Microsoft YaHei UI", 8.8f,
                 FontStyle.Bold);
             petAlwaysOnTopInput.ForeColor = ForeColor;
-            petAlwaysOnTopInput.BackColor = UiColors.Surface;
+            petAlwaysOnTopInput.BackColor = UiColors.Background;
             petAlwaysOnTopInput.Text = "桌宠保持置顶";
             petAlwaysOnTopInput.Checked = safe.PetAlwaysOnTop;
             petAlwaysOnTopInput.UseVisualStyleBackColor = false;
@@ -220,7 +221,7 @@ namespace UsagePeek
             startupInput.Font = new Font("Microsoft YaHei UI", 8.8f,
                 FontStyle.Bold);
             startupInput.ForeColor = ForeColor;
-            startupInput.BackColor = UiColors.Surface;
+            startupInput.BackColor = UiColors.Background;
             startupInput.Text = "登录 Windows 后自动启动 UsagePeek";
             startupInput.Checked = safe.StartupEnabled;
             startupInput.UseVisualStyleBackColor = false;
@@ -279,7 +280,7 @@ namespace UsagePeek
             diagnosticsText.ScrollBars = ScrollBars.Vertical;
             diagnosticsText.WordWrap = true;
             diagnosticsText.BorderStyle = BorderStyle.None;
-            diagnosticsText.BackColor = UiColors.Surface;
+            diagnosticsText.BackColor = UiColors.Background;
             diagnosticsText.ForeColor = UiColors.Secondary;
             diagnosticsText.Font = new Font("Consolas", 8.4f,
                 FontStyle.Regular);
@@ -849,18 +850,6 @@ namespace UsagePeek
             return panel;
         }
 
-        private static void CreateChildHandles(Control root)
-        {
-            if (!root.IsHandleCreated)
-            {
-                IntPtr unused = root.Handle;
-            }
-            foreach (Control child in root.Controls)
-            {
-                CreateChildHandles(child);
-            }
-        }
-
         private static ModernSelectControl CreateComboBox()
         {
             ModernSelectControl input = new ModernSelectControl();
@@ -887,9 +876,7 @@ namespace UsagePeek
 
         private static void StyleNavButton(Button button, bool selected)
         {
-            button.BackColor = selected
-                ? UiColors.Selection
-                : UiColors.Background;
+            button.BackColor = UiColors.Background;
             button.ForeColor = selected
                 ? UiColors.Accent
                 : UiColors.Secondary;
@@ -900,6 +887,7 @@ namespace UsagePeek
             Button button = new RoundedButton();
             button.Size = new Size(100, 34);
             UiDrawing.StyleButton(button, accent);
+            if (!accent) button.BackColor = UiColors.Background;
             button.Font = new Font("Microsoft YaHei UI", 8.2f,
                 FontStyle.Regular);
             button.Text = text;

@@ -23,6 +23,7 @@ internal static class PetRigAnimationQa
         string root = args.Length == 0 ? Environment.CurrentDirectory : args[0];
         foreach (PetAppearance appearance in (PetAppearance[])Enum.GetValues(typeof(PetAppearance)))
         {
+            if (appearance == PetAppearance.Clawd) continue; // Clawd uses the GIF player.
             string file = appearance == PetAppearance.PhoebeChibi ? "pet-phoebe-chibi.png" :
                 appearance == PetAppearance.ChatGptGirl ? "pet-chatgpt-girl.png" :
                 appearance == PetAppearance.ClaudeGirl ? "pet-claude-girl.png" :
@@ -78,12 +79,17 @@ internal static class PetRigAnimationQa
                         if (appearance != PetAppearance.PhoebeChibi)
                             VerifyStandingStepDirection(rig, appearance);
                     }
+                    if (appearance == PetAppearance.MilkFrog)
+                        VerifyFrogPupilMotion(rig);
                     rig.Render(210, 210, 0d, 0f, PetMood.Normal, -1f);
                     VerifyWalkingShape(rig, source, bounds, appearance, root);
                     VerifyWalkingMeshScales(rig, appearance);
                     using (Bitmap resting = (Bitmap)rig.Render(210, 210, 0d, 0f, PetMood.Normal, -1f).Clone())
                         Check(Difference(resting, rig.Render(210, 210, 1d, 0f, PetMood.Normal, -1f)) > .01d,
                             "stationary pets have continuous local breathing and hair motion: " + appearance);
+                    using (Bitmap resting = (Bitmap)rig.Render(210, 210, 1d, 0f, PetMood.Normal, -1f).Clone())
+                        Check(Difference(resting, rig.Render(210, 210, 1d, 0f, PetMood.Normal, -1f, 1f)) > .01d,
+                            "the active pose differs from the idle pose: " + appearance);
                     foreach (PetMood mood in (PetMood[])Enum.GetValues(typeof(PetMood)))
                         foreach (float petting in new[] { -1f, 0f, .3f, .6f, 1f })
                             rig.Render(210, 210, .2d, .5f, mood, petting);
@@ -105,6 +111,56 @@ internal static class PetRigAnimationQa
         }
         Console.WriteLine(failures == 0 ? "Continuous rig QA passed." : "Continuous rig QA failed: " + failures);
         return failures == 0 ? 0 : 1;
+    }
+
+    private static void VerifyFrogPupilMotion(PetRigAnimation rig)
+    {
+        const int size = 420;
+        using (Bitmap idle = (Bitmap)rig.Render(size, size, 0d, 0f, PetMood.Normal, -1f).Clone())
+        {
+            PointF topLeft = rig.MapSourcePoint(new PointF(650, 102));
+            PointF bottomRight = rig.MapSourcePoint(new PointF(731, 175));
+            Rectangle eye = Rectangle.FromLTRB((int)topLeft.X, (int)topLeft.Y,
+                (int)Math.Ceiling(bottomRight.X), (int)Math.Ceiling(bottomRight.Y));
+            float idlePupil = PupilCenterX(idle, eye);
+            rig.ViewerGlance = .5f;
+            float halfway = PupilCenterX(rig.Render(size, size, 0d, 0f, PetMood.Normal, -1f), eye);
+            rig.ViewerGlance = 1f;
+            Bitmap glance = rig.Render(size, size, 0d, 0f, PetMood.Normal, -1f);
+            float facing = PupilCenterX(glance, eye);
+            Check(idlePupil - facing > 4f && idlePupil > halfway && halfway > facing,
+                "the frog's pupil turns continuously toward the viewer");
+            PointF outerEye = rig.MapSourcePoint(new PointF(788, 174));
+            Rectangle eyeArea = Rectangle.FromLTRB(eye.Left - 2, eye.Top - 2,
+                (int)Math.Ceiling(outerEye.X) + 2, (int)Math.Ceiling(outerEye.Y) + 2);
+            bool otherPixelsUnchanged = true;
+            for (int y = 0; y < size && otherPixelsUnchanged; y++)
+                for (int x = 0; x < size && otherPixelsUnchanged; x++)
+                {
+                    Color before = idle.GetPixel(x, y);
+                    Color after = glance.GetPixel(x, y);
+                    otherPixelsUnchanged = before.A == after.A &&
+                        (eyeArea.Contains(x, y) || before.ToArgb() == after.ToArgb());
+                }
+            Check(otherPixelsUnchanged, "the frog's face outline and body stay fixed during the glance");
+            rig.ViewerGlance = 0f;
+            Check(Fingerprint(idle) == Fingerprint(rig.Render(size, size, 0d, 0f, PetMood.Normal, -1f)),
+                "the frog's pupils return exactly to their resting positions");
+        }
+    }
+
+    private static float PupilCenterX(Bitmap image, Rectangle eye)
+    {
+        int total = 0, count = 0;
+        for (int y = eye.Top; y < eye.Bottom; y++)
+            for (int x = eye.Left; x < eye.Right; x++)
+            {
+                Color color = image.GetPixel(x, y);
+                if (color.G >= 60 || color.A < 250) continue;
+                total += x;
+                count++;
+            }
+        return count == 0 ? float.NaN : total / (float)count;
     }
 
     private static void VerifyStandingStepDirection(PetRigAnimation rig, PetAppearance appearance)

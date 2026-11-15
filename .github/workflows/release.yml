@@ -64,7 +64,7 @@ jobs:
 
           - 查看 Codex 5 小时 Session 与 7 天 Weekly 用量、重置倒计时和节奏预测。
           - 统计今天、昨天、近 30 天及本机累计 Token；用量写入持久账本并逐条去重，保留历史 API 等价估值。
-          - 支持经典面板及鲸鱼娘、菲比啾比、ChatGPT 娘、Claude 娘、奶蛙五种桌宠外形，可自定义大小与已用/剩余显示，并支持 classic petpet 摸头互动。
+          - 支持经典面板及鲸鱼娘、菲比啾比、ChatGPT 娘、Claude 娘、奶蛙、Clawd 六种桌宠外形，可自定义大小与已用/剩余显示，并支持摸头互动。
           - 切回桌面后立即在当前显示器内散步，前台有应用窗口时停下并朝向鼠标；拖动、摸头、打开菜单或面板时暂停散步。
           - 右键桌宠或托盘可切换“桌宠自动移动”，选择会自动保存，重启后保留。
           - 桌宠气泡显示 5 小时与 7 天额度的恢复日期和本地时间，背景直接取当前形象的图片平均色，文字自动适配明暗。
@@ -78,7 +78,7 @@ jobs:
 
           ## 来源与许可
 
-          UsagePeek 从 [OpenUsage](https://github.com/robinebers/openusage) 的界面、用量统计、节奏预测和 Provider 思路改造而来，是独立的 Windows/C# 社区实现，并非 OpenUsage 官方 Windows 客户端。鲸鱼娘形象鸣谢 **ZipZipPipe**。完整署名见 [THIRD_PARTY_NOTICES.md](https://github.com/Supaio/UsagePeek/blob/main/THIRD_PARTY_NOTICES.md)。
+          UsagePeek 是独立的 Windows/C# 社区项目，界面、用量统计、节奏预测和 Provider 思路来自 [OpenUsage](https://github.com/robinebers/openusage)。鲸鱼娘形象鸣谢 **ZipZipPipe**，Clawd 动画鸣谢 **Clawd Tank**。完整署名见 [THIRD_PARTY_NOTICES.md](https://github.com/Supaio/UsagePeek/blob/$($env:GITHUB_REF_NAME)/THIRD_PARTY_NOTICES.md)。
 
           **SHA-256:** ``$env:RELEASE_SHA256``
           "@

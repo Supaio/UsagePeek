@@ -1,6 +1,6 @@
 {
-  "version": "2.0.8",
-  "url": "https://gitlab.com/Supaio/usagepeek/-/releases/v2.0.8/downloads/UsagePeek.exe",
-  "sha256": "18BD959733F95FC367961C5D97B1A3786E5CA5183EF4BAD9CE87585496198B93",
-  "notes": "- Codex 运行时，桌宠气泡每 3 秒轮换显示额度恢复时间和 TPS。\n- TPS 根据本机日志中的输出 Token 估算。首个样本出来前显示「采样中」，有近期样本时可显示「上一轮参考」。\n- 任务完成或取消后，气泡恢复显示额度恢复时间。"
+  "version": "3.0.0",
+  "url": "https://gitlab.com/Supaio/usagepeek/-/releases/v3.0.0/downloads/UsagePeek.exe",
+  "sha256": "2CA82754E5F016CD1573D73638367531D3C77168FA344CFA6EC0CD3F10B1F551",
+  "notes": "- 新增侧边栏来源切换，支持 Codex、Claude Code 和 Google Antigravity。Claude Code 与 Antigravity 读取本机 Token 记录，可通过 CLI 状态栏同步订阅额度。中科大 DeepSeek 显示待接入入口。\n- 用量面板收窄至 450 像素（100% 缩放）。60 秒实时 TPS 支持 K 线、柱形和折线，5 小时与 7 天额度各有独立时间轴。\n- 新增 Clawd 像素桌宠。原有五个角色各有 Codex 工作动作，奶蛙也会偶尔朝屏幕外瞥一眼。\n- 打开用量历史时先显示窗口，再读取历史记录。"
 }

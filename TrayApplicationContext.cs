@@ -66,7 +66,7 @@ namespace UsagePeek
             displayModeSettings = new DisplayModeSettings();
             displayPreference = displayModeSettings.Load();
             UiTheme.SetMode(displayPreference.GetThemeMode());
-            form = new MainForm();
+            form = new MainForm(quotaHistory);
             petForm = new PetForm();
             petForm.SetAppearance(displayPreference.GetPetAppearance());
             petForm.SetUsageDisplayMode(
@@ -108,6 +108,18 @@ namespace UsagePeek
             ToolStripMenuItem modelUsageItem =
                 new ToolStripMenuItem("查看模型用量占比");
             modelUsageItem.Click += delegate { ShowModelUsage(); };
+            ToolStripMenuItem sourcesItem = new ToolStripMenuItem("更多用量…");
+            sourcesItem.Click += delegate
+            {
+                if (menu.Visible) menu.Close();
+                IntPtr unused = form.Handle;
+                form.BeginInvoke(new MethodInvoker(delegate
+                {
+                    if (exiting || (historyDialog != null && historyDialog.Visible) || estimateDialog != null) return;
+                    form.ShowSource(UsageSource.ClaudeCode);
+                    ShowDetails();
+                }));
+            };
             petAlwaysOnTopMenuItem =
                 new ToolStripMenuItem("桌宠保持置顶");
             petAlwaysOnTopMenuItem.Checked =
@@ -135,6 +147,7 @@ namespace UsagePeek
             menu.Items.Add(openItem);
             menu.Items.Add(refreshItem);
             menu.Items.Add(modelUsageItem);
+            menu.Items.Add(sourcesItem);
             menu.Items.Add(petAlwaysOnTopMenuItem);
             menu.Items.Add(petAutoMoveMenuItem);
             menu.Items.Add(new ToolStripSeparator());
@@ -156,7 +169,7 @@ namespace UsagePeek
             {
                 if (args.Button == MouseButtons.Left)
                 {
-                    if (displayPreference.GetDisplayMode() ==
+                    if ((historyDialog != null && historyDialog.Visible) || displayPreference.GetDisplayMode() ==
                         UsageDisplayMode.Pet)
                     {
                         ShowDetails();
@@ -177,7 +190,8 @@ namespace UsagePeek
 
             tpsTimer = new Timer { Interval = 1000 };
             tpsTimer.Tick += async delegate { await PollCodexTpsAsync(); };
-            petForm.VisibleChanged += delegate { tpsTimer.Enabled = !exiting && petForm.Visible; };
+            petForm.VisibleChanged += delegate { UpdateTpsPolling(); };
+            form.LiveChartVisibilityChanged += delegate { UpdateTpsPolling(); };
 
             initialRefreshTimer = new Timer();
             initialRefreshTimer.Interval = 300;
@@ -255,6 +269,7 @@ namespace UsagePeek
                 }
             };
             Application.Idle += warmSettingsDialog;
+            Application.Idle += WarmHistoryWindow;
         }
 
         private async Task RefreshAsync()
@@ -298,8 +313,8 @@ namespace UsagePeek
                 {
                     ShowResetCreditGrant(resetCreditGrant);
                 }
-                if (historyDialog != null && historyDialog.Visible)
-                    await historyDialog.ReloadLocalHistoryAsync();
+                if (historyDialog != null)
+                    await historyDialog.LoadHistoryAsync();
             }
             catch (Exception ex)
             {
@@ -332,14 +347,22 @@ namespace UsagePeek
             }
         }
 
+        private void UpdateTpsPolling()
+        {
+            tpsTimer.Enabled = !exiting && (petForm.Visible || form.IsLiveChartVisible);
+        }
+
         private async Task PollCodexTpsAsync()
         {
-            if (exiting || pollingTps || !petForm.Visible) return;
+            if (exiting || pollingTps || (!petForm.Visible && !form.IsLiveChartVisible)) return;
             pollingTps = true;
             try
             {
-                CodexTpsReading reading = await Task.Run(delegate { return tpsMonitor.Poll(DateTime.UtcNow); });
-                if (!exiting && petForm.Visible)
+                DateTime observedAtUtc = DateTime.UtcNow;
+                CodexTpsReading reading = await Task.Run(delegate { return tpsMonitor.Poll(observedAtUtc); });
+                if (exiting) return;
+                form.SetLiveTps(observedAtUtc, tpsMonitor.LiveTokensPerSecond);
+                if (petForm.Visible)
                     petForm.SetCodexTps(reading != null,
                         reading == null ? null : reading.TokensPerSecond, reading != null && reading.IsPreviousTurn);
             }
@@ -385,6 +408,8 @@ namespace UsagePeek
             {
                 form.SetCurrencyLoading(false);
                 form.SetCurrencyState(currencyState);
+                if (historyDialog != null && historyDialog.Visible)
+                    historyDialog.SetUsage(lastSnapshot);
             }
         }
 
@@ -565,10 +590,12 @@ namespace UsagePeek
 
         private void ShowModelUsage()
         {
+            if (historyDialog != null && historyDialog.Visible) return;
             if (lastSnapshot == null || lastSnapshot.LocalTokenUsage == null ||
                 lastSnapshot.LocalTokenUsage.ModelUsage == null ||
                 lastSnapshot.LocalTokenUsage.ModelUsage.Count == 0)
             {
+                form.ShowSource(UsageSource.Codex);
                 ShowDetails();
                 form.ShowTransientStatus("暂无模型分组数据，请先刷新。", true);
                 return;
@@ -596,9 +623,9 @@ namespace UsagePeek
                 if (estimateDialog.Visible) estimateDialog.BringToForeground();
                 return;
             }
-            if (historyDialog != null)
+            if (historyDialog != null && historyDialog.Visible)
             {
-                if (historyDialog.Visible) historyDialog.BringToForeground();
+                historyDialog.BringToForeground();
                 return;
             }
 
@@ -625,26 +652,61 @@ namespace UsagePeek
             form.ShowNearTray();
         }
 
-        private void ShowUsageHistory()
+        private async void ShowUsageHistory()
         {
-            if (exiting || historyDialog != null || estimateDialog != null) return;
-
-            Screen screen = Screen.FromControl(form);
-            using (UsageHistoryForm dialog = new UsageHistoryForm(quotaHistory, currencyState))
+            if (exiting || estimateDialog != null) return;
+            if (historyDialog != null && historyDialog.Visible)
             {
-                dialog.SetUsage(lastSnapshot);
-                dialog.PlaceOnScreen(screen);
-                form.Hide();
-                historyDialog = dialog;
-                try { dialog.ShowDialog(); }
-                finally { historyDialog = null; }
+                historyDialog.BringToForeground();
+                return;
             }
-            if (!exiting) ShowDetails();
+            UsageHistoryForm dialog = EnsureHistoryWindow(Screen.FromControl(form));
+            dialog.SetUsage(lastSnapshot, true);
+            dialog.BringToForeground();
+            form.Hide();
+            await dialog.LoadHistoryAsync();
+        }
+
+        private async void WarmHistoryWindow(object sender, EventArgs e)
+        {
+            Application.Idle -= WarmHistoryWindow;
+            if (exiting || historyDialog != null) return;
+            try
+            {
+                Screen screen = form.Visible ? Screen.FromControl(form) : Screen.FromPoint(Cursor.Position);
+                UsageHistoryForm dialog = EnsureHistoryWindow(screen);
+                dialog.SetUsage(lastSnapshot);
+                await dialog.LoadHistoryAsync();
+            }
+            catch
+            {
+                if (historyDialog != null && !historyDialog.Visible)
+                {
+                    historyDialog.Dispose();
+                    historyDialog = null;
+                }
+            }
+        }
+
+        private UsageHistoryForm EnsureHistoryWindow(Screen screen)
+        {
+            if (historyDialog == null || historyDialog.IsDisposed)
+            {
+                historyDialog = new UsageHistoryForm(quotaHistory, currencyState);
+                historyDialog.VisibleChanged += delegate(object sender, EventArgs args)
+                {
+                    UsageHistoryForm window = (UsageHistoryForm)sender;
+                    if (!exiting && !window.Visible && !window.IsDisposed && !window.Disposing)
+                        ShowDetails();
+                };
+            }
+            historyDialog.PrepareForDisplay(screen);
+            return historyDialog;
         }
 
         private void ShowEstimateAudit()
         {
-            if (exiting || estimateDialog != null || historyDialog != null) return;
+            if (exiting || estimateDialog != null || (historyDialog != null && historyDialog.Visible)) return;
             Screen screen = Screen.FromControl(form);
             LocalTokenUsageSnapshot local = lastSnapshot == null ? null : lastSnapshot.LocalTokenUsage;
             using (UsageBreakdownForm dialog = UsageBreakdownForm.ForEstimate(estimateAudit, local))
@@ -899,13 +961,16 @@ namespace UsagePeek
                     : DpiNative.GetSystemDpi();
             diagnostics.DisplayMode = displayPreference.GetDisplayMode() ==
                 UsageDisplayMode.Pet ? "桌宠模式" : "经典面板";
-            diagnostics.PetAppearance = displayPreference.GetPetAppearance() ==
+            PetAppearance appearance = displayPreference.GetPetAppearance();
+            diagnostics.PetAppearance = appearance ==
+                PetAppearance.Clawd ? "Clawd" :
+                appearance ==
                 PetAppearance.ClaudeGirl ? "Claude 娘" :
-                displayPreference.GetPetAppearance() ==
+                appearance ==
                 PetAppearance.MilkFrog ? "奶蛙" :
-                displayPreference.GetPetAppearance() ==
+                appearance ==
                 PetAppearance.ChatGptGirl ? "ChatGPT 娘" :
-                displayPreference.GetPetAppearance() ==
+                appearance ==
                 PetAppearance.PhoebeChibi ? "菲比啾比" : "鲸鱼娘趴趴";
             diagnostics.PetUsageMode =
                 displayPreference.GetPetUsageDisplayMode() ==
@@ -1198,6 +1263,7 @@ namespace UsagePeek
             }
 
             exiting = true;
+            Application.Idle -= WarmHistoryWindow;
             UiTheme.Changed -= HandleThemeChanged;
             refreshTimer.Stop();
             tpsTimer.Stop();
@@ -1209,7 +1275,7 @@ namespace UsagePeek
             trayIcon.Visible = false;
             trayIcon.Dispose();
             icon.Dispose();
-            if (historyDialog != null) historyDialog.Close();
+            if (historyDialog != null) historyDialog.Dispose();
             if (estimateDialog != null) estimateDialog.Close();
             if (settingsDialog != null)
             {

@@ -21,6 +21,7 @@ namespace UsagePeek
         private const int MaxMetadataBytes = 8 * 1024;
         private const int MaxSessionHeaderBytes = 64 * 1024;
         private const int MaxRecentFiles = 12;
+        internal const int LiveSampleSeconds = 5;
         private static readonly TimeSpan ActivityTimeout = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan InferredActivityTimeout = TimeSpan.FromMinutes(1);
         private static readonly TimeSpan PreviousTurnTimeout = TimeSpan.FromMinutes(10);
@@ -44,9 +45,12 @@ namespace UsagePeek
             this.codexHome = codexHome;
         }
 
+        public double? LiveTokensPerSecond { get; private set; }
+
         // The tray runs one poll at a time, off the UI thread.
         public CodexTpsReading Poll(DateTime nowUtc)
         {
+            LiveTokensPerSecond = null;
             FileInfo[] recent;
             try
             {
@@ -56,6 +60,7 @@ namespace UsagePeek
                     .OrderByDescending(file => file.LastWriteTimeUtc)
                     .Take(MaxRecentFiles).ToArray();
             }
+            catch (DirectoryNotFoundException) { LiveTokensPerSecond = 0d; return null; }
             catch (IOException) { return null; }
             catch (UnauthorizedAccessException) { return null; }
             catch (ArgumentException) { return null; }
@@ -66,16 +71,27 @@ namespace UsagePeek
                 sessions.Remove(path);
 
             CodexTpsReading fallback = null;
+            CodexTpsReading current = null;
+            bool unreadable = false;
+            double live = 0d;
             foreach (FileInfo file in recent)
             {
                 SessionTail state;
                 if (!sessions.TryGetValue(file.FullName, out state))
                     sessions.Add(file.FullName, state = new SessionTail());
-                if (!TryReadTail(file, state) || !state.StartedAtUtc.HasValue ||
+                if (!TryReadTail(file, state)) { unreadable = true; continue; }
+                if (live == 0d) live = state.ReadRecentRate(nowUtc);
+                if (current != null && live > 0d) break;
+                if (current != null || !state.StartedAtUtc.HasValue ||
                     (!state.SawLifecycle && nowUtc - (state.LastOutputAtUtc ?? state.StartedAtUtc.Value) > InferredActivityTimeout)) continue;
 
                 double? rate = state.CurrentRate;
-                if (rate.HasValue) return new CodexTpsReading { TokensPerSecond = rate };
+                if (rate.HasValue)
+                {
+                    current = new CodexTpsReading { TokensPerSecond = rate };
+                    if (live > 0d) break;
+                    continue;
+                }
                 if (fallback == null) fallback = new CodexTpsReading();
                 if (!fallback.TokensPerSecond.HasValue && state.PreviousCompletedAtUtc.HasValue &&
                     nowUtc - state.PreviousCompletedAtUtc.Value <= PreviousTurnTimeout)
@@ -84,7 +100,8 @@ namespace UsagePeek
                     fallback.IsPreviousTurn = true;
                 }
             }
-            return fallback;
+            if (live > 0d || !unreadable) LiveTokensPerSecond = live;
+            return current ?? fallback;
         }
 
         private bool TryReadTail(FileInfo file, SessionTail state)
@@ -113,6 +130,7 @@ namespace UsagePeek
                         state.TotalOutput = null;
                         state.TurnOutput = 0;
                         state.LastOutputAtUtc = null;
+                        state.ClearRecentOutput();
                         state.Offset = end - TailBytes;
                         state.SkipPartialLine = true;
                         state.LineLength = 0;
@@ -269,11 +287,19 @@ namespace UsagePeek
             {
                 state.TurnOutput += increment.Value;
                 state.LastOutputAtUtc = at;
+                state.AddRecentOutput(at, increment.Value);
             }
         }
 
         private sealed class SessionTail
         {
+            private struct OutputSample
+            {
+                public DateTime AtUtc;
+                public long Tokens;
+            }
+
+            private readonly Queue<OutputSample> recentOutput = new Queue<OutputSample>();
             public readonly byte[] Line = new byte[MaxMetadataBytes];
             public long Offset;
             public int LineLength;
@@ -300,8 +326,38 @@ namespace UsagePeek
                 }
             }
 
+            public void AddRecentOutput(DateTime at, long tokens)
+            {
+                TrimRecentOutput(at.AddSeconds(-LiveSampleSeconds));
+                recentOutput.Enqueue(new OutputSample { AtUtc = at, Tokens = tokens });
+            }
+
+            public double ReadRecentRate(DateTime nowUtc)
+            {
+                DateTime cutoff = nowUtc.AddSeconds(-LiveSampleSeconds);
+                TrimRecentOutput(cutoff);
+                double tokens = 0;
+                foreach (OutputSample point in recentOutput)
+                {
+                    if (point.AtUtc > cutoff && point.AtUtc <= nowUtc) tokens += point.Tokens;
+                }
+                return tokens / LiveSampleSeconds;
+            }
+
+            private void TrimRecentOutput(DateTime cutoff)
+            {
+                while (recentOutput.Count > 0 && recentOutput.Peek().AtUtc <= cutoff)
+                    recentOutput.Dequeue();
+            }
+
+            public void ClearRecentOutput()
+            {
+                recentOutput.Clear();
+            }
+
             public void Reset()
             {
+                ClearRecentOutput();
                 Offset = 0;
                 LineLength = 0;
                 SkipPartialLine = false;

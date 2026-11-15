@@ -67,7 +67,8 @@ namespace UsagePeek
 
         public async Task<UpdateCheckResult> CheckAsync()
         {
-            Version current = Assembly.GetExecutingAssembly().GetName().Version;
+            Assembly assembly = Assembly.GetExecutingAssembly();
+            Version current = assembly.GetName().Version;
             if (!IsConfigured)
             {
                 return new UpdateCheckResult
@@ -92,7 +93,9 @@ namespace UsagePeek
             }
 
             Version latest = ParseVersion(GetString(data, "version"));
-            bool available = latest.CompareTo(current) > 0;
+            AssemblyInformationalVersionAttribute displayVersion = (AssemblyInformationalVersionAttribute)
+                Attribute.GetCustomAttribute(assembly, typeof(AssemblyInformationalVersionAttribute));
+            bool available = IsNewerRelease(latest, current, displayVersion == null ? null : displayVersion.InformationalVersion);
             UpdateCheckResult result = new UpdateCheckResult
             {
                 IsConfigured = true,
@@ -246,6 +249,13 @@ namespace UsagePeek
                 throw new InvalidOperationException(label + "必须使用有效的 HTTPS 地址。");
             }
             return uri;
+        }
+
+        internal static bool IsNewerRelease(Version latest, Version current, string informationalVersion)
+        {
+            return latest.CompareTo(current) > 0 ||
+                (informationalVersion != null && informationalVersion.EndsWith("-preview", StringComparison.Ordinal) &&
+                latest.Major == current.Major && latest.Minor == current.Minor && latest.Build == current.Build);
         }
 
         private static Version ParseVersion(string value)

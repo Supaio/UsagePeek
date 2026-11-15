@@ -133,14 +133,14 @@ namespace UsagePeek
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            using (SolidBrush background = new SolidBrush(UiDrawing.BackdropColor(this)))
+                e.Graphics.FillRectangle(background, ClientRectangle);
             UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int width = UiDrawing.LogicalWidth(this);
             int height = UiDrawing.LogicalHeight(this);
-            using (SolidBrush background = new SolidBrush(BackColor))
-                e.Graphics.FillRectangle(background, 0, 0, width, height);
             using (GraphicsPath path = UiDrawing.RoundedRectangle(
-                new Rectangle(0, 0, width - 1, height - 1), 8))
+                new Rectangle(1, 1, width - 2, height - 2), 8))
             using (SolidBrush fill = new SolidBrush(hovered || (popup != null && popup.Visible)
                 ? UiColors.FieldHover : UiColors.Field))
             using (Pen border = new Pen(Focused ? UiColors.Accent : UiColors.Field))
@@ -217,8 +217,7 @@ namespace UsagePeek
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
-                ControlStyles.Opaque | ControlStyles.UserPaint, true);
-            BackColor = UiColors.Surface;
+                ControlStyles.UserPaint, true);
             AccessibleRole = AccessibleRole.SpinButton;
             TabStop = false;
             Increment = 5;
@@ -253,7 +252,6 @@ namespace UsagePeek
             };
             decrease = new GlyphButtonControl("−", false);
             increase = new GlyphButtonControl("+", false);
-            decrease.BackColor = increase.BackColor = UiColors.Field;
             decrease.AccessibleName = "缩小桌宠";
             increase.AccessibleName = "放大桌宠";
             decrease.Font = increase.Font = new Font("Segoe UI", 11f);
@@ -317,33 +315,43 @@ namespace UsagePeek
             if (input == null || decrease == null || increase == null) return;
             DpiAwareForm form = FindForm() as DpiAwareForm;
             float scale = form == null ? 1f : form.DpiScaleFactor;
-            int buttonWidth = (int)Math.Round(28 * scale);
-            int inset = (int)Math.Round(4 * scale);
-            decrease.Bounds = new Rectangle(2, inset, buttonWidth, Math.Max(1, Height - inset * 2));
-            increase.Bounds = new Rectangle(Math.Max(1, Width - buttonWidth - 2), inset,
-                buttonWidth, Math.Max(1, Height - inset * 2));
+            int buttonWidth = (int)Math.Round(24 * scale);
+            int horizontalInset = (int)Math.Round(5 * scale);
+            int verticalInset = (int)Math.Round(4 * scale);
+            int buttonHeight = Math.Max(1, Height - verticalInset * 2);
+            decrease.Bounds = new Rectangle(horizontalInset, verticalInset, buttonWidth, buttonHeight);
+            increase.Bounds = new Rectangle(Math.Max(horizontalInset, Width - buttonWidth - horizontalInset),
+                verticalInset, buttonWidth, buttonHeight);
             int textHeight = input.PreferredHeight;
-            input.Bounds = new Rectangle(buttonWidth + 4, (Height - textHeight) / 2,
-                Math.Max(1, Width - buttonWidth * 2 - (int)Math.Round(22 * scale)), textHeight);
+            int textInset = buttonWidth + horizontalInset;
+            input.Bounds = new Rectangle(textInset, (Height - textHeight) / 2,
+                Math.Max(1, Width - textInset * 2 - (int)Math.Round(20 * scale)), textHeight);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            using (SolidBrush background = new SolidBrush(UiDrawing.BackdropColor(this)))
+                e.Graphics.FillRectangle(background, ClientRectangle);
+            GraphicsState state = e.Graphics.Save();
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int width = UiDrawing.LogicalWidth(this);
+            int height = UiDrawing.LogicalHeight(this);
+            using (GraphicsPath path = UiDrawing.RoundedRectangle(
+                new Rectangle(0, 0, width - 1, height - 1), 8))
+            using (SolidBrush fill = new SolidBrush(UiColors.Field))
+                e.Graphics.FillPath(fill, path);
+            e.Graphics.Restore(state);
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             UiDrawing.BeginLogicalPaint(this, e.Graphics);
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int width = UiDrawing.LogicalWidth(this);
             int height = UiDrawing.LogicalHeight(this);
-            using (SolidBrush background = new SolidBrush(BackColor))
-            using (GraphicsPath path = UiDrawing.RoundedRectangle(
-                new Rectangle(0, 0, width - 1, height - 1), 8))
-            using (SolidBrush fill = new SolidBrush(UiColors.Field))
             using (Font font = UiDrawing.LogicalFont(this, "Segoe UI", 8.5f, FontStyle.Regular))
             using (SolidBrush text = new SolidBrush(UiColors.Muted))
-            {
-                e.Graphics.FillRectangle(background, 0, 0, width, height);
-                e.Graphics.FillPath(fill, path);
-                e.Graphics.DrawString("%", font, text, width - 49, (height - 16) / 2f);
-            }
+                e.Graphics.DrawString("%", font, text, width - 48, (height - 16) / 2f);
         }
     }
 }

@@ -2,8 +2,9 @@
 
 如果您喜欢，请点个star！
 
-一个轻量的 Windows 系统托盘用量查看器，当前专注于 ChatGPT 账号下的
-Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元数据获取。
+一个轻量的 Windows 系统托盘用量查看器，支持 Codex、Claude Code 和 Antigravity。
+Codex 通过本机只读接口和会话元数据获取用量，Claude Code 和 Antigravity 的 Token
+统计算自各自的本机会话记录。
 
 > **与 OpenUsage 的关系：** UsagePeek 是从
 > [OpenUsage](https://github.com/robinebers/openusage) 的界面、用量统计、
@@ -12,8 +13,8 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 > [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="UsagePeek 2.0 light usage dashboard" width="340">
-  <img src="assets/screenshot-dark.png" alt="UsagePeek 2.0 dark usage dashboard" width="340">
+  <img src="assets/screenshot.png" alt="UsagePeek 3.0 light usage dashboard" width="340">
+  <img src="assets/screenshot-dark.png" alt="UsagePeek 3.0 dark usage dashboard" width="340">
   <br>
   <img src="assets/diagnostics-overview.png" alt="UsagePeek connection, pricing and display health overview" width="560">
   <br>
@@ -31,12 +32,30 @@ Codex 用量。数据通过本机 Codex 提供的只读接口和本机会话元�
 可从 [GitHub Releases](https://github.com/Supaio/UsagePeek/releases) 或
 [GitLab Releases](https://gitlab.com/Supaio/usagepeek/-/releases) 下载同版本单文件版，
 也可以[直接下载最新版 UsagePeek.exe](https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/UsagePeek.exe)。
-也可直接下载 [2.0.8 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v2.0.8/dist/UsagePeek.exe)。
+也可直接下载 [3.0.0 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v3.0.0/dist/UsagePeek.exe)。
 无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
 点击“修复连接”即可获取官方 Codex CLI 运行组件。
 Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈希，诊断技术详情可查看完整值。
 
 ## 当前功能
+
+### 3.0 多来源用量
+
+在用量详情左侧点击图标切换 Codex、Antigravity 和 Claude Code。中科大校徽对应
+待接入的 DeepSeek。Claude Code 和 Google Antigravity 各自显示今天、昨天、近 30 天与本机
+累计 Token。Claude Code 读取 `.claude/projects`
+下的会话与子智能体计数，支持 `CLAUDE_CONFIG_DIR`。Antigravity 读取
+`.gemini/antigravity*/conversations` 下的本机会话数据库。累计范围以当前保留的本机记录为准。
+
+新版用量面板在 100% 缩放时宽 450 像素。Codex 的 60 秒 TPS 图支持 K 线、柱形和折线，
+5 小时和 7 天额度各有独立图表。近 7 天 Token 图可悬停查看日用量。
+Codex 的图表优先采用官方每日记录，也可显示本机记录。Claude Code 和 Antigravity 的图表使用
+各自的本机记录。
+
+如需查看订阅额度，在对应来源的页面点击“复制连接设置”，将 `statusLine` 配置合并到 CLI 的设置文件
+并重新打开 CLI。额度与重置时间由 [Claude Code](https://code.claude.com/docs/en/statusline)
+和 [Antigravity CLI](https://antigravity.google/docs/cli/statusline/) 的状态栏提供，
+只在本机保存额度字段与同步时间。已有自定义状态栏时，先保留原配置。
 
 - 5 小时 Session 与 7 天 Weekly 用量、剩余量和重置倒计时。
 - 按当前消耗速度显示相对匀速的快慢，并预测额度耗尽时间或重置时余量。
@@ -64,11 +83,11 @@ Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈�
 - **累计估价对账**：点主面板的本机累计估值，查看最近一次变动的新增入账、历史补价和人民币汇率影响。
   首次读取本机账本后建立基线，最近一次对账会随缓存保存。
 - **双显示模式**：通过集中设置，可在“一页看完”的经典面板与
-  五种桌宠外形之间切换；紧凑轮廓减少屏幕占用，桌宠支持拖动并
+  六种桌宠外形之间切换；紧凑轮廓减少屏幕占用，桌宠支持拖动并
   记住位置，左键点击后在旁边打开
   完整用量详情。新安装默认使用桌宠模式。
 - **桌宠自定义**：在“设置与诊断”中可切换鲸鱼娘趴趴、菲比啾比、ChatGPT 娘、
-  Claude 娘与奶蛙，选择
+  Claude 娘、奶蛙与 Clawd，选择
   显示 `5h` / `7d` 的已用或剩余百分比，并使用 75% / 100% / 125% 快捷尺寸
   或 50%–200% 自定义缩放；外形、口径和大小都会在重启后保留。
 - **ChatGPT 娘外形**：根据参考形象制作的透明背景 Q 版白发龙娘，保留龙角、
@@ -88,6 +107,10 @@ Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈�
   渲染目标，UI 忙碌时合并旧帧；隐藏后停止动画，重用图像与绘图资源。
   行走时抬脚与触地平滑过渡，改善鞋子拉长、脚趾压扁和左右脚互相拉扯，
   并在自定义大小和不同屏幕缩放下保持一致。
+- **Clawd 像素桌宠与工作动作**：Clawd 可待机、横走、打字、在接近额度上限时
+  露出疑惑表情，在额度重置时跳跃庆祝。Codex 运行时，原有五个角色也会停下散步，
+  播放各自的工作动作。动作来源见 [第三方素材署名](THIRD_PARTY_NOTICES.md#clawd-animations)。
+- **奶蛙转眼**：停下来时会偶尔朝屏幕外看一眼，再平滑转回原位。
 - **新增 Claude 娘、奶蛙**：分别采用橙发抱书的 Q 版造型与黄色 3D 奶蛙造型，
   同样支持散步、朝向鼠标、摸头、状态表情及图片平均色气泡。
 - **集中设置与诊断**：右键“设置与诊断…”可在一个窗口内统一调整显示模式、
@@ -264,7 +287,7 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```json
 {
-  "version": "2.0.8",
+  "version": "3.0.0",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"

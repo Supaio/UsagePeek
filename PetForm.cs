@@ -50,6 +50,7 @@ namespace UsagePeek
         private const int PetDesignHeight = 210;
         private const int WindowDesignWidth = 220;
         private const int WindowDesignHeight = 310;
+        private const int ClawdWindowDesignHeight = 253;
         private const int PetHintDesignHeight = 20;
         private const int PettingAnimationDurationMilliseconds = 960;
         private const int PettingStrokeCount = 3;
@@ -65,6 +66,10 @@ namespace UsagePeek
         private const int HappyMoodDurationMilliseconds = 6000;
         private const int ResetFallbackMinimumDropPercent = 50;
         private const double RoamingDesignPixelsPerSecond = 30d;
+        private const double FrogGlanceFirstDelay = 5d;
+        private const double FrogGlanceTurnSeconds = .16d;
+        private const double FrogGlanceReturnStart = .64d;
+        private const double FrogGlanceDuration = .88d;
         private static readonly Rectangle WhaleContentBounds =
             new Rectangle(26, 31, 1223, 1197);
         private static readonly Rectangle PhoebeContentBounds =
@@ -83,6 +88,16 @@ namespace UsagePeek
         private readonly Color chatGptAverageColor;
         private readonly Color claudeAverageColor;
         private readonly Color milkFrogAverageColor;
+        private Color clawdAverageColor;
+        private PetGifAnimation clawdIdle;
+        private PetGifAnimation clawdWalking;
+        private PetGifAnimation clawdHappy;
+        private PetGifAnimation clawdNervous;
+        private PetGifAnimation clawdTyping;
+        private PetGifAnimation currentClawdAnimation;
+        private double clawdAnimationStartedAt;
+        private SolidBrush workEffectBrush;
+        private Pen workEffectPen;
         private readonly Timer displayRecoveryTimer;
         private readonly AnimationFrameClock desktopMotionTimer;
         private readonly Stopwatch pettingStopwatch;
@@ -93,7 +108,10 @@ namespace UsagePeek
         private bool autoMoveEnabled = true;
         private bool facingLeft;
         private double animationSeconds;
+        // Negative while waiting, nonnegative while playing the glance.
+        private double frogGlanceTime = -FrogGlanceFirstDelay;
         private float walkingBlend;
+        private float workingBlend;
         private PetRigAnimation rigAnimation;
         private double roamingFractionalX;
         private double roamingSecondsRemaining;
@@ -444,11 +462,24 @@ namespace UsagePeek
 
         public void SetAppearance(PetAppearance value)
         {
+            if (value == PetAppearance.Clawd && clawdIdle == null)
+            {
+                clawdWalking = new PetGifAnimation("clawd-crab-walking.gif", 1.12f, 64, 77, true);
+                clawdHappy = new PetGifAnimation("clawd-happy.gif", 1.70f, 64, 108);
+                clawdNervous = new PetGifAnimation("clawd-working-confused.gif", 1.68f, 76, 109);
+                clawdTyping = new PetGifAnimation("clawd-working-typing.gif", 1.70f, 60, 120);
+                clawdIdle = new PetGifAnimation("clawd-idle-living.gif", 1.34f, 64, 84);
+                clawdAverageColor = CalculateArtworkAverageColor(clawdIdle.FrameAt(0d));
+            }
             InvalidateUsageBubble();
             bool changed = petAppearance != value;
+            bool resize = (petAppearance == PetAppearance.Clawd) != (value == PetAppearance.Clawd);
             petAppearance = value;
             switch (value)
             {
+                case PetAppearance.Clawd:
+                    sourceImage = clawdIdle.FrameAt(0d);
+                    break;
                 case PetAppearance.ClaudeGirl:
                     sourceImage = claudeImage;
                     break;
@@ -472,12 +503,22 @@ namespace UsagePeek
                 : new Rectangle(Point.Empty, sourceImage.Size);
             if (changed)
             {
-                rigAnimation.Dispose();
-                rigAnimation = new PetRigAnimation(sourceImage, sourceContentBounds, petAppearance);
+                PetRigAnimation nextRig = value == PetAppearance.Clawd ? null :
+                    new PetRigAnimation(sourceImage, sourceContentBounds, petAppearance);
+                if (rigAnimation != null) rigAnimation.Dispose();
+                rigAnimation = nextRig;
+                currentClawdAnimation = null;
                 animationSeconds = 0d;
                 walkingBlend = 0f;
+                frogGlanceTime = -FrogGlanceFirstDelay;
             }
-            ApplyLayeredImage();
+            if (resize) SetScalePercent(petScalePercent);
+            else ApplyLayeredImage();
+        }
+
+        private int DesignHeight
+        {
+            get { return petAppearance == PetAppearance.Clawd ? ClawdWindowDesignHeight : WindowDesignHeight; }
         }
 
         public void SetUsageDisplayMode(PetUsageDisplayMode value)
@@ -684,7 +725,7 @@ namespace UsagePeek
 
         internal bool ArtworkMirroredForTesting
         {
-            get { return MirrorArtwork; }
+            get { return MirrorArtwork != (petAppearance == PetAppearance.Clawd && SelectClawdAnimation().FacesLeft); }
         }
 
         internal bool DesktopMotionTimerEnabledForTesting
@@ -700,6 +741,19 @@ namespace UsagePeek
         internal double AnimationTimeForTesting
         {
             get { return animationSeconds; }
+        }
+
+        internal float FrogGlanceAmount
+        {
+            get
+            {
+                if (petAppearance != PetAppearance.MilkFrog || frogGlanceTime < 0d ||
+                    pettingActive || mood == PetMood.Happy)
+                    return 0f;
+                return SmoothStep((float)(frogGlanceTime / FrogGlanceTurnSeconds)) *
+                    (1f - SmoothStep((float)((frogGlanceTime - FrogGlanceReturnStart) /
+                        (FrogGlanceDuration - FrogGlanceReturnStart))));
+            }
         }
 
         internal bool IsUsageTransitionActiveForTesting
@@ -865,6 +919,9 @@ namespace UsagePeek
             CompleteQuotaTransition();
             ResetDesktopMotion();
             walkingBlend = 0f;
+            workingBlend = 0f;
+            frogGlanceTime = -FrogGlanceFirstDelay;
+            currentClawdAnimation = null;
             animationDisplayName = null;
             if (Visible)
             {
@@ -947,6 +1004,13 @@ namespace UsagePeek
                 chatGptImage.Dispose();
                 claudeImage.Dispose();
                 milkFrogImage.Dispose();
+                if (clawdIdle != null) clawdIdle.Dispose();
+                if (clawdWalking != null) clawdWalking.Dispose();
+                if (clawdHappy != null) clawdHappy.Dispose();
+                if (clawdNervous != null) clawdNervous.Dispose();
+                if (clawdTyping != null) clawdTyping.Dispose();
+                if (workEffectBrush != null) workEffectBrush.Dispose();
+                if (workEffectPen != null) workEffectPen.Dispose();
                 pettingHandImage.Dispose();
                 foreach (Bitmap image in quotaValueImages)
                     if (image != null) image.Dispose();
@@ -1087,6 +1151,8 @@ namespace UsagePeek
             roamingFractionalX = 0d;
             roamingSecondsRemaining = 0d;
             roamingRestSeconds = 0d;
+            if (frogGlanceTime >= 0d)
+                frogGlanceTime = -FrogGlanceFirstDelay;
         }
 
         private void AdvanceDesktopMotion()
@@ -1136,23 +1202,25 @@ namespace UsagePeek
             double elapsedSeconds, bool interactionPaused)
         {
             double elapsed = Math.Max(0d, Math.Min(0.1d, elapsedSeconds));
-            float scale = Height / (float)WindowDesignHeight;
+            float scale = Height / (float)DesignHeight;
             Point oldLocation = Location;
             PetActivity previousActivity = desktopActivity;
             bool previousFacing = facingLeft;
             float previousTilt = watchingTilt;
-            float targetTilt = 0f;
+            bool frogGlancing = petAppearance == PetAppearance.MilkFrog &&
+                frogGlanceTime >= 0d && !pettingActive && mood != PetMood.Happy;
+            float targetTilt = frogGlancing ? watchingTilt : 0f;
             bool roomToWalk = workArea.Width > Width + 16 &&
                 workArea.Height >= Height + 16;
 
-            if (!autoMoveEnabled || !desktopIsActive ||
-                interactionPaused || !roomToWalk)
+            if (!autoMoveEnabled || !desktopIsActive || latestTpsText != null ||
+                interactionPaused || !roomToWalk || frogGlancing)
             {
                 desktopActivity = PetActivity.Watching;
                 roamingFractionalX = 0d;
                 roamingSecondsRemaining = 0d;
                 roamingRestSeconds = 0d;
-                if (!interactionPaused)
+                if (!interactionPaused && !frogGlancing)
                 {
                     double horizontal = cursor.X - (Left + Width / 2d);
                     if (Math.Abs(horizontal) > 16d * scale)
@@ -1215,6 +1283,13 @@ namespace UsagePeek
                 watchingTilt = targetTilt;
             }
             animationSeconds += elapsed;
+            if (petAppearance == PetAppearance.MilkFrog && !pettingActive &&
+                mood != PetMood.Happy && desktopActivity != PetActivity.Walking)
+            {
+                frogGlanceTime += elapsed;
+                if (frogGlanceTime >= FrogGlanceDuration)
+                    frogGlanceTime = -(9d + desktopMotionRandom.NextDouble() * 7d);
+            }
             if (quotaRefreshInProgress)
                 quotaRefreshAnimationSeconds =
                     (quotaRefreshAnimationSeconds + elapsed) % QuotaRefreshRotationSeconds;
@@ -1224,6 +1299,11 @@ namespace UsagePeek
             walkingBlend += (targetBlend - walkingBlend) *
                 (float)(1d - Math.Exp(-elapsed * 10d));
             if (Math.Abs(targetBlend - walkingBlend) < 0.001f) walkingBlend = targetBlend;
+            float targetWorkBlend = latestTpsText != null && !pettingActive &&
+                mood == PetMood.Normal ? 1f : 0f;
+            workingBlend += (targetWorkBlend - workingBlend) *
+                (float)(1d - Math.Exp(-elapsed * 7d));
+            if (Math.Abs(targetWorkBlend - workingBlend) < 0.001f) workingBlend = targetWorkBlend;
             if (Location != oldLocation || desktopActivity != previousActivity ||
                 facingLeft != previousFacing ||
                 Math.Abs(watchingTilt - previousTilt) > 0.01f ||
@@ -1271,6 +1351,16 @@ namespace UsagePeek
             return bitmap;
         }
 
+        private PetGifAnimation SelectClawdAnimation()
+        {
+            if (pettingActive) return clawdIdle;
+            if (mood == PetMood.Happy) return clawdHappy;
+            if (desktopActivity == PetActivity.Walking) return clawdWalking;
+            if (mood == PetMood.Nervous) return clawdNervous;
+            if (latestTpsText != null) return clawdTyping;
+            return clawdIdle;
+        }
+
         private void RenderScene(Graphics graphics, int width, int height)
         {
             GraphicsState sceneState = graphics.Save();
@@ -1285,7 +1375,7 @@ namespace UsagePeek
                 graphics.Clear(Color.Transparent);
                 graphics.TranslateTransform((float)roamingFractionalX, 0f);
 
-                float scale = height / (float)WindowDesignHeight;
+                float scale = height / (float)DesignHeight;
                 int petBoxSize = Math.Max(1,
                     (int)Math.Round(PetDesignHeight * scale,
                         MidpointRounding.AwayFromZero));
@@ -1309,12 +1399,31 @@ namespace UsagePeek
                 }
                 int petBottom = height -
                     ScaleDesign(PetHintDesignHeight, scale);
-                int petLeft = (width - petWidth) / 2;
-                int petTop = petBottom - petHeight;
-                int textureWidth = Math.Max(64, Math.Min(512, petWidth));
-                int textureHeight = Math.Max(64, Math.Min(512, petHeight));
-                Bitmap characterImage = rigAnimation.Render(textureWidth, textureHeight,
-                    animationSeconds, walkingBlend, mood, pettingActive ? pettingProgress : -1f);
+                PetGifAnimation clip = petAppearance == PetAppearance.Clawd ? SelectClawdAnimation() : null;
+                Bitmap characterImage;
+                bool mirror = MirrorArtwork;
+                if (clip != null)
+                {
+                    if (currentClawdAnimation != clip)
+                    {
+                        currentClawdAnimation = clip;
+                        clawdAnimationStartedAt = animationSeconds;
+                    }
+                    characterImage = clip.FrameAt(pettingActive ? 0d :
+                        animationSeconds - clawdAnimationStartedAt);
+                    petWidth = Math.Max(1, (int)Math.Round(characterImage.Width * clip.DesignScale * scale));
+                    petHeight = Math.Max(1, (int)Math.Round(characterImage.Height * clip.DesignScale * scale));
+                    mirror = mirror != clip.FacesLeft;
+                }
+                else
+                {
+                    int textureWidth = Math.Max(64, Math.Min(512, petWidth));
+                    int textureHeight = Math.Max(64, Math.Min(512, petHeight));
+                    rigAnimation.ViewerGlance = FrogGlanceAmount;
+                    characterImage = rigAnimation.Render(textureWidth, textureHeight,
+                        animationSeconds, walkingBlend, mood, pettingActive ? pettingProgress : -1f,
+                        workingBlend);
+                }
                 PettingPose pose = pettingActive
                     ? CalculatePettingPose(pettingProgress)
                     : PettingPose.Resting;
@@ -1324,9 +1433,10 @@ namespace UsagePeek
                 petHeight = Math.Max(1, (int)Math.Round(
                     petHeight * pose.ScaleY,
                     MidpointRounding.AwayFromZero));
-                petLeft = (width - petWidth) / 2;
-                petTop = petBottom - petHeight +
-                    ScaleDesign(pose.OffsetY, scale);
+                int petLeft = clip == null ? (width - petWidth) / 2 :
+                    width / 2 - clip.CenterX * petWidth / characterImage.Width;
+                int petTop = petBottom + ScaleDesign(pose.OffsetY, scale) -
+                    (clip == null ? petHeight : clip.GroundY * petHeight / characterImage.Height);
                 if (!pettingActive && walkingBlend > 0f &&
                     petAppearance == PetAppearance.PhoebeChibi)
                 {
@@ -1335,7 +1445,7 @@ namespace UsagePeek
                     petTop -= ScaleDesign((int)Math.Round(3d * walkingBlend * Math.Abs(
                         Math.Sin(animationSeconds * 1.55d * Math.PI * 2d))), scale);
                 }
-                if (mood == PetMood.Happy)
+                if (clip == null && mood == PetMood.Happy)
                 {
                     petTop += ScaleDesign(
                         CalculateHappyBounce(moodAnimationProgress), scale);
@@ -1343,40 +1453,50 @@ namespace UsagePeek
                 GraphicsState characterState = graphics.Save();
                 float pivotX = width / 2f;
                 graphics.TranslateTransform(pivotX, petBottom);
-                graphics.RotateTransform(watchingTilt);
-                graphics.ScaleTransform(MirrorArtwork ? -1f : 1f, 1f);
+                if (clip == null) graphics.RotateTransform(watchingTilt);
+                graphics.ScaleTransform(mirror ? -1f : 1f, 1f);
                 graphics.TranslateTransform(-pivotX, -petBottom);
+                if (clip != null)
+                {
+                    graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+                    graphics.PixelOffsetMode = PixelOffsetMode.Half;
+                }
                 graphics.DrawImage(characterImage,
                     new Rectangle(petLeft, petTop, petWidth, petHeight),
                     0, 0, characterImage.Width, characterImage.Height,
                     GraphicsUnit.Pixel);
 
                 graphics.CompositingMode = CompositingMode.SourceOver;
-                Rectangle petBounds = new Rectangle(
-                    petLeft, petTop, petWidth, petHeight);
-                Rectangle artwork = rigAnimation.ArtworkBounds;
-                petBounds = Rectangle.Round(new RectangleF(
-                    petLeft + artwork.X * petWidth / (float)characterImage.Width,
-                    petTop + artwork.Y * petHeight / (float)characterImage.Height,
-                    artwork.Width * petWidth / (float)characterImage.Width,
-                    artwork.Height * petHeight / (float)characterImage.Height));
-                PointF sweatAnchor = MapCharacterAnchor(GetSweatSourcePoint(),
-                    petLeft, petTop, petWidth, petHeight, characterImage.Size);
+                PointF sweatAnchor = clip == null ? MapCharacterAnchor(GetSweatSourcePoint(),
+                    petLeft, petTop, petWidth, petHeight, characterImage.Size) : PointF.Empty;
                 overlayAnchors[0] = sweatAnchor;
-                overlayAnchors[1] = MapCharacterAnchor(GetHeadSourcePoint(),
+                overlayAnchors[1] = MapCharacterAnchor(clip == null ? GetHeadSourcePoint() :
+                    new PointF(clip.CenterX, clip.GroundY - 64),
                     petLeft, petTop, petWidth, petHeight, characterImage.Size);
                 using (Matrix characterTransform = graphics.Transform)
                     characterTransform.TransformPoints(overlayAnchors);
                 currentSweatAnchor = overlayAnchors[0];
                 currentHeadAnchor = overlayAnchors[1];
-                if (mood == PetMood.Nervous)
+                if (clip == null && mood == PetMood.Nervous)
                 {
                     DrawNervousMood(graphics, sweatAnchor, scale);
                 }
-                else if (mood == PetMood.Happy)
+                else if (clip == null && mood == PetMood.Happy)
                 {
+                    Rectangle artwork = rigAnimation.ArtworkBounds;
+                    Rectangle petBounds = Rectangle.Round(new RectangleF(
+                        petLeft + artwork.X * petWidth / (float)characterImage.Width,
+                        petTop + artwork.Y * petHeight / (float)characterImage.Height,
+                        artwork.Width * petWidth / (float)characterImage.Width,
+                        artwork.Height * petHeight / (float)characterImage.Height));
                     DrawHappyMood(graphics, petBounds,
                         scale, moodAnimationProgress);
+                }
+                else if (clip == null && !pettingActive && workingBlend > 0.01f)
+                {
+                    PointF workAnchor = MapCharacterAnchor(GetWorkSourcePoint(),
+                        petLeft, petTop, petWidth, petHeight, characterImage.Size);
+                    DrawWorkEffect(graphics, workAnchor, scale);
                 }
                 graphics.Restore(characterState);
                 graphics.CompositingMode = CompositingMode.SourceOver;
@@ -1398,7 +1518,7 @@ namespace UsagePeek
         private PointF MapCharacterAnchor(PointF originalPoint,
             int left, int top, int width, int height, Size textureSize)
         {
-            PointF point = rigAnimation.MapSourcePoint(originalPoint);
+            PointF point = rigAnimation == null ? originalPoint : rigAnimation.MapSourcePoint(originalPoint);
             return new PointF(left + point.X * width / textureSize.Width,
                 top + point.Y * height / textureSize.Height);
         }
@@ -1425,6 +1545,65 @@ namespace UsagePeek
                 case PetAppearance.ClaudeGirl: return new PointF(582, 52);
                 case PetAppearance.MilkFrog: return new PointF(650, 58);
                 default: return new PointF(445, 150);
+            }
+        }
+
+        private PointF GetWorkSourcePoint()
+        {
+            // The effects originate beside the pen, hands, magic, or book.
+            switch (petAppearance)
+            {
+                case PetAppearance.PhoebeChibi: return new PointF(248, 379);
+                case PetAppearance.ChatGptGirl: return new PointF(710, 665);
+                case PetAppearance.ClaudeGirl: return new PointF(580, 621);
+                case PetAppearance.MilkFrog: return new PointF(780, 600);
+                default: return new PointF(485, 845);
+            }
+        }
+
+        private void DrawWorkEffect(Graphics graphics, PointF anchor, float scale)
+        {
+            Color color = GetPetArtworkColor();
+            bool magic = petAppearance == PetAppearance.ChatGptGirl;
+            if (workEffectBrush == null)
+            {
+                workEffectBrush = new SolidBrush(color);
+                workEffectPen = new Pen(color) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            }
+            int count = magic ? 3 : 2;
+            for (int index = 0; index < count; index++)
+            {
+                float phase = (float)((animationSeconds / 0.85d + index / (double)count) % 1d);
+                float intensity = (float)Math.Sin(phase * Math.PI) * workingBlend;
+                int alpha = (int)(235f * intensity);
+                if (alpha < 2) continue;
+                Color light = Color.FromArgb(alpha, BlendColor(color, Color.White, 0.45f));
+                float x = anchor.X + (index == 0 ? -1f : 1f) * (7f + phase * 12f) * scale;
+                float y = anchor.Y - (6f + phase * 24f) * scale;
+                float size = Math.Max(1f, (2f + 3f * intensity) * scale);
+                workEffectBrush.Color = light;
+                workEffectPen.Color = light;
+                workEffectPen.Width = Math.Max(1f, 1.4f * scale);
+                switch (petAppearance)
+                {
+                    case PetAppearance.ChatGptGirl:
+                        graphics.DrawLine(workEffectPen, x - size, y, x + size, y);
+                        graphics.DrawLine(workEffectPen, x, y - size, x, y + size);
+                        break;
+                    case PetAppearance.ClaudeGirl:
+                        graphics.DrawArc(workEffectPen, x - size, y - size,
+                            size * 2.7f, size * 2f, 220f, 105f);
+                        break;
+                    case PetAppearance.PhoebeChibi:
+                        graphics.FillRectangle(workEffectBrush, x, y, size, size);
+                        break;
+                    case PetAppearance.MilkFrog:
+                        graphics.DrawEllipse(workEffectPen, x, y, size, size);
+                        break;
+                    default:
+                        graphics.DrawLine(workEffectPen, x, y, x + size, y - size / 2f);
+                        break;
+                }
             }
         }
 
@@ -1854,15 +2033,7 @@ namespace UsagePeek
         private void DrawUsageBubble(
             Graphics graphics, int width, float scale)
         {
-            Color average = petAppearance == PetAppearance.ClaudeGirl
-                ? claudeAverageColor
-                : petAppearance == PetAppearance.MilkFrog
-                ? milkFrogAverageColor
-                : petAppearance == PetAppearance.ChatGptGirl
-                ? chatGptAverageColor
-                : petAppearance == PetAppearance.PhoebeChibi
-                ? phoebeAverageColor
-                : whaleAverageColor;
+            Color average = GetPetArtworkColor();
             graphics.TextRenderingHint =
                 System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             Rectangle circle = GetQuotaCircleBounds(width, scale);
@@ -1933,6 +2104,19 @@ namespace UsagePeek
                     FormatPercent(GetDisplayedPercent(primaryUsedPercent)), captionFont, captionBrush,
                     new RectangleF(circle.Left + 5f * indicatorScale, circle.Top + 2f * indicatorScale,
                         circle.Width - 10f * indicatorScale, 12f * indicatorScale), format);
+            }
+        }
+
+        private Color GetPetArtworkColor()
+        {
+            switch (petAppearance)
+            {
+                case PetAppearance.Clawd: return clawdAverageColor;
+                case PetAppearance.ClaudeGirl: return claudeAverageColor;
+                case PetAppearance.MilkFrog: return milkFrogAverageColor;
+                case PetAppearance.ChatGptGirl: return chatGptAverageColor;
+                case PetAppearance.PhoebeChibi: return phoebeAverageColor;
+                default: return whaleAverageColor;
             }
         }
 
@@ -2094,10 +2278,7 @@ namespace UsagePeek
             GraphicsState state = graphics.Save();
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-            Color average = petAppearance == PetAppearance.ClaudeGirl ? claudeAverageColor
-                : petAppearance == PetAppearance.MilkFrog ? milkFrogAverageColor
-                : petAppearance == PetAppearance.ChatGptGirl ? chatGptAverageColor
-                : petAppearance == PetAppearance.PhoebeChibi ? phoebeAverageColor : whaleAverageColor;
+            Color average = GetPetArtworkColor();
             Color circleColor = BlendColor(average, Color.White, 0.9f);
             Color accent = BlendColor(average, Color.FromArgb(28, 33, 52), 0.2f);
             float stroke = Math.Max(1.2f, 3f * scale);
@@ -2421,7 +2602,7 @@ namespace UsagePeek
             float scale = DpiScaleFactor * petScalePercent / 100f;
             ClientSize = new Size(
                 Math.Max(1, ScaleDesign(WindowDesignWidth, scale)),
-                Math.Max(1, ScaleDesign(WindowDesignHeight, scale)));
+                Math.Max(1, ScaleDesign(DesignHeight, scale)));
         }
 
         private bool IsTransparentPoint(IntPtr packedScreenPoint)
@@ -2506,7 +2687,7 @@ namespace UsagePeek
 
         private bool RegisterPettingMotion(int x, int tick)
         {
-            float scale = Height / (float)WindowDesignHeight;
+            float scale = Height / (float)DesignHeight;
             int minimumStroke = Math.Max(4,
                 ScaleDesign(PettingMinimumStrokeDesignPixels, scale));
             int minimumTravel = Math.Max(minimumStroke * 2,
@@ -2585,7 +2766,7 @@ namespace UsagePeek
                 return false;
             }
 
-            float scale = Height / (float)WindowDesignHeight;
+            float scale = Height / (float)DesignHeight;
             if (point.Y < ScaleDesign(PetSurfaceMinimumYDesign, scale))
             {
                 return false;
@@ -2772,7 +2953,7 @@ namespace UsagePeek
 
         private bool IsQuotaCirclePoint(Point point)
         {
-            float scale = ClientSize.Height / (float)WindowDesignHeight;
+            float scale = ClientSize.Height / (float)DesignHeight;
             Rectangle circle = GetQuotaCircleBounds(ClientSize.Width, scale);
             float radiusX = circle.Width / 2f;
             float radiusY = circle.Height / 2f;

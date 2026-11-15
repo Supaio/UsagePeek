@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using System.Windows.Forms;
 using UsagePeek;
@@ -18,11 +19,17 @@ internal static class DpiLayoutQa
         Application.SetCompatibleTextRenderingDefault(false);
 
         VerifyMainForm();
+        VerifyActivityOverview();
+        VerifyMarketChartPeriods();
+        VerifyRealtimeTpsChart();
+        VerifyMarketChartStyles();
         VerifyWeeklyOnlyMainForm();
         VerifyModelForm();
         VerifyUsageHistoryForm();
+        VerifyHistoryReopens();
         VerifyConversationRankingForm();
         VerifyUsageBreakdowns();
+        VerifyUsageSourceSidebar();
         VerifyAboutForm();
         VerifySettingsForm();
         VerifyPetSizeDialog();
@@ -30,6 +37,7 @@ internal static class DpiLayoutQa
         VerifySharedFonts();
         VerifyAccessibleButtons();
         VerifyThemeChanges();
+        VerifyRoundedRepaint();
 
         if (failures > 0)
         {
@@ -56,44 +64,328 @@ internal static class DpiLayoutQa
             form.UsageHistoryRequested += delegate { historyRequests++; };
             FindControl<GlyphButtonControl>(form, "用量历史").PerformClick();
             AssertEqual(1, historyRequests, "main form opens usage history without requiring a live snapshot");
-
+            form.Opacity = 0d;
+            form.Show();
+            GlyphButtonControl trend = FindControl<GlyphButtonControl>(form, "用量走势");
+            GlyphButtonControl ledger = FindControl<GlyphButtonControl>(form, "累计与估值");
+            UsageActivityControl activity = FindControl<UsageActivityControl>(form);
+            UsageDetailsControl details = FindControl<UsageDetailsControl>(form);
+            AssertEqual(true, trend.Selected && activity.Visible && !details.Visible, "the trend is the first view");
+            AssertEqual(true, form.IsLiveChartVisible && FindControl<GlyphButtonControl>(form, "TPS").Selected,
+                "the default chart shows live throughput even without the desktop pet");
+            ledger.PerformClick();
+            AssertEqual(true, ledger.Selected && !trend.Selected && details.Visible && !activity.Visible && !form.IsLiveChartVisible &&
+                FindControl<GlyphButtonControl>(form, "$ USD  ·  换算").Visible,
+                "the ledger tab opens the cumulative estimate and currency in the same window");
+            trend.PerformClick();
+            AssertEqual(true, activity.Visible && !details.Visible, "the trend tab restores the timeline");
+            form.Hide();
+            form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 2800, 1800));
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(642, 1062), form.ClientSize,
+            AssertEqual(new Size(675, 879), form.ClientSize,
                 "main form scales to 150 percent");
 
             int estimateRequests = 0;
             form.EstimateAuditRequested += delegate { estimateRequests++; };
-            UsageDetailsControl details = FindControl<UsageDetailsControl>(form);
             MethodInfo clickEstimate = typeof(UsageDetailsControl).GetMethod("OnMouseClick", BindingFlags.Instance | BindingFlags.NonPublic);
-            clickEstimate.Invoke(details, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 100, 65, 0) });
-            clickEstimate.Invoke(details, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 390, 65, 0) });
+            clickEstimate.Invoke(details, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 250, 80, 0) });
+            clickEstimate.Invoke(details, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 420, 80, 0) });
             AssertEqual(1, estimateRequests, "only the cumulative estimate opens the audit at 150 percent DPI");
 
             UsageCardControl card = FindControl<UsageCardControl>(form);
-            AssertEqual(new Rectangle(33, 204, 279, 261), card.Bounds,
-                "main usage card geometry scales to 150 percent");
+            UsageCardControl weekly = card.Parent.Controls.OfType<UsageCardControl>().Single(control => control != card);
+            AssertEqual(new Rectangle(90, 568, 564, 92), FormBounds(card),
+                "the full-width five-hour row scales to 150 percent");
+            AssertEqual(new Rectangle(90, 673, 564, 92), FormBounds(weekly),
+                "the full-width seven-day row stays below the five-hour row at 150 percent");
 
             form.ApplyDpiForTesting(192);
-            AssertEqual(new Size(856, 1416), form.ClientSize,
+            AssertEqual(new Size(900, 1172), form.ClientSize,
                 "main form scales to 200 percent");
 
             form.ApplyDpiForTesting(96);
-            AssertEqual(new Size(428, 708), form.ClientSize,
+            AssertEqual(new Size(450, 586), form.ClientSize,
                 "main form returns exactly to 100 percent");
-            AssertEqual(new Rectangle(22, 136, 186, 174), card.Bounds,
-                "main usage card returns without rounding drift");
+            AssertEqual(new Rectangle(60, 378, 376, 61), FormBounds(card),
+                "the five-hour row returns without rounding drift");
+            AssertEqual(new Rectangle(60, 448, 376, 61), FormBounds(weekly),
+                "the seven-day row returns below the five-hour row without rounding drift");
+            AssertEqual(true, FormBounds(weekly).Bottom <= FormBounds(activity.Parent).Bottom &&
+                FormBounds(weekly).Bottom <= FormBounds(FindControl<GlyphButtonControl>(form, "↻  刷新")).Top,
+                "the seven-day reset and projection fit above the footer without clipping");
 
             IntPtr unused = form.Handle;
             form.ApplyDpiForTesting(192);
-            form.FitToWorkingAreaForTesting(new Rectangle(-1000, 0, 1000, 800));
-            AssertEqual(true, form.Width <= 984 && form.Height <= 784,
+            form.FitToWorkingAreaForTesting(new Rectangle(-1200, 0, 1200, 800));
+            AssertEqual(true, form.Width <= 1184 && form.Height <= 784,
                 "large popup fits within a small monitor working area (window " +
                 form.Size + ", client " + form.ClientSize + ")");
-            AssertEqual(true, form.AutoScrollMinSize.Height >= 1416,
+            AssertEqual(true, form.AutoScrollMinSize.Height >= 1172,
                 "content below a scaled popup remains available by scrolling");
+            AssertEqual(true, FormBounds(activity).Bottom <= FormBounds(card).Top &&
+                FormBounds(card).Bottom <= FormBounds(weekly).Top &&
+                FormBounds(card).Width == activity.Width && FormBounds(activity).Left == FormBounds(weekly).Left,
+                "a narrow monitor places the full-width chart above the two quota rows");
+            AssertEqual(true, FormBounds(FindControl<GlyphButtonControl>(form, "TPS")).Bottom <= FormBounds(activity).Top,
+                "the narrow view keeps the chart toolbar above the title");
+            AssertEqual(true, FormBounds(FindControl<GlyphButtonControl>(form, "7d")).Right <=
+                FormBounds(FindControl<GlyphButtonControl>(form, "K 线")).Left,
+                "the interval and chart style fit side by side on a narrow display");
+            AssertEqual(true, FormBounds(FindControl<GlyphButtonControl>(form, "折线")).Right <=
+                FormBounds(activity).Right, "the last chart button fits within the reduced width");
+            AssertEqual(false, form.HorizontalScroll.Visible, "compact view fits without sideways scrolling");
+            form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 750, 700));
+            AssertEqual(true, form.AutoScrollMinSize.Width >= 900 && form.Width <= 734,
+                "very narrow screens still allow reaching the full content");
             form.ApplyDpiForTesting(96);
+            form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 1920, 1080));
             AssertEqual(Size.Empty, form.AutoScrollMinSize,
                 "normal DPI clears the temporary scroll extent");
+        }
+    }
+
+    private static void VerifyActivityOverview()
+    {
+        using (UsageActivityControl chart = new UsageActivityControl())
+        {
+            DateTime today = DateTime.Today;
+            DateTime yesterday = today.AddDays(-1);
+            LocalUsageDay day = new LocalUsageDay();
+            day.Add("preview-model", LocalUsageCategory.Conversation, 23);
+            UsageSnapshot snapshot = new UsageSnapshot
+            {
+                AccountTokenUsage = new AccountTokenUsageSnapshot
+                {
+                    DailyTokens = new Dictionary<string, long> { { today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), 0L } }
+                },
+                LocalTokenUsage = new LocalTokenUsageSnapshot
+                {
+                    DailyHistory = new Dictionary<DateTime, LocalUsageDay> { { yesterday, day } }
+                }
+            };
+            chart.SetSnapshot(snapshot);
+            AssertEqual(true, chart.AccessibleName.Contains("官方账号") && chart.AccessibleDescription.Contains("0 Token") &&
+                !chart.AccessibleDescription.Contains("23 Token"), "overview preserves a recorded official zero without combining local totals");
+            snapshot.AccountTokenUsage.DailyTokens.Clear();
+            chart.SetSnapshot(snapshot);
+            AssertEqual(true, chart.AccessibleName.Contains("本机记录") && chart.AccessibleDescription.Contains("23 Token") &&
+                chart.AccessibleDescription.Contains("暂无记录"), "overview falls back to local daily data and distinguishes missing days");
+            chart.SetLocalDays(new Dictionary<DateTime, long> { { today, 1700 } });
+            AssertEqual(true, chart.AccessibleName.Contains("本机记录") && chart.AccessibleDescription.Contains(
+                1700L.ToString("N0", CultureInfo.CurrentCulture) + " Token"), "provider trend charts use local totals and expose exact day values");
+            MethodInfo chooseDay = typeof(UsageActivityControl).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic);
+            chooseDay.Invoke(chart, new object[] { new KeyEventArgs(Keys.End) });
+            AssertEqual(true, chart.AccessibilityObject.Value.StartsWith(today.ToString("MM/dd", CultureInfo.CurrentCulture)),
+                "the last plotted day is reachable by keyboard and exposes its date");
+            chooseDay.Invoke(chart, new object[] { new KeyEventArgs(Keys.Left) });
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("暂无记录"),
+                "the missing day shows a distinct label when inspected");
+            chooseDay.Invoke(chart, new object[] { new KeyEventArgs(Keys.Home) });
+            AssertEqual(1700L.ToString("N0", CultureInfo.CurrentCulture) + " Token", chart.AccessibilityObject.Value,
+                "Home restores the period total");
+        }
+    }
+
+    private static Rectangle FormBounds(Control control)
+    {
+        Rectangle bounds = control.Bounds;
+        for (Control parent = control.Parent; parent != null && !(parent is Form); parent = parent.Parent)
+            bounds.Offset(parent.Location);
+        return bounds;
+    }
+
+    private static void VerifyMarketChartPeriods()
+    {
+        using (MainForm form = new MainForm())
+        {
+            DateTime now = DateTime.UtcNow;
+            form.SetQuotaChartHistory(new List<QuotaHistorySample>
+            {
+                new QuotaHistorySample { AtUtc = now.AddDays(-3), WeeklyUsedPercent = 19 },
+                new QuotaHistorySample { AtUtc = now.AddHours(-6), SessionUsedPercent = 84, WeeklyUsedPercent = 39 },
+                new QuotaHistorySample { AtUtc = now.AddHours(-1), SessionUsedPercent = 55, WeeklyUsedPercent = 47 },
+                new QuotaHistorySample { AtUtc = now.AddMinutes(-5), SessionUsedPercent = 63, WeeklyUsedPercent = 49 },
+                new QuotaHistorySample { AtUtc = now.AddMinutes(1), SessionUsedPercent = 90, WeeklyUsedPercent = 90 }
+            }, now);
+            UsageActivityControl chart = FindControl<UsageActivityControl>(form);
+            GlyphButtonControl shortRange = FindControl<GlyphButtonControl>(form, "5h");
+            GlyphButtonControl longRange = FindControl<GlyphButtonControl>(form, "7d");
+            GlyphButtonControl tokens = FindControl<GlyphButtonControl>(form, "Token");
+            MethodInfo key = typeof(UsageActivityControl).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo hover = typeof(UsageActivityControl).GetMethod("OnMouseMove", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            shortRange.PerformClick();
+            AssertEqual(true, shortRange.Selected && !tokens.Selected, "selecting 5h switches the main timeline");
+            AssertEqual(true, chart.AccessibleDescription.Contains("近 5 小时"), "short chart uses its own time axis");
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.End) });
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("63%"), "the last real sample wins over a future sample");
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.Left) });
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("55%"), "arrow keys inspect historical quota values");
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.Left) });
+            AssertEqual("已用 63%", chart.AccessibilityObject.Value, "the five-hour view excludes timestamps outside its range");
+            hover.Invoke(chart, new object[] { new MouseEventArgs(MouseButtons.None, 0, chart.Width / 2, 145, 0) });
+            AssertEqual("此处暂无采样", chart.AccessibilityObject.Value, "crosshair over an unobserved interval reports missing data");
+
+            longRange.PerformClick();
+            AssertEqual(true, longRange.Selected && chart.AccessibleDescription.Contains("近 7 天"),
+                "the weekly view uses its own time axis");
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.Right) });
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("19%"), "the weekly view includes older samples");
+
+            shortRange.PerformClick();
+            form.ShowSnapshot(new UsageSnapshot
+            {
+                PlanType = "Pro",
+                Secondary = new UsageWindowSnapshot { WindowDurationMinutes = 10080, UsedPercent = 50 },
+                FetchedAtUtc = now
+            }, null);
+            AssertEqual(true, longRange.Selected && chart.Period == UsageChartPeriod.WeeklyQuota,
+                "Pro switches an active five-hour chart to weekly");
+            AssertEqual("已用 50%", chart.AccessibilityObject.Value, "the chart headline uses the current snapshot when available");
+        }
+    }
+
+    private static void VerifyRealtimeTpsChart()
+    {
+        using (UsageActivityControl chart = new UsageActivityControl())
+        {
+            chart.SetPeriod(UsageChartPeriod.LiveTps);
+            DateTime at = DateTime.UtcNow;
+            AssertEqual("等待测速", chart.AccessibilityObject.Value, "live chart starts without fabricated samples");
+            AssertEqual(true, chart.AccessibleDescription.Contains("近 60 秒"), "the rolling chart exposes the one-minute window");
+            chart.AddLiveTps(at, 18);
+            chart.AddLiveTps(at.AddSeconds(1), 42);
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("42 TPS"), "a faster sample moves the latest quote up");
+            chart.AddLiveTps(at.AddSeconds(2), 7);
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("7 TPS"), "a slower sample moves the latest quote down");
+            chart.AddLiveTps(at.AddSeconds(3), 0);
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("0 TPS"), "idle speed returns to zero");
+            chart.AddLiveTps(at.AddSeconds(4), null);
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("暂无采样"), "unreadable data is distinct from idle");
+            MethodInfo key = typeof(UsageActivityControl).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic);
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.End) });
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.Left) });
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("0 TPS"), "historical zero remains inspectable");
+            chart.AddLiveTps(at.AddSeconds(63), 21);
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.End) });
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.Left) });
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.Left) });
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("0 TPS"), "the sample exactly 60 seconds old remains in the chart");
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.Left) });
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("21 TPS"), "samples older than 60 seconds are no longer inspectable");
+        }
+    }
+
+    private static void VerifyMarketChartStyles()
+    {
+        using (MainForm form = new MainForm())
+        {
+            form.Opacity = 0d;
+            form.Show();
+            UsageActivityControl chart = FindControl<UsageActivityControl>(form);
+            GlyphButtonControl candles = FindControl<GlyphButtonControl>(form, "K 线");
+            GlyphButtonControl bars = FindControl<GlyphButtonControl>(form, "柱形");
+            GlyphButtonControl line = FindControl<GlyphButtonControl>(form, "折线");
+            AssertEqual(true, candles.Selected && candles.Visible && bars.Visible && line.Visible,
+                "the live chart opens in candle mode with all three styles available");
+
+            MethodInfo key = typeof(UsageActivityControl).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic);
+            DateTime now = DateTime.UtcNow;
+            long fiveSeconds = TimeSpan.FromSeconds(5).Ticks;
+            DateTime start = new DateTime(now.Ticks - now.Ticks % fiveSeconds, DateTimeKind.Utc);
+            form.SetLiveTps(start, 18);
+            form.SetLiveTps(start.AddSeconds(1), 42);
+            form.SetLiveTps(start.AddSeconds(2), null);
+            form.SetLiveTps(start.AddSeconds(3), 0);
+            form.SetLiveTps(start.AddSeconds(4), 8);
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("开 18  高 42  低 0  收 8"),
+                "candles derive open, high, low and close from observed values including zero");
+            using (Bitmap frame = new Bitmap(chart.Width, chart.Height))
+            {
+                chart.DrawToBitmap(frame, chart.ClientRectangle);
+                RectangleF plot = (RectangleF)typeof(UsageActivityControl).GetMethod("PlotBounds",
+                    BindingFlags.Instance | BindingFlags.NonPublic).Invoke(chart, null);
+                int x = (int)Math.Round((plot.Right - plot.Width * 2 / 60) * form.DpiScaleFactor);
+                int upperWick = (int)Math.Round((plot.Bottom - plot.Height * 30 / 60) * form.DpiScaleFactor);
+                int lowerWick = (int)Math.Round((plot.Bottom - plot.Height * 4 / 60) * form.DpiScaleFactor);
+                AssertEqual(UiColors.Danger.ToArgb(), frame.GetPixel(x, upperWick).ToArgb(),
+                    "a falling candle paints its high above the body");
+                AssertEqual(UiColors.Danger.ToArgb(), frame.GetPixel(x, lowerWick).ToArgb(),
+                    "a falling candle paints its low below the body");
+            }
+
+            bars.PerformClick();
+            AssertEqual(true, bars.Selected && !candles.Selected && chart.AccessibilityObject.Value.Contains("均值 17 TPS"),
+                "bars average available samples and include recorded zero");
+            form.SetLiveTps(start.AddSeconds(5), 0);
+            form.SetLiveTps(start.AddSeconds(6), 0);
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("均值 0 TPS"),
+                "an all-zero bucket is present rather than missing");
+            form.SetLiveTps(start.AddSeconds(10), null);
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("暂无采样"), "an unobserved bucket stays empty");
+            form.SetLiveTps(start.AddSeconds(16), 30);
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.End) });
+            key.Invoke(chart, new object[] { new KeyEventArgs(Keys.Left) });
+            AssertEqual(true, chart.AccessibilityObject.Value.Contains("均值 0 TPS"),
+                "keyboard inspection skips missing buckets and reaches observed zero");
+
+            line.PerformClick();
+            AssertEqual(true, line.Selected && chart.AccessibilityObject.Value.Contains("30 TPS"),
+                "the same live data is available in the per-second line");
+            FindControl<GlyphButtonControl>(form, "Token").PerformClick();
+            AssertEqual(false, line.Visible || bars.Visible || candles.Visible,
+                "daily token chart hides TPS-only controls");
+            FindControl<GlyphButtonControl>(form, "TPS").PerformClick();
+            AssertEqual(true, line.Visible && line.Selected, "returning to TPS restores the last chart style");
+        }
+    }
+
+    private static void VerifyUsageSourceSidebar()
+    {
+        using (MainForm form = new MainForm())
+        {
+            UsageSourceButton codex = FindControl<UsageSourceButton>(form, "Codex");
+            UsageSourceButton antigravity = FindControl<UsageSourceButton>(form, "Antigravity");
+            UsageSourceButton claude = FindControl<UsageSourceButton>(form, "Claude Code");
+            UsageSourceButton ustc = FindControl<UsageSourceButton>(form, "中科大 DeepSeek");
+            AssertEqual(true, codex.Selected, "the initial page selects Codex");
+            AssertEqual(true, antigravity.Top < claude.Top && claude.Top < ustc.Top,
+                "Antigravity, Claude Code and USTC are in the requested order");
+            foreach (int dpi in new[] { 96, 144, 192 })
+            {
+                form.ApplyDpiForTesting(dpi);
+                float scale = dpi / 96f;
+                AssertEqual(new Size(Scale(44, scale), Scale(42, scale)), ustc.Size,
+                    "sidebar hit targets scale at DPI " + dpi);
+                ListBox quota = FindControl<ListBox>(form);
+                AssertEqual("订阅额度与重置时间", quota.AccessibleName, "quota list has an accessible label");
+                AssertEqual(new Size(Scale(376, scale), Scale(80, scale)), quota.Size,
+                    "quota list remains scrollable at DPI " + dpi);
+            }
+
+            form.ApplyDpiForTesting(96);
+            form.Opacity = 0d;
+            form.Show();
+            UsageCardControl codexCard = FindControl<UsageCardControl>(form);
+            AdditionalUsagePanel panel = FindControl<AdditionalUsagePanel>(form);
+            antigravity.PerformClick();
+            AssertEqual(true, antigravity.Selected && panel.Visible && !codexCard.Visible &&
+                FindControl<Label>(form, "Antigravity").Visible, "Antigravity switches in place before Codex has loaded");
+            form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 1920, 1080));
+            AssertEqual(false, form.VerticalScroll.Visible, "wide mode has no empty provider scroll extent");
+            AssertEqual(true, (antigravity.AccessibilityObject.State & AccessibleStates.Selected) != 0,
+                "the active source is marked selected for assistive technology");
+
+            claude.PerformClick();
+            AssertEqual(true, claude.Selected && !antigravity.Selected && FindControl<Label>(form, "Claude Code").Visible,
+                "Claude Code replaces Antigravity and keeps one selected icon");
+            ustc.PerformClick();
+            AssertEqual(true, ustc.Selected && FindControl<Label>(panel, "待接入").Visible && !FindControl<ListBox>(panel).Visible,
+                "the USTC tab shows its connection state without quota figures");
+            codex.PerformClick();
+            AssertEqual(true, codex.Selected && codexCard.Visible && !panel.Visible,
+                "selecting Codex restores the usage details in the same window");
+            form.Hide();
         }
     }
 
@@ -103,7 +395,7 @@ internal static class DpiLayoutQa
         {
             UsageCardControl primary = FindControl<UsageCardControl>(form);
             UsageCardControl weekly = null;
-            foreach (Control control in form.Controls)
+            foreach (Control control in primary.Parent.Controls)
                 if (control is UsageCardControl && control != primary)
                     weekly = (UsageCardControl)control;
             if (weekly == null) throw new InvalidOperationException("Weekly card not found.");
@@ -128,11 +420,12 @@ internal static class DpiLayoutQa
             {
                 form.ApplyDpiForTesting(dpi);
                 float scale = dpi / 96f;
-                AssertEqual(new Rectangle(Scale(22, scale), Scale(136, scale),
-                    Scale(384, scale), Scale(174, scale)), weekly.Bounds,
-                    "Pro weekly card spans both columns at DPI " + dpi);
+                AssertEqual(new Rectangle(0, Scale(29, scale),
+                    weekly.Parent.ClientSize.Width, Scale(61, scale)), weekly.Bounds,
+                    "Pro uses the first quota row at DPI " + dpi);
             }
             form.ApplyDpiForTesting(96);
+            form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 1920, 1080));
             form.ShowSnapshot(new UsageSnapshot
             {
                 PlanType = "Plus",
@@ -147,8 +440,8 @@ internal static class DpiLayoutQa
             }, null);
             AssertEqual(true, primary.Visible,
                 "returning from Pro to Plus restores the five-hour card");
-            AssertEqual(new Rectangle(220, 136, 186, 174), weekly.Bounds,
-                "returning to Plus restores the two-column quota layout");
+            AssertEqual(new Rectangle(0, 99, 376, 61), weekly.Bounds,
+                "returning to Plus restores the seven-day row below five hours");
             form.Hide();
         }
     }
@@ -188,6 +481,44 @@ internal static class DpiLayoutQa
             form.ApplyDpiForTesting(96);
             AssertEqual(designSize, form.ClientSize,
                 "model form returns exactly to 100 percent");
+        }
+    }
+
+    private static void VerifyHistoryReopens()
+    {
+        using (UsageHistoryForm form = new UsageHistoryForm(null))
+        {
+            DateTime today = DateTime.Today;
+            LocalUsageDay day = new LocalUsageDay();
+            day.Add("test-model", LocalUsageCategory.Conversation, 200);
+            UsageSnapshot snapshot = new UsageSnapshot
+            {
+                LocalTokenUsage = new LocalTokenUsageSnapshot
+                {
+                    DailyHistory = new Dictionary<DateTime, LocalUsageDay> { { today, day } }
+                }
+            };
+            form.PrepareForDisplay(Screen.PrimaryScreen);
+            form.SetUsage(snapshot);
+            Control chart = form.Controls.Find("DailyTokenHistoryChart", true)[0];
+            IntPtr window = form.Handle;
+            IntPtr plot = chart.Handle;
+            AssertEqual(true, !form.Visible && chart.IsHandleCreated, "history prepares its controls while hidden");
+            form.Opacity = 0d;
+            form.Show();
+            FindControl<RoundedButton>(form, "30 天").PerformClick();
+            FindControl<RoundedButton>(form, "对话").PerformClick();
+            FindControl<RoundedButton>(form, "← 返回详情").PerformClick();
+            Application.DoEvents();
+            AssertEqual(true, !form.Visible && !form.IsDisposed, "the return button hides and keeps the history window");
+            form.PrepareForDisplay(Screen.PrimaryScreen);
+            form.SetUsage(snapshot, true);
+            form.Show();
+            AssertEqual(true, form.Handle == window && chart.Handle == plot, "reopening reuses the native window and chart");
+            AssertEqual(8, FindControl<ModernSelectControl>(form).Items.Count, "a reopened history starts with the seven-day period");
+            AssertEqual(UiColors.Background, FindControl<RoundedButton>(form, "对话").BackColor,
+                "a reopened history clears the previous category filter");
+            AssertEqual(true, FindControl<Label>(form, "test-model").Visible, "cached history is ready on reopening");
         }
     }
 
@@ -512,7 +843,7 @@ internal static class DpiLayoutQa
             subagent.BackColor == UiColors.Selection, "the filtered chart labels its subtotal and selected category");
         subagent.PerformClick();
         AssertEqual(true, FindControl<Label>(form, "官方 50M   ·   本机 126M").Visible &&
-            subagent.BackColor == UiColors.Surface, "clicking the active category again restores the full chart");
+            subagent.BackColor == UiColors.Background, "clicking the active category again restores the full chart");
     }
 
     private static int CountChartColor(Bitmap image, Color color)
@@ -583,7 +914,7 @@ internal static class DpiLayoutQa
             AssertEqual(false, form.TopMost,
                 "about form is not forced above other apps");
             Size designSize = form.ClientSize;
-            AssertEqual(new Size(390, 370), designSize,
+            AssertEqual(new Size(390, 396), designSize,
                 "about form uses the expected design size");
             AssertEqual("产品构思、用量展示与交互思路",
                 AboutForm.OpenUsageCredit,
@@ -593,7 +924,7 @@ internal static class DpiLayoutQa
                 "about form credits the character artist");
 
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(585, 555), form.ClientSize,
+            AssertEqual(new Size(585, 594), form.ClientSize,
                 "about form scales to 150 percent");
 
             form.ApplyDpiForTesting(96);
@@ -711,11 +1042,12 @@ internal static class DpiLayoutQa
                     AssertEqual(UiColors.Background, settings.BackColor,
                         "existing settings window follows dark theme");
                     UsageCardControl card = FindControl<UsageCardControl>(form);
-                    using (Bitmap bitmap = new Bitmap(card.Width, card.Height))
+                    using (Bitmap bitmap = new Bitmap(form.Width, form.Height))
                     {
-                        card.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
-                        AssertEqual(UiColors.Surface.ToArgb(), bitmap.GetPixel(8, 80).ToArgb(),
-                            "usage card paints the dark surface rather than a white box");
+                        form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+                        Rectangle row = FormBounds(card);
+                        AssertEqual(UiColors.Background.ToArgb(), bitmap.GetPixel(row.Left + 8, row.Bottom - 3).ToArgb(),
+                            "quota row uses the page background");
                     }
                     UiTheme.SetMode(UsageThemeMode.Light);
                     AssertEqual(day, form.BackColor,
@@ -735,6 +1067,88 @@ internal static class DpiLayoutQa
             AssertEqual(false, UiTheme.IsDark, "system theme tracks light mode changes");
         }
         finally { UiTheme.SetMode(original); }
+    }
+
+    private static void VerifyRoundedRepaint()
+    {
+        UsageThemeMode previous = UiTheme.Mode;
+        try
+        {
+            UiTheme.SetMode(UsageThemeMode.Dark);
+            using (MainForm form = new MainForm())
+            using (SettingsForm settings = new SettingsForm(null, null))
+            {
+                form.ShowInTaskbar = settings.ShowInTaskbar = false;
+                form.Opacity = settings.Opacity = 0d;
+                form.Show();
+                settings.Show();
+                UsageSourceButton source = FindControl<UsageSourceButton>(form, "Codex");
+                RoundedButton settingsTab = FindControl<RoundedButton>(settings, "常规设置");
+                ModernSelectControl selector = FindControl<ModernSelectControl>(settings);
+                ModernNumberControl size = FindControl<ModernNumberControl>(settings);
+                foreach (UsageThemeMode theme in new[] { UsageThemeMode.Dark, UsageThemeMode.Light })
+                {
+                    UiTheme.SetMode(theme);
+                    foreach (int dpi in new[] { 96, 144, 192 })
+                    {
+                        form.ApplyDpiForTesting(dpi);
+                        settings.ApplyDpiForTesting(dpi);
+                        string context = " at DPI " + dpi + " in " + theme;
+                        AssertEqual(true, BackgroundPaintingEnabled(source) && BackgroundPaintingEnabled(settingsTab),
+                            "WinForms repaints the border outside rounded buttons" + context);
+                        AssertEqual(true, CornersMatch(source, UiColors.Background) && CornersMatch(settingsTab, UiColors.Background) &&
+                            CornersMatch(selector, UiColors.Background) && CornersMatch(size, UiColors.Background),
+                            "selected buttons and settings fields match their surrounding colors" + context);
+
+                        source.Selected = false;
+                        SetHovered(source, true);
+                        SetHovered(settingsTab, true);
+                        AssertEqual(true, CornersMatch(source, UiColors.Background) && CornersMatch(settingsTab, UiColors.Background),
+                            "hover tiles stay within their rounded outline" + context);
+                        SetHovered(source, false);
+                        SetHovered(settingsTab, false);
+                        using (Bitmap idle = new Bitmap(source.Width, source.Height))
+                        {
+                            source.DrawToBitmap(idle, source.ClientRectangle);
+                            AssertEqual(UiColors.Background.ToArgb(), idle.GetPixel(idle.Width / 2, Scale(6, dpi / 96f)).ToArgb(),
+                                "moving away clears the previous source highlight" + context);
+                        }
+                        source.Selected = true;
+                    }
+                }
+            }
+        }
+        finally { UiTheme.SetMode(previous); }
+    }
+
+    private static bool BackgroundPaintingEnabled(Control control)
+    {
+        MethodInfo getStyle = typeof(Control).GetMethod("GetStyle", BindingFlags.Instance | BindingFlags.NonPublic);
+        return !(bool)getStyle.Invoke(control, new object[] { ControlStyles.Opaque });
+    }
+
+    private static void SetHovered(Control control, bool hovered)
+    {
+        MethodInfo handler = control.GetType().GetMethod(hovered ? "OnMouseEnter" : "OnMouseLeave",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        handler.Invoke(control, new object[] { EventArgs.Empty });
+    }
+
+    private static bool CornersMatch(Control control, Color backdrop)
+    {
+        using (Bitmap bitmap = new Bitmap(control.Width, control.Height))
+        {
+            control.DrawToBitmap(bitmap, control.ClientRectangle);
+            Color topLeft = bitmap.GetPixel(0, 0);
+            Color topRight = bitmap.GetPixel(bitmap.Width - 1, 0);
+            Color bottomLeft = bitmap.GetPixel(0, bitmap.Height - 1);
+            Color bottomRight = bitmap.GetPixel(bitmap.Width - 1, bitmap.Height - 1);
+            bool matches = topLeft.ToArgb() == backdrop.ToArgb() && topRight.ToArgb() == backdrop.ToArgb() &&
+                bottomLeft.ToArgb() == backdrop.ToArgb() && bottomRight.ToArgb() == backdrop.ToArgb();
+            if (!matches) Console.WriteLine("Corners {0} {1}: {2:X8} {3:X8} {4:X8} {5:X8}; expected {6:X8}",
+                control.GetType().Name, control.Size, topLeft.ToArgb(), topRight.ToArgb(), bottomLeft.ToArgb(), bottomRight.ToArgb(), backdrop.ToArgb());
+            return matches;
+        }
     }
 
     private sealed class NativeFontForm : DpiAwareForm

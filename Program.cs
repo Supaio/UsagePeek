@@ -5,8 +5,9 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("UsagePeek")]
 [assembly: AssemblyProduct("UsagePeek")]
-[assembly: AssemblyVersion("2.0.8.0")]
-[assembly: AssemblyFileVersion("2.0.8.0")]
+[assembly: AssemblyVersion("3.0.0.0")]
+[assembly: AssemblyFileVersion("3.0.0.0")]
+[assembly: AssemblyInformationalVersion("3.0.0")]
 
 namespace UsagePeek
 {
@@ -20,7 +21,7 @@ namespace UsagePeek
         [STAThread]
         private static void Main(string[] args)
         {
-            if (SelfUpdateRunner.TryRun(args))
+            if (SourceQuotaStatusLine.TryRun(args) || SelfUpdateRunner.TryRun(args))
             {
                 return;
             }

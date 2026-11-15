@@ -35,7 +35,7 @@ namespace UsagePeek
                 ControlStyles.UserPaint, true);
 
             Text = "关于 UsagePeek";
-            ClientSize = new Size(390, 370);
+            ClientSize = new Size(390, 396);
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
@@ -140,9 +140,23 @@ namespace UsagePeek
             characterCard.Controls.Add(characterName);
             characterCard.Controls.Add(characterDescription);
 
+            LinkLabel clawdCredit = new LinkLabel
+            {
+                Text = "Clawd 动画 · Clawd Tank",
+                Location = new Point(20, 333),
+                Size = new Size(350, 24),
+                Font = new Font("Microsoft YaHei UI", 8.1f),
+                TextAlign = ContentAlignment.MiddleCenter,
+                LinkBehavior = LinkBehavior.HoverUnderline,
+                LinkColor = UiColors.Accent
+            };
+            clawdCredit.LinkClicked += delegate
+            {
+                OpenWebPage("https://github.com/marciogranzotto/clawd-tank");
+            };
             Label footerLabel = CreateLabel(
                 "独立社区实现 · 感谢每一位测试和反馈的朋友",
-                new Point(20, 334), new Size(350, 20),
+                new Point(20, 362), new Size(350, 20),
                 7.4f, FontStyle.Regular, UiColors.Muted);
             footerLabel.TextAlign = ContentAlignment.MiddleCenter;
 
@@ -154,6 +168,7 @@ namespace UsagePeek
             Controls.Add(creditsLabel);
             Controls.Add(openUsageCard);
             Controls.Add(characterCard);
+            Controls.Add(clawdCredit);
             Controls.Add(footerLabel);
 
             MouseDown += DragWindow;
@@ -233,7 +248,12 @@ namespace UsagePeek
 
         private static string ReadVersion()
         {
-            Version version = Assembly.GetExecutingAssembly().GetName().Version;
+            Assembly assembly = Assembly.GetExecutingAssembly();
+            AssemblyInformationalVersionAttribute displayVersion = (AssemblyInformationalVersionAttribute)
+                Attribute.GetCustomAttribute(assembly, typeof(AssemblyInformationalVersionAttribute));
+            if (displayVersion != null && !string.IsNullOrWhiteSpace(displayVersion.InformationalVersion))
+                return "v" + displayVersion.InformationalVersion;
+            Version version = assembly.GetName().Version;
             return string.Format("v{0}.{1}.{2}",
                 version.Major, version.Minor, version.Build);
         }

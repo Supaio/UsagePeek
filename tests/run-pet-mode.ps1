@@ -25,6 +25,12 @@ $output = Join-Path $outputDirectory 'PetModeQa.exe'
     "/resource:$(Join-Path $root 'assets\pet-chatgpt-girl.png'),UsagePeek.Assets.PetChatGptGirl.png" `
     "/resource:$(Join-Path $root 'assets\pet-claude-girl.png'),UsagePeek.Assets.PetClaudeGirl.png" `
     "/resource:$(Join-Path $root 'assets\pet-milk-frog.png'),UsagePeek.Assets.PetMilkFrog.png" `
+    "/resource:$(Join-Path $root 'assets\clawd\clawd-idle-living.gif'),UsagePeek.Assets.Clawd.clawd-idle-living.gif" `
+    "/resource:$(Join-Path $root 'assets\clawd\clawd-crab-walking.gif'),UsagePeek.Assets.Clawd.clawd-crab-walking.gif" `
+    "/resource:$(Join-Path $root 'assets\clawd\clawd-happy.gif'),UsagePeek.Assets.Clawd.clawd-happy.gif" `
+    "/resource:$(Join-Path $root 'assets\clawd\clawd-working-confused.gif'),UsagePeek.Assets.Clawd.clawd-working-confused.gif" `
+    "/resource:$(Join-Path $root 'assets\clawd\clawd-working-typing.gif'),UsagePeek.Assets.Clawd.clawd-working-typing.gif" `
+    "/resource:$(Join-Path $root 'assets\clawd\LICENSE.txt'),UsagePeek.Assets.Clawd.LICENSE.txt" `
     "/resource:$(Join-Path $root 'assets\petpet-hand-v2.png'),UsagePeek.Assets.PetpetHandV2.png" `
     "/out:$output" `
     (Join-Path $root 'DpiAwareForm.cs') `
@@ -33,6 +39,7 @@ $output = Join-Path $outputDirectory 'PetModeQa.exe'
     (Join-Path $root 'UsageModels.cs') `
     (Join-Path $root 'PetForm.cs') `
     (Join-Path $root 'PetRigAnimation.cs') `
+    (Join-Path $root 'PetGifAnimation.cs') `
     (Join-Path $root 'AnimationFrameClock.cs') `
     (Join-Path $root 'LayeredPetSurface.cs') `
     (Join-Path $PSScriptRoot 'PetModeQa.cs')

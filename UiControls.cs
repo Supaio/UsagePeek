@@ -25,7 +25,7 @@ namespace UsagePeek
                 if (Math.Abs(relativeScale - 1f) > 0.001f)
                 {
                     graphics.ScaleTransform(relativeScale, relativeScale,
-                        MatrixOrder.Append);
+                        MatrixOrder.Prepend);
                 }
             }
             return scale;
@@ -96,20 +96,29 @@ namespace UsagePeek
         {
             if (usedPercent >= 90)
             {
-                return Color.FromArgb(251, 113, 133);
+                return UiColors.Danger;
             }
 
             if (usedPercent >= 75)
             {
-                return Color.FromArgb(251, 191, 36);
+                return UiColors.Warning;
             }
 
-            return Color.FromArgb(45, 212, 191);
+            return UiColors.Success;
         }
 
         public static Color WithAlpha(Color color, int alpha)
         {
             return Color.FromArgb(alpha, color.R, color.G, color.B);
+        }
+
+        public static Color BackdropColor(Control control)
+        {
+            for (Control parent = control.Parent; parent != null; parent = parent.Parent)
+            {
+                if (parent.BackColor.A == 255) return parent.BackColor;
+            }
+            return UiColors.Background;
         }
 
         private static float GetScale(Control control)
@@ -141,12 +150,13 @@ namespace UsagePeek
             SetStyle(ControlStyles.AllPaintingInWmPaint |
                 ControlStyles.OptimizedDoubleBuffer |
                 ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
+            SetStyle(ControlStyles.Opaque, false);
         }
 
         protected override void OnPaintBackground(PaintEventArgs e)
         {
-            Color background = Parent == null ? UiColors.Background : Parent.BackColor;
-            e.Graphics.Clear(background.A == 0 ? UiColors.Background : background);
+            using (SolidBrush background = new SolidBrush(UiDrawing.BackdropColor(this)))
+                e.Graphics.FillRectangle(background, ClientRectangle);
         }
 
         protected override void OnMouseEnter(EventArgs e)
@@ -178,13 +188,33 @@ namespace UsagePeek
             Invalidate();
         }
 
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            if (!pressed || Capture) return;
+            pressed = false;
+            Invalidate();
+        }
+
+        protected override void OnGotFocus(EventArgs e)
+        {
+            base.OnGotFocus(e);
+            Invalidate();
+        }
+
+        protected override void OnLostFocus(EventArgs e)
+        {
+            base.OnLostFocus(e);
+            Invalidate();
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             System.Drawing.Drawing2D.GraphicsState state = e.Graphics.Save();
             UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = new Rectangle(0, 0,
-                UiDrawing.LogicalWidth(this) - 1, UiDrawing.LogicalHeight(this) - 1);
+            Rectangle bounds = new Rectangle(1, 1,
+                UiDrawing.LogicalWidth(this) - 2, UiDrawing.LogicalHeight(this) - 2);
             Color fill = !Enabled ? UiColors.Border : pressed
                 ? FlatAppearance.MouseDownBackColor : hovered
                     ? FlatAppearance.MouseOverBackColor : BackColor;
@@ -212,6 +242,8 @@ namespace UsagePeek
 
     internal sealed class SurfacePanel : Panel
     {
+        public bool ShowTopRule { get; set; }
+
         public SurfacePanel()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint |
@@ -219,24 +251,19 @@ namespace UsagePeek
                 ControlStyles.ResizeRedraw |
                 ControlStyles.SupportsTransparentBackColor |
                 ControlStyles.UserPaint, true);
-            BackColor = Color.Transparent;
+            BackColor = UiColors.Background;
+            ShowTopRule = true;
         }
 
         protected override void OnPaintBackground(PaintEventArgs e)
         {
             base.OnPaintBackground(e);
+            if (!ShowTopRule) return;
+            GraphicsState state = e.Graphics.Save();
             UiDrawing.BeginLogicalPaint(this, e.Graphics);
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            Rectangle bounds = new Rectangle(0, 0,
-                UiDrawing.LogicalWidth(this) - 1, UiDrawing.LogicalHeight(this) - 1);
-            if (bounds.Width <= 0 || bounds.Height <= 0) return;
-            using (GraphicsPath path = UiDrawing.RoundedRectangle(bounds, 10))
-            using (SolidBrush fill = new SolidBrush(UiColors.Surface))
-            using (Pen border = new Pen(UiColors.Border))
-            {
-                e.Graphics.FillPath(fill, path);
-                e.Graphics.DrawPath(border, path);
-            }
+            using (Pen divider = new Pen(UiColors.Border))
+                e.Graphics.DrawLine(divider, 0, 1, UiDrawing.LogicalWidth(this), 1);
+            e.Graphics.Restore(state);
         }
     }
 
@@ -262,14 +289,12 @@ namespace UsagePeek
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            using (SolidBrush background = new SolidBrush(BackColor))
+                e.Graphics.FillRectangle(background, ClientRectangle);
             UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int width = UiDrawing.LogicalWidth(this);
             int height = UiDrawing.LogicalHeight(this);
-            using (SolidBrush background = new SolidBrush(BackColor))
-            {
-                e.Graphics.FillRectangle(background, 0, 0, width, height);
-            }
             Rectangle track = new Rectangle(width - 43, (height - 24) / 2, 42, 24);
             using (GraphicsPath path = UiDrawing.RoundedRectangle(track, 12))
             using (SolidBrush fill = new SolidBrush(!Enabled ? UiColors.Border :
@@ -293,7 +318,9 @@ namespace UsagePeek
                     using (Pen focus = new Pen(UiColors.Accent))
                     {
                         focus.DashStyle = DashStyle.Dot;
-                        e.Graphics.DrawRectangle(focus, 0, 0, width - 1, height - 1);
+                        Rectangle outline = Rectangle.Inflate(track, 1, 2);
+                        using (GraphicsPath focusRing = UiDrawing.RoundedRectangle(outline, 13))
+                            e.Graphics.DrawPath(focus, focusRing);
                     }
                 }
             }
@@ -378,14 +405,15 @@ namespace UsagePeek
                 ControlStyles.UserPaint, true);
             BackColor = Color.Transparent;
             Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-            ForeColor = UiColors.Secondary;
             Size = new Size(76, 28);
             Text = "--";
+            AccessibleRole = AccessibleRole.StaticText;
         }
 
         public void SetValue(string value, Color valueAccent)
         {
             Text = string.IsNullOrWhiteSpace(value) ? "--" : value;
+            AccessibleName = "方案 · " + Text;
             accent = valueAccent;
             Invalidate();
         }
@@ -403,29 +431,19 @@ namespace UsagePeek
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int logicalWidth = UiDrawing.LogicalWidth(this);
             int logicalHeight = UiDrawing.LogicalHeight(this);
-            Rectangle bounds = new Rectangle(
-                0, 0, logicalWidth - 1, logicalHeight - 1);
-
-            using (GraphicsPath path = UiDrawing.RoundedRectangle(
-                bounds, logicalHeight / 2))
-            using (SolidBrush background = new SolidBrush(UiColors.Track))
-            {
-                e.Graphics.FillPath(background, path);
-            }
-
-            using (SolidBrush dot = new SolidBrush(accent))
-            using (SolidBrush textBrush = new SolidBrush(ForeColor))
+            using (SolidBrush dot = new SolidBrush(UiColors.Normalize(accent)))
+            using (SolidBrush textBrush = new SolidBrush(UiColors.Secondary))
             using (Font logicalFont = UiDrawing.LogicalFont(this, Font))
             {
                 e.Graphics.FillEllipse(dot,
-                    11, logicalHeight / 2 - 3, 6, 6);
+                    4, logicalHeight / 2 - 2, 4, 4);
                 using (StringFormat format = new StringFormat())
                 {
                     format.LineAlignment = StringAlignment.Center;
                     format.Trimming = StringTrimming.EllipsisCharacter;
                     format.FormatFlags = StringFormatFlags.NoWrap;
                     e.Graphics.DrawString(Text, logicalFont, textBrush,
-                        new RectangleF(24, 0, logicalWidth - 29, logicalHeight), format);
+                        new RectangleF(13, 0, logicalWidth - 13, logicalHeight), format);
                 }
             }
         }
@@ -435,6 +453,7 @@ namespace UsagePeek
     {
         private bool hovered;
         private bool pressed;
+        private bool selected;
         private string displayText;
 
         public GlyphButtonControl(string text, bool primary)
@@ -458,6 +477,17 @@ namespace UsagePeek
 
         public bool Primary { get; private set; }
         public bool Flat { get; set; }
+        public bool Selected
+        {
+            get { return selected; }
+            set
+            {
+                if (selected == value) return;
+                selected = value;
+                if (IsHandleCreated) AccessibilityNotifyClients(AccessibleEvents.StateChange, -1);
+                Invalidate();
+            }
+        }
 
         public string DisplayText
         {
@@ -513,6 +543,10 @@ namespace UsagePeek
             }
 
             public override string DefaultAction { get { return "按下"; } }
+            public override AccessibleStates State
+            {
+                get { return base.State | (button.Selected ? AccessibleStates.Selected : AccessibleStates.None); }
+            }
 
             public override void DoDefaultAction()
             {
@@ -595,7 +629,7 @@ namespace UsagePeek
             }
 
             Color textColor = Enabled
-                ? ForeColor
+                ? Selected ? UiColors.Accent : ForeColor
                 : UiColors.Muted;
             using (SolidBrush textBrush = new SolidBrush(textColor))
             using (Font logicalFont = UiDrawing.LogicalFont(this, Font))
@@ -605,6 +639,9 @@ namespace UsagePeek
                 e.Graphics.DrawString(displayText, logicalFont, textBrush,
                     (logicalWidth - textSize.Width) / 2f,
                     (logicalHeight - textSize.Height) / 2f - 0.5f);
+                if (Selected)
+                using (Pen underline = new Pen(UiColors.Accent, 1.5f))
+                    e.Graphics.DrawLine(underline, 10, logicalHeight - 2, logicalWidth - 10, logicalHeight - 2);
             }
         }
     }
@@ -613,7 +650,6 @@ namespace UsagePeek
     {
         private string headline = "准备读取额度";
         private string detail = "正在连接 Codex 本地接口";
-        private string badge = "同步中";
         private Color accent = UiColors.Accent;
 
         public StatusBannerControl()
@@ -630,8 +666,8 @@ namespace UsagePeek
         {
             headline = "正在同步额度";
             detail = "通过 Codex 本地只读接口获取最新数据";
-            badge = "同步中";
             accent = UiColors.Accent;
+            AccessibleName = headline + " · " + detail;
             Invalidate();
         }
 
@@ -640,9 +676,9 @@ namespace UsagePeek
             if (stale)
             {
                 headline = "正在显示最近缓存";
-                detail = "实时刷新暂时失败，额度数据仍可查看";
-                badge = "缓存";
+                detail = "等待下一次同步，仍可查看最近额度";
                 accent = UiColors.Warning;
+                AccessibleName = headline + " · " + detail;
                 Invalidate();
                 return;
             }
@@ -657,7 +693,13 @@ namespace UsagePeek
                 highest = Math.Max(highest, snapshot.Secondary.UsedPercent);
             }
 
-            if (highest >= 90)
+            if (highest >= 100)
+            {
+                headline = "额度已到上限";
+                detail = "请查看对应窗口的重置时间";
+                accent = UiColors.Danger;
+            }
+            else if (highest >= 90)
             {
                 headline = "额度接近上限";
                 detail = "建议留意最近的额度重置时间";
@@ -669,6 +711,12 @@ namespace UsagePeek
                 detail = "仍可继续使用，注意长期窗口余量";
                 accent = UiColors.Warning;
             }
+            else if (snapshot == null || (snapshot.Primary == null && snapshot.Secondary == null))
+            {
+                headline = "暂无额度数据";
+                detail = "可查看已同步的 Token 记录";
+                accent = UiColors.Muted;
+            }
             else
             {
                 headline = "额度状态良好";
@@ -679,7 +727,7 @@ namespace UsagePeek
                 accent = UiColors.Success;
             }
 
-            badge = "实时";
+            AccessibleName = headline + " · " + detail;
             Invalidate();
         }
 
@@ -708,8 +756,8 @@ namespace UsagePeek
             {
                 detail = "请确认 Codex 已安装、已登录且版本较新";
             }
-            badge = "离线";
             accent = UiColors.Danger;
+            AccessibleName = headline + " · " + detail;
             Invalidate();
         }
 
@@ -719,33 +767,29 @@ namespace UsagePeek
             UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int logicalWidth = UiDrawing.LogicalWidth(this);
-            using (SolidBrush dot = new SolidBrush(UiColors.Normalize(accent)))
+            Color stateColor = UiColors.Normalize(accent);
+            using (SolidBrush dot = new SolidBrush(stateColor))
             {
-                e.Graphics.FillEllipse(dot, 2, 7, 6, 6);
+                e.Graphics.FillEllipse(dot, 1, 7, 6, 6);
             }
 
             using (Font titleFont = UiDrawing.LogicalFont(
                 this, "Microsoft YaHei UI", 9f, FontStyle.Bold))
             using (Font detailFont = UiDrawing.LogicalFont(
                 this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
-            using (Font badgeFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 7.5f, FontStyle.Regular))
             using (SolidBrush titleBrush = new SolidBrush(UiColors.Secondary))
             using (SolidBrush detailBrush = new SolidBrush(UiColors.Muted))
-            using (SolidBrush badgeBrush = new SolidBrush(UiColors.Normalize(accent)))
             {
-                e.Graphics.DrawString(headline, titleFont, titleBrush, 16, 0);
+                e.Graphics.DrawString(headline, titleFont, titleBrush, 12, 1);
                 using (StringFormat format = new StringFormat())
                 {
                     format.FormatFlags = StringFormatFlags.NoWrap;
                     format.Trimming = StringTrimming.EllipsisCharacter;
+                    bool inline = UiDrawing.LogicalHeight(this) < 38;
                     e.Graphics.DrawString(detail, detailFont, detailBrush,
-                        new RectangleF(16, 24, logicalWidth - 20, 18), format);
+                        inline ? new RectangleF(132, 2, logicalWidth - 132, 18) :
+                        new RectangleF(12, 20, logicalWidth - 12, 18), format);
                 }
-
-                SizeF badgeSize = e.Graphics.MeasureString(badge, badgeFont);
-                e.Graphics.DrawString(badge, badgeFont, badgeBrush,
-                    logicalWidth - badgeSize.Width - 2, 2);
             }
         }
     }

@@ -32,6 +32,20 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+$output = Join-Path $outputDirectory 'AdditionalUsageQa.exe'
+& $compiler /nologo /utf8output /target:exe /optimize+ `
+    /reference:System.dll `
+    /reference:System.Core.dll `
+    /reference:System.Web.Extensions.dll `
+    "/out:$output" `
+    (Join-Path $root 'AdditionalUsageReader.cs') `
+    (Join-Path $root 'AntigravityUsageDatabase.cs') `
+    (Join-Path $root 'SourceQuotaStatusLine.cs') `
+    (Join-Path $PSScriptRoot 'AdditionalUsageQa.cs')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $output
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 & (Join-Path $PSScriptRoot 'run-local-usage.ps1')
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

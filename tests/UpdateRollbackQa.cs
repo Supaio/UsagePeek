@@ -11,6 +11,7 @@ internal static class UpdateRollbackQa
         VerifyApplyAndRollback();
         VerifyApplyAndCommit();
         VerifyBadHashKeepsCurrentVersion();
+        VerifyPreviewUpgrade();
 
         if (failures > 0)
         {
@@ -19,6 +20,17 @@ internal static class UpdateRollbackQa
         }
         Console.WriteLine("Update rollback QA passed.");
         return 0;
+    }
+
+    private static void VerifyPreviewUpgrade()
+    {
+        Version preview = new Version(3, 0, 0, 0);
+        Check(UpdateService.IsNewerRelease(new Version(3, 0, 0), preview, "3.0.0-preview"),
+            "the local preview can upgrade to the matching stable release");
+        Check(!UpdateService.IsNewerRelease(new Version(2, 0, 8), preview, "3.0.0-preview"),
+            "the existing stable version is older than the preview");
+        Check(!UpdateService.IsNewerRelease(new Version(3, 0, 0), preview, null),
+            "an installed stable version does not offer the same release again");
     }
 
     private static void VerifyApplyAndRollback()

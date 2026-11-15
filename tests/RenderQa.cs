@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Windows.Forms;
 using UsagePeek;
 
@@ -270,6 +271,12 @@ internal static class RenderQa
             LifetimeTokens = 829400000,
             DailyTokens = new Dictionary<string, long>()
         };
+        long?[] sampleDays = { 15300000, 28600000, 0, 37200000, null, 6100000, 13200000 };
+        for (int index = 0; index < sampleDays.Length; index++)
+        {
+            if (sampleDays[index].HasValue)
+                snapshot.AccountTokenUsage.DailyTokens[DateTime.Today.AddDays(index - 6).ToString("yyyy-MM-dd")] = sampleDays[index].Value;
+        }
 
         if (string.Equals(mode, "warning", StringComparison.OrdinalIgnoreCase))
         {
@@ -285,6 +292,26 @@ internal static class RenderQa
         {
             snapshot.AccountTokenUsage.LifetimeTokens = 12345678901234;
             snapshot.LocalTokenUsage.Lifetime.EstimatedCostUsd = 1234567.89m;
+        }
+
+        if (string.Equals(mode, "history", StringComparison.OrdinalIgnoreCase))
+        {
+            Dictionary<DateTime, LocalUsageDay> days = new Dictionary<DateTime, LocalUsageDay>();
+            for (int index = 0; index < sampleDays.Length; index++)
+            {
+                if (sampleDays[index].GetValueOrDefault() <= 0) continue;
+                LocalUsageDay day = new LocalUsageDay();
+                day.Add("gpt-6-astra", LocalUsageCategory.Conversation, sampleDays[index].Value * 4 / 5);
+                day.Add("gpt-5.6-sol", LocalUsageCategory.Subagent, sampleDays[index].Value / 5);
+                days[DateTime.Today.AddDays(index - 6)] = day;
+            }
+            using (UsageHistoryForm history = new UsageHistoryForm(null))
+            {
+                history.SetHistory(days, new List<QuotaHistorySample>());
+                history.SetUsage(snapshot);
+                Render(history, output, dpi);
+            }
+            return;
         }
 
         if (string.Equals(mode, "models-empty", StringComparison.OrdinalIgnoreCase))
@@ -312,7 +339,9 @@ internal static class RenderQa
 
         using (MainForm form = new MainForm())
         {
-            bool offline = args.Length > 1 && string.Equals(args[1], "offline",
+            bool quotaChart = mode.StartsWith("chart-", StringComparison.OrdinalIgnoreCase);
+            bool liveChart = mode.StartsWith("live", StringComparison.OrdinalIgnoreCase);
+            bool offline = string.Equals(mode, "offline",
                 StringComparison.OrdinalIgnoreCase);
             if (offline)
             {
@@ -338,9 +367,100 @@ internal static class RenderQa
                     RateDateUtc = DateTime.UtcNow.Date
                 });
             }
+            if (string.Equals(mode, "antigravity", StringComparison.OrdinalIgnoreCase)) form.ShowSource(UsageSource.Antigravity);
+            if (string.Equals(mode, "claude-code", StringComparison.OrdinalIgnoreCase)) form.ShowSource(UsageSource.ClaudeCode);
+            if (string.Equals(mode, "ustc", StringComparison.OrdinalIgnoreCase)) form.ShowSource(UsageSource.UstcDeepSeek);
+            if (!liveChart) FindByType<GlyphButtonControl>(form, "Token").PerformClick();
+            else if (!string.Equals(mode, "live-idle", StringComparison.OrdinalIgnoreCase))
+            {
+                DateTime end = DateTime.UtcNow;
+                if (mode == "live-bars") FindByType<GlyphButtonControl>(form, "柱形").PerformClick();
+                else if (mode == "live-line") FindByType<GlyphButtonControl>(form, "折线").PerformClick();
+                const long bucketTicks = 5 * TimeSpan.TicksPerSecond;
+                end = new DateTime(end.Ticks - end.Ticks % bucketTicks, DateTimeKind.Utc).AddSeconds(4);
+                double?[] rates =
+                {
+                    18, 28, 15, 38, 30,
+                    30, 44, 26, 18, 23,
+                    23, 27, 35, 17, 30,
+                    0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0,
+                    null, null, null, null, null,
+                    12, 22, 43, 18, 36,
+                    36, 54, 27, 32, 41,
+                    41, 48, 22, 27, 32,
+                    32, 26, 13, 15, 13,
+                    18, 26, 9, 21, 23,
+                    23, 30, 15, 48, 37
+                };
+                for (int index = 0; index < rates.Length; index++)
+                    form.SetLiveTps(end.AddSeconds(index - rates.Length + 1), rates[index]);
+            }
+            if (quotaChart)
+            {
+                DateTime until = DateTime.UtcNow;
+                form.SetQuotaChartHistory(CreateMarketHistory(until), until);
+                string range = mode.IndexOf("7d", StringComparison.OrdinalIgnoreCase) >= 0 ? "7d" : "5h";
+                GlyphButtonControl rangeButton = FindByType<GlyphButtonControl>(form, range);
+                rangeButton.PerformClick();
+                if (mode.EndsWith("-inspect", StringComparison.OrdinalIgnoreCase))
+                {
+                    UsageActivityControl view = FindByType<UsageActivityControl>(rangeButton.Parent);
+                    typeof(UsageActivityControl).GetMethod("OnKeyDown",
+                        BindingFlags.Instance | BindingFlags.NonPublic).Invoke(view, new object[] { new KeyEventArgs(Keys.End) });
+                }
+            }
+            if (string.Equals(mode, "ledger", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mode, "cny", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mode, "large-values", StringComparison.OrdinalIgnoreCase))
+            {
+                FindByType<GlyphButtonControl>(form, "累计与估值").PerformClick();
+            }
             form.TopMost = false;
             Render(form, output, dpi);
         }
+    }
+
+    private static T FindByType<T>(Control parent, string text = null) where T : Control
+    {
+        foreach (Control child in parent.Controls)
+        {
+            T item = child as T;
+            if (item != null && (text == null || item.Text == text)) return item;
+            T match = FindByType<T>(child, text);
+            if (match != null) return match;
+        }
+        return null;
+    }
+
+    private static List<QuotaHistorySample> CreateMarketHistory(DateTime now)
+    {
+        List<QuotaHistorySample> points = new List<QuotaHistorySample>();
+        DateTime weeklyReset = now.AddDays(-3).AddHours(-8);
+        DateTime sessionReset = now.AddHours(-2);
+        for (int minute = 7 * 24 * 60 - 5; minute >= 5; minute -= 5)
+        {
+            DateTime at = now.AddMinutes(-minute);
+            if (at > now.AddDays(-2).AddHours(-6) && at < now.AddDays(-2).AddHours(-2)) continue;
+            bool weeklyResetOccurred = at >= weeklyReset;
+            bool sessionResetOccurred = at >= sessionReset;
+            double weeklyProgress = weeklyResetOccurred
+                ? (at - weeklyReset).TotalMinutes / (now - weeklyReset).TotalMinutes
+                : (at - now.AddDays(-7)).TotalMinutes / (weeklyReset - now.AddDays(-7)).TotalMinutes;
+            double sessionProgress = sessionResetOccurred
+                ? (at - sessionReset).TotalMinutes / (now - sessionReset).TotalMinutes
+                : (at - now.AddHours(-5)).TotalMinutes / (sessionReset - now.AddHours(-5)).TotalMinutes;
+            points.Add(new QuotaHistorySample
+            {
+                AtUtc = at,
+                SessionUsedPercent = minute > 300 ? null :
+                    (int?)(sessionResetOccurred ? 33 * sessionProgress : 15 + 60 * sessionProgress),
+                WeeklyUsedPercent = (int)(weeklyResetOccurred ? 66 * weeklyProgress : 22 + 71 * weeklyProgress),
+                SessionResetsAtUtc = sessionResetOccurred ? now.AddHours(3) : sessionReset,
+                WeeklyResetsAtUtc = weeklyResetOccurred ? weeklyReset.AddDays(7) : weeklyReset
+            });
+        }
+        return points;
     }
 
     private static UsageSnapshot CreateQuotaAnimationSnapshot(bool pro, int weeklyUsed, DateTime reset)

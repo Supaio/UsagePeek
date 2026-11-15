@@ -43,7 +43,7 @@ namespace UsagePeek
 
         private readonly QuotaHistory quotaHistory;
         private readonly CurrencyDisplayState currency;
-        private readonly DateTime today = DateTime.Today;
+        private DateTime today = DateTime.Today;
         private readonly RoundedButton weekButton;
         private readonly RoundedButton monthButton;
         private readonly RoundedButton previousPage;
@@ -92,9 +92,16 @@ namespace UsagePeek
         private bool showSessionChart;
         private int page;
         private int historyReadRequest;
+        private bool historyReady;
+        private Task historyLoadTask;
         private bool loadingDaily = true;
         private bool loadingQuota = true;
         private bool hasDailySummary;
+        private UsageSnapshot displayedSnapshot;
+        private bool hasDisplayedSnapshot;
+        private bool displayPrepared;
+        private bool rankCurrencyCny;
+        private decimal? rankExchangeRate;
         private bool systemRoundedCorners;
 
         [DllImport("user32.dll")]
@@ -126,7 +133,7 @@ namespace UsagePeek
             subtitle.MouseDown += DragWindow;
             MouseDown += DragWindow;
 
-            RoundedButton back = AddButton("← 返回详情", 394, 22, 104, Close);
+            RoundedButton back = AddButton("← 返回详情", 394, 22, 104, Hide);
             CancelButton = back;
             weekButton = AddButton("7 天", 22, 78, 76, delegate { SetRange(7); });
             monthButton = AddButton("30 天", 104, 78, 88, delegate { SetRange(QuotaHistory.Days); });
@@ -202,6 +209,7 @@ namespace UsagePeek
                     AccessibleDescription = "仅显示此分类的本机用量"
                 };
                 UiDrawing.StyleButton(categoryButton, false);
+                categoryButton.BackColor = UiColors.Background;
                 categoryButton.Click += delegate { ToggleCategoryFilter(category); };
                 categoryButtons[index] = categoryButton;
                 tokenCard.Controls.Add(categoryButton);
@@ -223,7 +231,7 @@ namespace UsagePeek
             sessionChart.Name = "SessionQuotaHistoryChart";
             sessionChart.AccessibleName = "5h 已用额度，横轴 5 小时";
             WireQuotaChart(sessionChart, false);
-            weeklyCard = AddQuotaCard(QuotaTop + QuotaRowHeight, "7d · 已用趋势", UiColors.Success,
+            weeklyCard = AddQuotaCard(QuotaTop + QuotaRowHeight, "7d · 已用趋势", UiColors.WeeklyQuota,
                 out weeklyChart, out weeklyNote);
             weeklyChart.Name = "WeeklyQuotaHistoryChart";
             weeklyChart.AccessibleName = "7d 已用额度，横轴 7 天";
@@ -321,39 +329,55 @@ namespace UsagePeek
                 area.Top + (area.Height - Height) / 2);
         }
 
-        protected override async void OnShown(EventArgs e)
+        public void PrepareForDisplay(Screen screen)
         {
-            base.OnShown(e);
-            if (loadingQuota || loadingDaily) await ReloadLocalHistoryAsync();
+            if (!displayPrepared || !string.Equals(Screen.FromControl(this).DeviceName, screen.DeviceName,
+                StringComparison.OrdinalIgnoreCase))
+                PlaceOnScreen(screen);
+            if (displayPrepared) return;
+            CreateChildHandles(this);
+            PerformLayout();
+            displayPrepared = true;
         }
 
-        internal async Task ReloadLocalHistoryAsync()
+        internal Task LoadHistoryAsync()
         {
-            int request = ++historyReadRequest;
-            DateTime fromUtc = today.AddDays(-QuotaHistory.Days).ToUniversalTime();
-            DateTime untilUtc = today.AddDays(1).ToUniversalTime();
-            Task<List<QuotaHistorySample>> readQuota = Task.Run(
-                delegate { return quotaHistory.Read(fromUtc, untilUtc); });
-            Task<Dictionary<DateTime, LocalUsageDay>> readLedger = hasDailySummary ? null : Task.Run(
-                delegate { return new LocalUsageScanner().ReadDailyHistory(DateTime.MinValue, today); });
+            if (historyReady || quotaHistory == null || IsDisposed || Disposing) return Task.FromResult(0);
+            if (historyLoadTask == null || historyLoadTask.IsCompleted)
+                historyLoadTask = ReadHistoryAsync(historyReadRequest, today, !hasDailySummary && loadingDaily);
+            return historyLoadTask;
+        }
 
-            List<QuotaHistorySample> quota = await readQuota;
-            if (CanApplyHistory(request))
-            {
-                loadingQuota = false;
-                samples = quota;
-                SetRange(localDays.Length);
-            }
-            if (readLedger != null)
-            {
-                Dictionary<DateTime, LocalUsageDay> daily = await readLedger;
-                if (CanApplyHistory(request) && !hasDailySummary) SetHistory(daily, quota);
-            }
+        private async Task ReadHistoryAsync(int request, DateTime readDay, bool readLedger)
+        {
+            DateTime fromUtc = readDay.AddDays(-QuotaHistory.Days).ToUniversalTime();
+            DateTime untilUtc = readDay.AddDays(1).ToUniversalTime();
+            Task<List<QuotaHistorySample>> quotaTask = Task.Run(
+                delegate { return quotaHistory.Read(fromUtc, untilUtc); });
+            Task<Dictionary<DateTime, LocalUsageDay>> ledgerTask = readLedger ? Task.Run(
+                delegate { return new LocalUsageScanner().ReadDailyHistory(DateTime.MinValue, readDay); }) : null;
+
+            List<QuotaHistorySample> quota = await quotaTask;
+            if (CanApplyHistory(request)) ApplyQuotaHistory(quota);
+            Dictionary<DateTime, LocalUsageDay> daily = ledgerTask == null ? null : await ledgerTask;
+            if (!CanApplyHistory(request)) return;
+            if (ledgerTask != null) SetHistory(daily, quota);
+            historyReady = true;
         }
 
         private bool CanApplyHistory(int request)
         {
-            return request == historyReadRequest && !IsDisposed && !Disposing && Visible;
+            return request == historyReadRequest && !IsDisposed && !Disposing;
+        }
+
+        private void ApplyQuotaHistory(List<QuotaHistorySample> quota)
+        {
+            loadingQuota = false;
+            samples = quota;
+            int previous = page;
+            UpdatePagination(localDays.Length);
+            if (previous == page) UpdateQuotaCharts(daySelect.SelectedIndex);
+            else SetRange(localDays.Length);
         }
 
         internal void SetHistory(Dictionary<DateTime, LocalUsageDay> daily,
@@ -361,13 +385,46 @@ namespace UsagePeek
         {
             loadingDaily = false;
             loadingQuota = false;
+            historyReady = true;
             dailyTokens = daily;
             samples = quota;
             SetRange(localDays.Length);
         }
 
-        internal void SetUsage(UsageSnapshot snapshot)
+        internal void SetUsage(UsageSnapshot snapshot, bool resetView = false)
         {
+            DateTime currentDay = DateTime.Today;
+            bool sourceChanged = !hasDisplayedSnapshot || displayedSnapshot != snapshot || today != currentDay;
+            if (sourceChanged)
+            {
+                bool newDay = today != currentDay;
+                today = currentDay;
+                displayedSnapshot = snapshot;
+                hasDisplayedSnapshot = true;
+                historyReady = false;
+                historyReadRequest++;
+                historyLoadTask = null;
+                if (newDay) loadingDaily = true;
+            }
+
+            if (resetView) ClearQuotaHover();
+            bool resetRange = resetView && (page != 0 || localDays.Length != 7 || daySelect.SelectedIndex != 0);
+            if (resetView && categoryFilter >= 0) SetCategoryFilter(-1);
+            AccountTokenUsageSnapshot account = snapshot == null ? null : snapshot.AccountTokenUsage;
+            accountSource.Text = account == null ? "官方账号记录暂不可用"
+                : (snapshot.IsStale ? "缓存记录" : "账号同步") + "  ·  " +
+                    (snapshot.FetchedAtUtc == DateTime.MinValue ? "更新时间未知"
+                        : snapshot.FetchedAtUtc.ToLocalTime().ToString("MM/dd HH:mm"));
+            if (!sourceChanged)
+            {
+                if (resetRange) SetRange(7, true);
+                else if (currency != null &&
+                    (rankCurrencyCny != currency.ShowCny || rankExchangeRate != currency.UsdToCnyRate))
+                    UpdateConversationRanking(daySelect.SelectedIndex == 0 ? localPeriod : localDays[daySelect.SelectedIndex - 1],
+                        daySelect.SelectedIndex);
+                return;
+            }
+
             LocalTokenUsageSnapshot local = snapshot == null ? null : snapshot.LocalTokenUsage;
             hasDailySummary = local != null && local.DailyHistory != null;
             if (hasDailySummary)
@@ -375,16 +432,16 @@ namespace UsagePeek
                 dailyTokens = local.DailyHistory;
                 loadingDaily = false;
             }
-            AccountTokenUsageSnapshot account = snapshot == null ? null : snapshot.AccountTokenUsage;
             accountDaily.Clear();
             if (account != null && account.DailyTokens != null)
             {
+                DateTime latestAllowed = today.AddDays(1);
                 foreach (KeyValuePair<string, long> entry in account.DailyTokens)
                 {
                     DateTime day;
                     if (entry.Value >= 0 && DateTime.TryParseExact(entry.Key, "yyyy-MM-dd",
                         CultureInfo.InvariantCulture, DateTimeStyles.None, out day) &&
-                        day.Year > 1 && day <= today.AddDays(1))
+                        day.Year > 1 && day <= latestAllowed)
                         accountDaily[day] = entry.Value;
                 }
             }
@@ -393,11 +450,7 @@ namespace UsagePeek
             accountValues[2].Text = FormatAccountDays(account == null ? null : account.CurrentStreakDays);
             accountValues[3].Text = FormatAccountDays(account == null ? null : account.LongestStreakDays);
             accountValues[4].Text = FormatAccountDuration(account == null ? null : account.LongestRunningTurnSec);
-            accountSource.Text = account == null ? "官方账号记录暂不可用"
-                : (snapshot.IsStale ? "缓存记录" : "账号同步") + "  ·  " +
-                    (snapshot.FetchedAtUtc == DateTime.MinValue ? "更新时间未知"
-                        : snapshot.FetchedAtUtc.ToLocalTime().ToString("MM/dd HH:mm"));
-            SetRange(localDays.Length);
+            SetRange(resetView ? 7 : localDays.Length, resetView);
         }
 
         private void ChangePage(int offset)
@@ -406,11 +459,8 @@ namespace UsagePeek
             SetRange(localDays.Length);
         }
 
-        private void SetRange(int days)
+        private DateTime UpdatePagination(int days)
         {
-            if (localDays != null && localDays.Length != days) page = 0;
-            DateTime? selectedDay = daySelect.SelectedIndex > 0
-                ? (DateTime?)firstDay.AddDays(daySelect.SelectedIndex - 1) : null;
             DateTime endDay = today;
             DateTime earliest = today;
             if (accountDaily.Count > 0)
@@ -432,9 +482,17 @@ namespace UsagePeek
             }
             int lastPage = (endDay - earliest).Days / days;
             page = Math.Min(page, lastPage);
-            endDay = endDay.AddDays(-days * page);
             previousPage.Enabled = page < lastPage;
             nextPage.Enabled = page > 0;
+            return endDay.AddDays(-days * page);
+        }
+
+        private void SetRange(int days, bool resetView = false)
+        {
+            if (resetView || (localDays != null && localDays.Length != days)) page = 0;
+            DateTime? selectedDay = !resetView && daySelect.SelectedIndex > 0
+                ? (DateTime?)firstDay.AddDays(daySelect.SelectedIndex - 1) : null;
+            DateTime endDay = UpdatePagination(days);
             firstDay = endDay.AddDays(1 - days);
             rangeStartUtc = firstDay.ToUniversalTime();
             rangeEndUtc = endDay.AddDays(1).ToUniversalTime();
@@ -476,14 +534,19 @@ namespace UsagePeek
             ClearQuotaHover();
             DateTime from = selected == 0 ? rangeStartUtc : firstDay.AddDays(selected - 1).ToUniversalTime();
             DateTime until = selected == 0 ? rangeEndUtc : firstDay.AddDays(selected).ToUniversalTime();
-            QuotaHistorySample anchor = samples.FindLast(sample => sample.AtUtc >= from && sample.AtUtc < until);
-            hasQuotaAnchor = anchor != null;
+            int anchor = FirstQuotaSampleAtOrAfter(until) - 1;
+            hasQuotaAnchor = anchor >= 0 && samples[anchor].AtUtc >= from;
             DateTime now = DateTime.UtcNow;
-            quotaEndUtc = hasQuotaAnchor ? anchor.AtUtc : (now >= from && now < until ? now : until);
+            quotaEndUtc = hasQuotaAnchor ? samples[anchor].AtUtc : (now >= from && now < until ? now : until);
             DateTime sessionStart = quotaEndUtc - SessionChartDuration;
             DateTime weeklyStart = quotaEndUtc - WeeklyChartDuration;
-            showSessionChart = hasQuotaAnchor && samples.Any(sample => sample.AtUtc >= sessionStart &&
-                sample.AtUtc <= quotaEndUtc && sample.SessionUsedPercent.HasValue);
+            showSessionChart = false;
+            for (int index = anchor; hasQuotaAnchor && index >= 0 && samples[index].AtUtc >= sessionStart; index--)
+            {
+                if (!samples[index].SessionUsedPercent.HasValue) continue;
+                showSessionChart = true;
+                break;
+            }
             ApplyQuotaCardLayout();
             UpdateQuotaNote(sessionChart, sessionNote, sessionStart, false);
             UpdateQuotaNote(weeklyChart, weeklyNote, weeklyStart, true);
@@ -520,10 +583,10 @@ namespace UsagePeek
 
         private DateTime? LatestReset(bool weekly, DateTime start)
         {
-            for (int index = samples.Count - 1; index > 0; index--)
+            int end = FirstQuotaSampleAtOrAfter(quotaEndUtc.AddTicks(1));
+            for (int index = end - 1; index > 0; index--)
             {
                 if (samples[index].AtUtc < start) break;
-                if (samples[index].AtUtc > quotaEndUtc) continue;
                 DateTime? reset = QuotaHistorySample.ResetBetween(samples[index - 1], samples[index], weekly);
                 if (reset >= start) return reset;
             }
@@ -684,6 +747,8 @@ namespace UsagePeek
 
         private void UpdateConversationRanking(LocalUsageDay local, int selected)
         {
+            rankCurrencyCny = currency != null && currency.ShowCny;
+            rankExchangeRate = currency == null ? null : currency.UsdToCnyRate;
             rankingScope.Text = ConversationScope(selected) + "  ·  本机前 " + RankingRows;
             for (int index = 0; index < RankingRows; index++)
             {
@@ -753,12 +818,17 @@ namespace UsagePeek
 
         private void ToggleCategoryFilter(int category)
         {
-            categoryFilter = categoryFilter == category ? -1 : category;
+            SetCategoryFilter(categoryFilter == category ? -1 : category);
+        }
+
+        private void SetCategoryFilter(int category)
+        {
+            categoryFilter = category;
             for (int index = 0; index < categoryButtons.Length; index++)
             {
                 bool selected = index == categoryFilter;
                 RoundedButton button = categoryButtons[index];
-                button.BackColor = selected ? UiColors.Selection : UiColors.Surface;
+                button.BackColor = selected ? UiColors.Selection : UiColors.Background;
                 button.ForeColor = selected ? UiColors.Text : UiColors.Secondary;
                 button.AccessibleDescription = selected ? "已筛选，按下取消" : "仅显示此分类的本机用量";
             }
@@ -890,7 +960,7 @@ namespace UsagePeek
             DateTime start = quotaEndUtc - (weekly ? WeeklyChartDuration : SessionChartDuration);
             DrawAxes(graphics, plot, "100%", "0%", start, weekly);
             if (!hasQuotaAnchor) return;
-            Color color = weekly ? UiColors.Success : UiColors.Accent;
+            Color color = weekly ? UiColors.WeeklyQuota : UiColors.Accent;
             DrawQuotaLine(graphics, plot, weekly, color, start, quotaEndUtc);
             if (hoveredQuotaChart == chart) PaintQuotaHover(graphics, chart, plot, weekly, color, start);
         }
@@ -905,7 +975,7 @@ namespace UsagePeek
             {
                 float y = plot.Bottom - plot.Height * hoveredQuotaSample.UsedPercent(weekly).Value / 100f;
                 using (SolidBrush marker = new SolidBrush(color))
-                using (Pen outline = new Pen(UiColors.Surface, 1.5f))
+                using (Pen outline = new Pen(UiColors.Background, 1.5f))
                 {
                     graphics.FillEllipse(marker, x - 4f, y - 4f, 8f, 8f);
                     graphics.DrawEllipse(outline, x - 4f, y - 4f, 8f, 8f);
@@ -1075,6 +1145,16 @@ namespace UsagePeek
             UpdateRegion();
         }
 
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            if (!e.Cancel && e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                Hide();
+            }
+        }
+
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
@@ -1111,7 +1191,7 @@ namespace UsagePeek
             public HistoryChart(Rectangle bounds)
             {
                 Bounds = bounds;
-                BackColor = UiColors.Surface;
+                BackColor = UiColors.Background;
                 SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
                     ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer, true);
             }

@@ -10,27 +10,29 @@ namespace UsagePeek
     {
         private static readonly Color[] light =
         {
-            Color.FromArgb(245, 245, 247), Color.White,
-            Color.FromArgb(29, 29, 31), Color.FromArgb(99, 99, 105),
-            Color.FromArgb(134, 134, 139), Color.FromArgb(232, 232, 237),
-            Color.FromArgb(0, 122, 255), Color.FromArgb(226, 237, 252),
-            Color.FromArgb(38, 126, 103), Color.FromArgb(161, 101, 15),
-            Color.FromArgb(186, 61, 61), Color.FromArgb(237, 237, 241),
-            Color.FromArgb(240, 241, 245), Color.FromArgb(227, 231, 239),
-            Color.FromArgb(0, 122, 255), Color.FromArgb(30, 137, 255),
-            Color.FromArgb(0, 98, 204), Color.FromArgb(211, 213, 220)
+            Color.FromArgb(247, 248, 250), Color.White,
+            Color.FromArgb(24, 27, 34), Color.FromArgb(55, 63, 76),
+            Color.FromArgb(92, 101, 118), Color.FromArgb(215, 220, 229),
+            Color.FromArgb(44, 83, 181), Color.FromArgb(228, 235, 251),
+            Color.FromArgb(22, 109, 71), Color.FromArgb(139, 87, 17),
+            Color.FromArgb(175, 47, 66), Color.FromArgb(222, 227, 236),
+            Color.FromArgb(235, 238, 244), Color.FromArgb(223, 231, 245),
+            Color.FromArgb(47, 82, 182), Color.FromArgb(38, 70, 165),
+            Color.FromArgb(33, 57, 132), Color.FromArgb(172, 180, 193),
+            Color.FromArgb(102, 70, 172)
         };
         private static readonly Color[] dark =
         {
-            Color.FromArgb(24, 26, 31), Color.FromArgb(35, 38, 46),
-            Color.FromArgb(241, 242, 245), Color.FromArgb(184, 190, 202),
-            Color.FromArgb(148, 157, 174), Color.FromArgb(58, 63, 76),
-            Color.FromArgb(137, 181, 255), Color.FromArgb(43, 62, 92),
-            Color.FromArgb(110, 212, 180), Color.FromArgb(243, 192, 109),
-            Color.FromArgb(255, 130, 140), Color.FromArgb(51, 56, 67),
-            Color.FromArgb(45, 50, 61), Color.FromArgb(57, 65, 81),
-            Color.FromArgb(49, 119, 230), Color.FromArgb(67, 137, 247),
-            Color.FromArgb(35, 95, 193), Color.FromArgb(78, 85, 102)
+            Color.FromArgb(22, 23, 26), Color.FromArgb(30, 32, 37),
+            Color.FromArgb(242, 244, 248), Color.FromArgb(208, 212, 222),
+            Color.FromArgb(163, 171, 187), Color.FromArgb(58, 63, 74),
+            Color.FromArgb(151, 181, 255), Color.FromArgb(41, 53, 81),
+            Color.FromArgb(111, 207, 153), Color.FromArgb(240, 190, 115),
+            Color.FromArgb(245, 135, 146), Color.FromArgb(46, 51, 61),
+            Color.FromArgb(36, 40, 48), Color.FromArgb(48, 58, 79),
+            Color.FromArgb(53, 90, 188), Color.FromArgb(61, 98, 196),
+            Color.FromArgb(40, 70, 152), Color.FromArgb(89, 98, 115),
+            Color.FromArgb(185, 166, 245)
         };
         private static Color Get(int index) { return (UiTheme.IsDark ? dark : light)[index]; }
         public static Color Background { get { return Get(0); } }
@@ -51,6 +53,7 @@ namespace UsagePeek
         public static Color PrimaryHover { get { return Get(15); } }
         public static Color PrimaryPressed { get { return Get(16); } }
         public static Color SwitchOff { get { return Get(17); } }
+        public static Color WeeklyQuota { get { return Get(18); } }
 
         internal static Color Map(Color value, bool wasDark)
         {

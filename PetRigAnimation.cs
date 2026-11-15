@@ -14,6 +14,7 @@ namespace UsagePeek
         private readonly int MeshColumns;
         private readonly int MeshRows;
         private readonly bool separateBoots;
+        private readonly bool isMilkFrog;
         private const float Padding = 0.055f;
         private const float ModelScale = 1f - Padding * 2f;
         private readonly Bitmap source;
@@ -22,6 +23,7 @@ namespace UsagePeek
         private readonly Eye[] eyes;
         private readonly float faceRoll;
         private readonly double walkingFrequency;
+        private readonly double workingFrequency;
         private readonly float[] weights;
         private readonly float[] mappedX;
         private readonly float[] mappedY;
@@ -38,6 +40,7 @@ namespace UsagePeek
         private RectangleF eyelidBounds;
 
         internal Rectangle ArtworkBounds { get; private set; }
+        internal float ViewerGlance { get; set; }
         internal float? EyelidClosureForTesting { get; set; }
         internal float? ClosingRollForTesting { get; set; }
 
@@ -55,6 +58,7 @@ namespace UsagePeek
             // The two narrow boots need separate influence regions. Other
             // characters retain their existing mesh and rendering cost.
             separateBoots = appearance == PetAppearance.ClaudeGirl;
+            isMilkFrog = appearance == PetAppearance.MilkFrog;
             MeshColumns = separateBoots ? 64 : 32;
             MeshRows = MeshColumns;
             columns = new int[MeshColumns + 1];
@@ -62,6 +66,9 @@ namespace UsagePeek
             walkingFrequency = appearance == PetAppearance.ClaudeGirl ? 1.45d :
                 appearance == PetAppearance.MilkFrog ? 1.35d :
                 appearance == PetAppearance.PhoebeChibi ? 1.55d : 1.05d;
+            workingFrequency = appearance == PetAppearance.ClaudeGirl ? 4.4d :
+                appearance == PetAppearance.PhoebeChibi ? 8.8d :
+                appearance == PetAppearance.MilkFrog ? 6.8d : 5.7d;
             bones = CreateBones(appearance);
             eyes = CreateEyes(appearance);
             faceRoll = eyes.Length > 1 ? (float)(Math.Atan2(eyes[1].SourceY - eyes[0].SourceY,
@@ -124,7 +131,7 @@ namespace UsagePeek
         }
 
         internal Bitmap Render(int width, int height, double timeSeconds,
-            float walkingAmount, PetMood mood, float pettingProgress)
+            float walkingAmount, PetMood mood, float pettingProgress, float workingAmount = 0f)
         {
             if (width <= 0 || height <= 0)
                 throw new ArgumentOutOfRangeException("width");
@@ -134,6 +141,7 @@ namespace UsagePeek
             double time = Math.Max(0d, timeSeconds);
             double cycle = time * walkingFrequency * Math.PI * 2d;
             double breath = time * (mood == PetMood.Nervous ? 3.2d : 1.65d);
+            double workPhase = time * workingFrequency;
             double blinkPhase = time % 4.4d;
             blink = blinkPhase >= 3.83d && blinkPhase < 4.07d
                 ? (float)Math.Pow(Math.Sin((blinkPhase - 3.83d) / 0.24d * Math.PI), 2d)
@@ -155,6 +163,10 @@ namespace UsagePeek
                 if (bone.IsFoot) lift *= lift;
                 float degrees = bone.IdleAngle * idle +
                     walkingAmount * bone.WalkAngle * stride;
+                float work = workingAmount > 0f
+                    ? workingAmount * (float)Math.Sin(workPhase + bone.Phase)
+                    : 0f;
+                degrees += bone.WorkAngle * work;
                 if (mood == PetMood.Nervous && bone.Name == "Head")
                     degrees += (float)Math.Sin(time * 13d) * 0.45f;
                 if (mood == PetMood.Happy)
@@ -169,7 +181,7 @@ namespace UsagePeek
                 transform.ShiftX = width * (bone.IdleTravelX * idle +
                     walkingAmount * bone.WalkTravelX * stride);
                 transform.ShiftY = height * (bone.IdleTravelY * idle -
-                    walkingAmount * bone.WalkLiftY * lift);
+                    walkingAmount * bone.WalkLiftY * lift + bone.WorkTravelY * work);
                 transform.ScaleX = 1f + bone.BreathX * idle;
                 transform.ScaleY = 1f + bone.BreathY * idle;
                 if (pettingProgress >= 0f && bone.Name == "Head")
@@ -296,6 +308,8 @@ namespace UsagePeek
 
         private void Rasterize()
         {
+            bool drawLids = blink > 0.001f;
+            bool turnPupils = isMilkFrog && ViewerGlance > 0.001f;
             for (int row = 0; row < MeshRows; row++)
             {
                 int y0 = rows[row], y1 = rows[row + 1];
@@ -320,9 +334,12 @@ namespace UsagePeek
                         {
                             float sampleX = sx + 1f, sampleY = sy + 1f;
                             int pixel = Sample(sampleX, sampleY);
-                            if (blink > 0.001f && sampleX >= eyelidBounds.Left && sampleX <= eyelidBounds.Right &&
+                            if ((drawLids || turnPupils) && sampleX >= eyelidBounds.Left && sampleX <= eyelidBounds.Right &&
                                 sampleY >= eyelidBounds.Top && sampleY <= eyelidBounds.Bottom)
-                                pixel = ApplyEyelids(sampleX, sampleY, pixel);
+                            {
+                                if (turnPupils) pixel = ApplyFrogGlance(sampleX, sampleY, pixel);
+                                if (drawLids) pixel = ApplyEyelids(sampleX, sampleY, pixel);
+                            }
                             pixels[target++] = pixel;
                             sx += stepX;
                             sy += stepY;
@@ -330,6 +347,49 @@ namespace UsagePeek
                     }
                 }
             }
+        }
+
+        private int ApplyFrogGlance(float x, float y, int original)
+        {
+            uint alpha = (uint)original >> 24;
+            // The PNG is slightly translucent even at the center of the pupil.
+            if (alpha < 245) return original;
+            float scaleX = width * ModelScale / sourceBounds.Width;
+            float scaleY = height * ModelScale / sourceBounds.Height;
+            float sourceX = sourceBounds.Left + (x - 1f - width * Padding) / scaleX;
+            float sourceY = sourceBounds.Top + (y - 1f - height * Padding) / scaleY;
+            float offset;
+            if (sourceX < 743f)
+            {
+                // Turn the near pupil on the rounded eye while pinning the green rim.
+                float u = (sourceX - 691.25f) / 36f;
+                float v = (sourceY - 138f) / 33f;
+                float depthSquared = 1f - u * u - v * v;
+                if (depthSquared <= 0f) return original;
+                float depth = (float)Math.Sqrt(depthSquared);
+                double angle = 0.60d * ViewerGlance * SmoothStep((depth - .12f) / .50f);
+                float rotated = (float)(u * Math.Cos(angle) + depth * Math.Sin(angle));
+                offset = (rotated - u) * 36f * (1f - SmoothStep((u - .36f) / .52f));
+            }
+            else
+            {
+                // The far eye is foreshortened along the right edge of the head.
+                float eyeY = sourceY - 139.5f;
+                float u = (sourceX - 774.8f - .37f * eyeY) / 5.9f;
+                float v = eyeY / 25f;
+                float weight = 1f - u * u - v * v;
+                if (weight <= 0f) return original;
+                offset = 2.6f * ViewerGlance * weight * weight;
+            }
+            int shifted = Sample(x + offset * scaleX, y);
+            uint shiftedAlpha = (uint)shifted >> 24;
+            if (shiftedAlpha < 245) return original;
+            if (shiftedAlpha == alpha) return shifted;
+            // Premultiplied RGB follows the pupil. The head silhouette keeps its alpha.
+            uint red = (((uint)shifted >> 16) & 255) * alpha / shiftedAlpha;
+            uint green = (((uint)shifted >> 8) & 255) * alpha / shiftedAlpha;
+            uint blue = ((uint)shifted & 255) * alpha / shiftedAlpha;
+            return (int)((alpha << 24) | (red << 16) | (green << 8) | blue);
         }
 
         private int ApplyEyelids(float x, float y, int original)
@@ -871,6 +931,31 @@ namespace UsagePeek
             body.BreathY = .007f;
             body.IdleTravelX = .001f;
             head.IdleTravelY = .0015f;
+            head.WorkAngle = appearance == PetAppearance.ClaudeGirl ? 1.7f : 2.5f;
+            head.WorkTravelY = appearance == PetAppearance.MilkFrog ? .008f : .004f;
+            foreach (Bone bone in result)
+            {
+                switch (bone.Name)
+                {
+                    case "LeftHand":
+                    case "RightHand":
+                        bone.WorkAngle = appearance == PetAppearance.MilkFrog ? 4.2f : 2.4f;
+                        bone.WorkTravelY = .009f;
+                        break;
+                    case "LeftWing":
+                    case "RightWing":
+                        bone.WorkAngle = bone.Name == "LeftWing" ? 5f : -5f;
+                        break;
+                    case "Tail":
+                        bone.WorkAngle = 5f;
+                        break;
+                    case "Hat":
+                    case "Pompom":
+                        bone.WorkAngle = 4f;
+                        bone.WorkTravelY = .010f;
+                        break;
+                }
+            }
             return result;
         }
 
@@ -1197,6 +1282,7 @@ namespace UsagePeek
             internal float PivotX, PivotY, CenterX, CenterY, RadiusX, RadiusY;
             internal float IdleAngle, WalkAngle, Phase, IdleTravelX, IdleTravelY;
             internal float WalkTravelX, WalkLiftY, BreathX, BreathY;
+            internal float WorkAngle, WorkTravelY;
             internal bool IsFoot;
         }
 
