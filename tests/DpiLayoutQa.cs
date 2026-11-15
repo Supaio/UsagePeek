@@ -55,6 +55,16 @@ internal static class DpiLayoutQa
         {
             AssertEqual(false, form.TopMost,
                 "main form is not forced above other apps");
+
+            // Windows can clamp a native window to the host display's bounds.
+            form.ApplyDpiForTesting(144);
+            AssertEqual(new Size(675, 879), form.ClientSize,
+                "main form requests the design size at 150 percent");
+            form.ApplyDpiForTesting(192);
+            AssertEqual(new Size(900, 1172), form.ClientSize,
+                "main form requests the design size at 200 percent");
+            form.ApplyDpiForTesting(96);
+
             int settingsRequests = 0;
             form.SettingsRequested += delegate { settingsRequests++; };
             form.RequestSettingsForTesting();
@@ -80,10 +90,10 @@ internal static class DpiLayoutQa
             trend.PerformClick();
             AssertEqual(true, activity.Visible && !details.Visible, "the trend tab restores the timeline");
             form.Hide();
-            form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 2800, 1800));
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(675, 879), form.ClientSize,
-                "main form scales to 150 percent");
+            form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 1200, 804));
+            AssertEqual(true, form.Height <= 788 && form.AutoScrollMinSize.Height == 879,
+                "the 150 percent panel keeps its content scrollable within a 788 pixel window");
 
             int estimateRequests = 0;
             form.EstimateAuditRequested += delegate { estimateRequests++; };
@@ -98,10 +108,6 @@ internal static class DpiLayoutQa
                 "the full-width five-hour row scales to 150 percent");
             AssertEqual(new Rectangle(90, 673, 564, 92), FormBounds(weekly),
                 "the full-width seven-day row stays below the five-hour row at 150 percent");
-
-            form.ApplyDpiForTesting(192);
-            AssertEqual(new Size(900, 1172), form.ClientSize,
-                "main form scales to 200 percent");
 
             form.ApplyDpiForTesting(96);
             AssertEqual(new Size(450, 586), form.ClientSize,
