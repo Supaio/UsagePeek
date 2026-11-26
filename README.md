@@ -32,30 +32,36 @@ Codex 通过本机只读接口和会话元数据获取用量，Claude Code 和 A
 可从 [GitHub Releases](https://github.com/Supaio/UsagePeek/releases) 或
 [GitLab Releases](https://gitlab.com/Supaio/usagepeek/-/releases) 下载同版本单文件版，
 也可以[直接下载最新版 UsagePeek.exe](https://gitlab.com/Supaio/usagepeek/-/releases/permalink/latest/downloads/UsagePeek.exe)。
-也可直接下载 [3.0.0 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v3.0.0/dist/UsagePeek.exe)。
-无需安装；放在个人目录后直接运行。如果只检测到受保护的 Codex 桌面版，
-点击“修复连接”即可获取官方 Codex CLI 运行组件。
+也可直接下载 [3.1.0 标签内的 EXE](https://gitlab.com/Supaio/usagepeek/-/raw/v3.1.0/dist/UsagePeek.exe)。
+无需安装 UsagePeek；放在个人目录后直接运行。同步 Codex 或 Antigravity 时，请打开并登录对应的 Windows 桌面版。
 Release 页面同时提供 SHA-256；“关于”页可复制当前 EXE 的哈希，诊断技术详情可查看完整值。
 
 ## 当前功能
 
-### 3.0 多来源用量
+### 多来源用量
 
 在用量详情左侧点击图标切换 Codex、Antigravity 和 Claude Code。中科大校徽对应
 待接入的 DeepSeek。Claude Code 和 Google Antigravity 各自显示今天、昨天、近 30 天与本机
 累计 Token。Claude Code 读取 `.claude/projects`
 下的会话与子智能体计数，支持 `CLAUDE_CONFIG_DIR`。Antigravity 读取
-`.gemini/antigravity*/conversations` 下的本机会话数据库。累计范围以当前保留的本机记录为准。
+`.gemini/antigravity*/conversations` 下的本机会话数据库，以持久账本记录已采集的 Token 和 API 等价估值。
 
 新版用量面板在 100% 缩放时宽 450 像素。Codex 的 60 秒 TPS 图支持 K 线、柱形和折线，
 5 小时和 7 天额度各有独立图表。近 7 天 Token 图可悬停查看日用量。
 Codex 的图表优先采用官方每日记录，也可显示本机记录。Claude Code 和 Antigravity 的图表使用
 各自的本机记录。
 
-如需查看订阅额度，在对应来源的页面点击“复制连接设置”，将 `statusLine` 配置合并到 CLI 的设置文件
-并重新打开 CLI。额度与重置时间由 [Claude Code](https://code.claude.com/docs/en/statusline)
-和 [Antigravity CLI](https://antigravity.google/docs/cli/statusline/) 的状态栏提供，
-只在本机保存额度字段与同步时间。已有自定义状态栏时，先保留原配置。
+Antigravity 从正在运行的 Windows 桌面版读取会员等级、AI Credits，以及 Gemini 和 Claude／GPT 各自的 5 小时和每周额度。
+[Antigravity 登录说明](https://antigravity.google/docs/install/)
+
+Codex 使用 Windows 桌面版自带的本地后端读取账户额度。
+
+桌宠胶囊轮流显示 Codex 倒计时、Antigravity 倒计时和总 TPS。Antigravity 的两组额度在每轮交替显示。
+总 TPS 按同一个 5 秒窗口汇总两端的输出；Antigravity 的输出按已写入本机记录的 Token 估算。
+
+Claude Code 通过 CLI 状态栏同步额度。在 Claude Code 页面点击“复制连接设置”，将 `statusLine` 合并到其设置文件并重新打开 Claude Code。已有自定义状态栏时，先保留原配置。
+UsagePeek 只在本机保存额度字段和同步时间。
+[Claude Code 状态栏](https://code.claude.com/docs/en/statusline)
 
 - 5 小时 Session 与 7 天 Weekly 用量、剩余量和重置倒计时。
 - 按当前消耗速度显示相对匀速的快慢，并预测额度耗尽时间或重置时余量。
@@ -160,9 +166,6 @@ Codex 的图表优先采用官方每日记录，也可显示本机记录。Claud
   提供产品构思、用量展示与交互思路，鲸鱼娘形象鸣谢 **ZipZipPipe**。
 - “关于 UsagePeek”可一键复制当前 EXE 的完整 SHA-256；脱敏
   诊断报告也包含完整 SHA-256，方便与 Release 附件核对。
-- 如果只检测到受 Windows 保护的桌面版组件，离线界面会显示“修复连接”。
-  用户确认后，程序从 OpenAI 官方地址获取 Windows Codex CLI 安装器，安装到
-  当前用户目录并自动重试，不要求 Node.js、PATH 配置或管理员权限。
 
 ## 数据口径
 
@@ -212,8 +215,7 @@ Sol 的公开等价价格估算。若记录混有未知价格的模型，已识�
 - “复制诊断”只包含版本、组件探测来源、刷新状态和价格覆盖情况；用户目录会被
   替换为环境变量占位符，其他绝对路径只保留盘符与文件名，原始异常也不会复制。
 - 重置卡通知只在本地保存可用数量、发放/观察时间与各到期批次已提醒的数量，用于去重。
-- “修复连接”仅下载并运行 `https://chatgpt.com/codex/install.ps1` 官方安装器；
-  UsagePeek 本身仍不打开、复制或输出登录令牌。
+- Antigravity 会员等级、额度与 Credits 通过桌面版自身的本地接口读取。
 - `%LOCALAPPDATA%\UsagePeek\cache.json` 只保存聚合后的套餐、百分比、时间、
   模型名、Token 和估算金额；`usage-ledger.json` 及其 `.bak` 备份只保存去重
   指纹、事件时间、模型名、各类 Token 数和当次估值。它们都不包含账号 ID、
@@ -227,32 +229,16 @@ Sol 的公开等价价格估算。若记录混有未知价格的模型，已识�
 
 - Windows 10 或 Windows 11
 - .NET Framework 4.x
-- 已登录的 Codex 桌面版、CLI 或 IDE 扩展；若缺少可运行 CLI，可在 UsagePeek
-  中点击“修复连接”完成当前用户级安装
+- 已登录的 Windows 桌面版，用于读取对应的 Codex 或 Antigravity 账户数据
 
 新版 Codex 可提供官方累计 Token 和重置额度详情；旧版仍可显示额度窗口，
 并自动使用本机会话记录补足 Token 统计。
 
 ### 为什么打开桌面版仍可能显示离线
 
-UsagePeek 需要自己启动一个只读的 `codex app-server`。Windows 商店安装的
-Codex/ChatGPT 桌面版可能把内置 `codex.exe` 放在受保护的 WindowsApps 包中；
-桌面应用自己能启动它，不代表普通第三方程序也有权限。因此只打开 Chappy、
-Codex 或 ChatGPT 窗口并不能保证连接成功。
+UsagePeek 首先读取 Codex 桌面版准备的本地后端，再检查应用包内的组件。Windows 可能限制其他程序访问受保护的应用包。遇到这种情况，先打开或更新 Codex 桌面版，完成 ChatGPT 登录后回到 UsagePeek 刷新。
 
-新版会自动查找以下来源：
-
-1. `USAGEPEEK_CODEX_PATH` 指定的位置；
-2. 官方独立安装目录和系统 `PATH`；
-3. VS Code、VS Code Insiders、Cursor 的 `openai.chatgpt` 扩展；
-4. Codex Windows 桌面包；
-5. npm、pnpm、Scoop 的常见命令位置。
-
-如果界面提示桌面组件受 Windows 保护，请另行安装官方 Codex CLI，在 Windows
-终端运行一次 `codex` 并选择 ChatGPT 登录，然后重新刷新；也可以直接点击新版
-界面底部的“修复连接”，由 UsagePeek 调用 OpenAI 官方安装器并自动重试。
-若 Codex 配置为在 WSL 中运行，WSL 默认使用另一份 `~/.codex`；需要让 WSL
-与 Windows 共用 `CODEX_HOME`，或在 Windows 原生 CLI 中单独登录一次。
+Antigravity 的订阅额度和 Credits 由运行中的桌面版提供。之前已保存的本机用量和历史仍可查看。
 
 ## 构建与运行
 
@@ -265,13 +251,10 @@ cd usagepeek
 程序启动后会出现在系统托盘。经典模式下，左键单击托盘图标可显示或隐藏面板；
 桌宠模式下，单击桌宠或托盘图标会在桌宠旁打开详情。右键托盘、面板或桌宠均可
 打开“设置与诊断…”，也可在详情面板顶部点击“设置”。显示模式、外形、用量
-口径、大小与开机自启统一在设置页管理；诊断页可测试连接和复制安全信息。如果
-Codex 不在自动探测的位置，可将完整路径放入
-`USAGEPEEK_CODEX_PATH`，支持 `codex.exe` 或 `codex.cmd`。
+口径、大小与开机自启统一在设置页管理；诊断页可测试连接和复制安全信息。
 
 给其他人测试时，技术上只需要发送 `UsagePeek.exe`。建议让对方把它放在桌面或
-个人文件夹后运行；如果出现桌面组件受保护提示，点击“修复连接”即可。首次修复
-需要联网，并会明确询问确认，不会静默安装。
+个人文件夹后运行，并在要监测的桌面应用里完成登录。
 
 ## 联网更新
 
@@ -287,7 +270,7 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```json
 {
-  "version": "3.0.0",
+  "version": "3.1.0",
   "url": "https://example.com/releases/UsagePeek.exe",
   "sha256": "64 位十六进制 SHA-256",
   "notes": "更新说明"
@@ -339,12 +322,6 @@ Codex 不在自动探测的位置，可将完整路径放入
 
 ```powershell
 .\tests\run-exchange-live.ps1
-```
-
-官方 CLI 安装源检查（只下载并校验脚本，不执行安装）：
-
-```powershell
-.\tests\run-bootstrap-source-live.ps1
 ```
 
 ## 设计取舍

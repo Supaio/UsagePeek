@@ -40,7 +40,17 @@ $output = Join-Path $outputDirectory 'AdditionalUsageQa.exe'
     "/out:$output" `
     (Join-Path $root 'AdditionalUsageReader.cs') `
     (Join-Path $root 'AntigravityUsageDatabase.cs') `
+    (Join-Path $root 'AntigravityTpsMonitor.cs') `
+    (Join-Path $root 'CodexTpsMonitor.cs') `
+    (Join-Path $root 'CodexResponseParser.cs') `
     (Join-Path $root 'SourceQuotaStatusLine.cs') `
+    (Join-Path $root 'AntigravityDesktopStatus.cs') `
+    (Join-Path $root 'UsageModels.cs') `
+    (Join-Path $root 'UsageCache.cs') `
+    (Join-Path $root 'LocalUsageScanner.cs') `
+    (Join-Path $root 'OpenAiModelPrices.cs') `
+    (Join-Path $root 'AntigravityModelPrices.cs') `
+    (Join-Path $root 'QuotaHistory.cs') `
     (Join-Path $PSScriptRoot 'AdditionalUsageQa.cs')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $output

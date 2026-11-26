@@ -82,6 +82,8 @@ namespace UsagePeek
 
         public UsageChartPeriod Period { get; private set; }
         public LiveChartStyle LiveStyle { get; private set; }
+        public string SourceLabel { get; set; }
+        public bool LiveEstimated { get; set; }
 
         private bool IsWeekly { get { return Period == UsageChartPeriod.WeeklyQuota; } }
         private bool IsQuota { get { return Period == UsageChartPeriod.SessionQuota || IsWeekly; } }
@@ -189,7 +191,8 @@ namespace UsagePeek
             }
             else
             {
-                AccessibleName = "Codex 实时输出速度 · TPS";
+                string source = string.IsNullOrEmpty(SourceLabel) ? "Codex" : SourceLabel;
+                AccessibleName = LiveEstimated ? source + " 本机输出估算 · TPS" : source + " 实时输出速度 · TPS";
                 string interval = LiveStyle == LiveChartStyle.Line ? "每秒一个采样。" : "每 5 秒一组。";
                 AccessibleDescription = "近 " + LiveChartSeconds + " 秒，每秒刷新。" + interval + "方向键查看采样，Home 返回实时速度。";
             }
@@ -471,13 +474,16 @@ namespace UsagePeek
             }
         }
 
+        public bool CompactHeader { get; set; }
+
         private RectangleF PlotBounds()
         {
             // A quota tick is centered on the start of the time range.
-            int left = IsQuota ? 19 : 2;
-            const int rightInset = 59;
-            return new RectangleF(left, 119, Math.Max(1, UiDrawing.LogicalWidth(this) - left - rightInset),
-                Math.Max(1, UiDrawing.LogicalHeight(this) - 152));
+            int left = IsQuota ? 20 : 2;
+            const int rightInset = 60;
+            int top = CompactHeader ? 58 : 76;
+            return new RectangleF(left, top, Math.Max(1, UiDrawing.LogicalWidth(this) - left - rightInset),
+                Math.Max(1, UiDrawing.LogicalHeight(this) - top - 26));
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -510,27 +516,33 @@ namespace UsagePeek
                     counts[selected].Value.ToString("N0", CultureInfo.CurrentCulture) + " Token" : "当天暂无记录");
             string change = DescribeTokenChange();
             Color accent = UiColors.Accent;
-            using (Font font = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 8.5f, FontStyle.Regular))
-            using (Font headingFont = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 10.5f, FontStyle.Regular))
-            using (Font metric = UiDrawing.LogicalFont(this, "Segoe UI", 34f, FontStyle.Bold))
+            using (Font font = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 8.8f, FontStyle.Regular))
+            using (Font badgeFont = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 8.6f, FontStyle.Bold))
+            using (Font headingFont = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 9.2f, FontStyle.Bold))
+            using (Font metric = UiDrawing.LogicalFont(this, "Segoe UI", 24f, FontStyle.Bold))
             using (SolidBrush muted = new SolidBrush(UiColors.Muted))
             using (SolidBrush ink = new SolidBrush(UiColors.Text))
-            using (SolidBrush move = new SolidBrush(change.StartsWith("+", StringComparison.Ordinal) ? UiColors.Success :
-                change.StartsWith("−", StringComparison.Ordinal) ? UiColors.Danger : UiColors.Muted))
-            using (Pen grid = new Pen(UiDrawing.WithAlpha(UiColors.Border, 186)))
+            using (Pen grid = new Pen(UiDrawing.WithAlpha(UiColors.Border, UiTheme.IsDark ? 95 : 135)) { DashStyle = DashStyle.Dot })
             using (StringFormat middle = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
-                graphics.DrawString(heading, headingFont, ink, 0, 7);
-                graphics.DrawString(totalLabel, metric, ink, -2, 26);
+                int metricY = CompactHeader ? -3 : 14;
+                int summaryY = CompactHeader ? 34 : 50;
+                if (!CompactHeader) graphics.DrawString(heading, headingFont, muted, 0, 2);
+                graphics.DrawString(totalLabel, metric, ink, -1, metricY);
                 if (!string.IsNullOrEmpty(change))
                 {
-                    float left = graphics.MeasureString(totalLabel, metric).Width + 8;
-                    if (left + graphics.MeasureString(change, font).Width <= logicalWidth)
-                        graphics.DrawString(change, font, move, left, 53);
+                    Color deltaColor = change.StartsWith("+", StringComparison.Ordinal) ? UiColors.Success :
+                        change.StartsWith("−", StringComparison.Ordinal) ? UiColors.Danger : UiColors.Muted;
+                    float left = graphics.MeasureString(totalLabel, metric).Width + 6;
+                    Size badgeSize = UiDrawing.MeasureCrispText(change, "Microsoft YaHei UI", 8.6f, FontStyle.Bold);
+                    if (left + badgeSize.Width + 16 <= logicalWidth - 4)
+                        DrawDeltaBadge(this, graphics, change, 8.6f, deltaColor, left, metricY + 9);
                     else
                         summary += "  ·  " + change;
                 }
-                graphics.DrawString(summary, font, muted, 0, 83);
+                UiDrawing.DrawCrispText(this, graphics, summary, "Microsoft YaHei UI", 8.8f, FontStyle.Regular,
+                    UiColors.Muted, new Rectangle(0, summaryY, logicalWidth, 20),
+                    TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
 
                 if (maximum > 0)
                 {
@@ -540,23 +552,29 @@ namespace UsagePeek
                         graphics.DrawLine(grid, plot.Left, y, plot.Right, y);
                         long value = step == 0 ? maximum : step == 1 ? maximum / 2 : 0;
                         if (step != 1 || value > 0)
-                            graphics.DrawString(DisplayFormatting.FormatTokens(value), font, muted, plot.Right + 8, y - 7);
+                            UiDrawing.DrawCrispText(this, graphics, DisplayFormatting.FormatTokens(value),
+                                "Microsoft YaHei UI", 8.6f, FontStyle.Regular, UiColors.Muted,
+                                new Rectangle((int)Math.Round(plot.Right + 8), (int)Math.Round(y - 9), 52, 18),
+                                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                     }
                 }
                 else
                 {
                     graphics.DrawLine(grid, plot.Left, plot.Bottom, plot.Right, plot.Bottom);
-                    graphics.DrawString(sampleCount == 0 ? "暂无每日 Token 记录" : "已记录用量为 0",
-                        font, muted, plot, middle);
+                    UiDrawing.DrawCrispText(this, graphics, sampleCount == 0 ? "暂无每日 Token 记录" : "已记录用量为 0",
+                        "Microsoft YaHei UI", 8.8f, FontStyle.Regular, UiColors.Muted, Rectangle.Round(plot),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                 }
 
-                    DrawSeries(graphics, plot, column, accent, font);
+                DrawSeries(graphics, plot, column, accent, font);
                 for (int index = 0; index < Days; index++)
                 {
                     float x = plot.Left + column * (index + 0.5f);
                     string date = index == Days - 1 ? "今天" : firstDay.AddDays(index).ToString("MM/dd");
-                    graphics.DrawString(date, font, index == selected ? ink : muted,
-                        new RectangleF(x - column / 2, plot.Bottom + 6, column, 20), middle);
+                    UiDrawing.DrawCrispText(this, graphics, date, "Microsoft YaHei UI", 8.6f, FontStyle.Regular,
+                        index == selected ? UiColors.Text : UiColors.Muted,
+                        new Rectangle((int)Math.Round(x - column / 2), (int)Math.Round(plot.Bottom + 6), (int)Math.Round(column), 20),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                 }
 
                 if (Focused && ShowFocusCues)
@@ -567,42 +585,69 @@ namespace UsagePeek
 
         private void DrawSeries(Graphics graphics, RectangleF plot, float column, Color accent, Font font)
         {
-            PointF? previous = null;
+            List<List<PointF>> segments = new List<List<PointF>>();
+            List<PointF> current = null;
+            int lastValidIndex = -1;
+            for (int index = 0; index < Days; index++)
+            {
+                if (!counts[index].HasValue) { current = null; continue; }
+                lastValidIndex = index;
+                if (current == null)
+                {
+                    current = new List<PointF>();
+                    segments.Add(current);
+                }
+                current.Add(GetPoint(index, plot, column));
+            }
+
             using (LinearGradientBrush area = new LinearGradientBrush(plot,
-                UiDrawing.WithAlpha(accent, UiTheme.IsDark ? 77 : 63),
-                UiDrawing.WithAlpha(accent, 4), LinearGradientMode.Vertical))
-            using (Pen trace = new Pen(accent, 2.3f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                UiDrawing.WithAlpha(accent, UiTheme.IsDark ? 82 : 58),
+                UiDrawing.WithAlpha(accent, 0), LinearGradientMode.Vertical))
+            using (Pen trace = new Pen(accent, 2.4f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
             using (Pen guide = new Pen(UiDrawing.WithAlpha(accent, 148), 1f) { DashStyle = DashStyle.Dot })
             using (SolidBrush pointBrush = new SolidBrush(accent))
-            using (SolidBrush background = new SolidBrush(UiColors.Background))
+            using (SolidBrush background = new SolidBrush(UiDrawing.BackdropColor(this)))
             {
-                for (int index = 0; index < Days; index++)
+                foreach (List<PointF> seg in segments)
                 {
-                    if (!counts[index].HasValue) { previous = null; continue; }
-                    PointF point = GetPoint(index, plot, column);
-                    if (previous.HasValue)
+                    if (seg.Count >= 2)
                     {
-                        PointF left = previous.Value;
+                        using (GraphicsPath stroke = new GraphicsPath())
                         using (GraphicsPath fill = new GraphicsPath())
                         {
-                            fill.AddLine(left, point);
-                            fill.AddLine(point, new PointF(point.X, plot.Bottom));
-                            fill.AddLine(new PointF(point.X, plot.Bottom), new PointF(left.X, plot.Bottom));
+                            AddMonotoneSpline(stroke, seg);
+                            AddMonotoneSpline(fill, seg);
+                            PointF first = seg[0];
+                            PointF last = seg[seg.Count - 1];
+                            fill.AddLine(last, new PointF(last.X, plot.Bottom));
+                            fill.AddLine(new PointF(last.X, plot.Bottom), new PointF(first.X, plot.Bottom));
                             fill.CloseFigure();
                             graphics.FillPath(area, fill);
+                            graphics.DrawPath(trace, stroke);
                         }
-                        graphics.DrawLine(trace, left, point);
                     }
-                    previous = point;
+                    else if (seg.Count == 1)
+                    {
+                        PointF single = seg[0];
+                        graphics.FillEllipse(pointBrush, single.X - 3.2f, single.Y - 3.2f, 6.4f, 6.4f);
+                    }
                 }
 
                 for (int index = 0; index < Days; index++)
                 {
                     if (!counts[index].HasValue) continue;
+                    bool isLast = index == lastValidIndex;
+                    bool isSel = index == selected;
+                    if (!isLast && !isSel && segments.Count <= 2) continue;
                     PointF point = GetPoint(index, plot, column);
-                    float radius = index == selected ? 5 : 3.2f;
-                    graphics.FillEllipse(background, point.X - radius - 1.5f, point.Y - radius - 1.5f,
-                        radius * 2 + 3, radius * 2 + 3);
+                    if (isLast && !isSel)
+                    {
+                        using (SolidBrush aura = new SolidBrush(UiDrawing.WithAlpha(accent, UiTheme.IsDark ? 56 : 42)))
+                            graphics.FillEllipse(aura, point.X - 6.5f, point.Y - 6.5f, 13f, 13f);
+                    }
+                    float radius = isSel ? 4.5f : 3.2f;
+                    graphics.FillEllipse(background, point.X - radius - 1.4f, point.Y - radius - 1.4f,
+                        radius * 2 + 2.8f, radius * 2 + 2.8f);
                     graphics.FillEllipse(pointBrush, point.X - radius, point.Y - radius, radius * 2, radius * 2);
                 }
 
@@ -610,9 +655,66 @@ namespace UsagePeek
                 {
                     PointF point = GetPoint(selected, plot, column);
                     DrawGuide(graphics, plot, guide, point, counts[selected].HasValue ?
-                        DisplayFormatting.FormatTokens(counts[selected].Value) : null, font);
+                        DisplayFormatting.FormatTokens(counts[selected].Value) : null, font, accent);
                 }
             }
+        }
+
+        private static void AddMonotoneSpline(GraphicsPath path, IList<PointF> pts)
+        {
+            int n = pts.Count;
+            if (n < 2) return;
+            if (n == 2)
+            {
+                path.AddLine(pts[0], pts[1]);
+                return;
+            }
+            float[] dx = new float[n - 1];
+            float[] dy = new float[n - 1];
+            float[] m = new float[n - 1];
+            for (int i = 0; i < n - 1; i++)
+            {
+                dx[i] = Math.Max(0.001f, pts[i + 1].X - pts[i].X);
+                dy[i] = pts[i + 1].Y - pts[i].Y;
+                m[i] = dy[i] / dx[i];
+            }
+            float[] tangents = new float[n];
+            tangents[0] = m[0];
+            tangents[n - 1] = m[n - 2];
+            for (int i = 1; i < n - 1; i++)
+            {
+                if (m[i - 1] * m[i] <= 0f)
+                {
+                    tangents[i] = 0f;
+                }
+                else
+                {
+                    float w1 = dx[i - 1] + 2f * dx[i];
+                    float w2 = 2f * dx[i - 1] + dx[i];
+                    tangents[i] = (w1 + w2) / (w1 / m[i - 1] + w2 / m[i]);
+                }
+            }
+            for (int i = 0; i < n - 1; i++)
+            {
+                float step = dx[i] / 3f;
+                PointF p0 = pts[i];
+                PointF p3 = pts[i + 1];
+                PointF c1 = new PointF(p0.X + step, p0.Y + tangents[i] * step);
+                PointF c2 = new PointF(p3.X - step, p3.Y - tangents[i + 1] * step);
+                path.AddBezier(p0, c1, c2, p3);
+            }
+        }
+
+        private static void DrawDeltaBadge(Control control, Graphics graphics, string text, float pointSize, Color color, float x, float y)
+        {
+            Size size = UiDrawing.MeasureCrispText(text, "Microsoft YaHei UI", pointSize, FontStyle.Bold);
+            Rectangle pill = new Rectangle((int)Math.Round(x), (int)Math.Round(y),
+                size.Width + 16, Math.Max(20, size.Height + 6));
+            using (GraphicsPath path = UiDrawing.RoundedRectangle(pill, pill.Height / 2))
+            using (SolidBrush fill = new SolidBrush(UiDrawing.WithAlpha(color, UiTheme.IsDark ? 36 : 24)))
+                graphics.FillPath(fill, path);
+            UiDrawing.DrawCrispText(control, graphics, text, "Microsoft YaHei UI", pointSize, FontStyle.Bold,
+                color, pill, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
         }
 
         private PointF GetPoint(int index, RectangleF plot, float column)
@@ -721,36 +823,48 @@ namespace UsagePeek
                 previous = livePoints[index - 1].Speed;
             double change = previous.HasValue ? speed.Value - previous.Value : 0;
             Color accent = UiColors.Accent;
-            string interval = drawLine ? "每秒刷新  ·  近 5 秒输出均速" :
-                LiveStyle == LiveChartStyle.Candlesticks ? "每 5 秒一根 K 线  ·  开 / 高 / 低 / 收" : "每 5 秒一柱  ·  采样均值";
+            string interval = LiveEstimated
+                ? (drawLine ? "本机输出估算  ·  近 5 秒输出均速" :
+                    LiveStyle == LiveChartStyle.Candlesticks ? "本机输出估算  ·  每 5 秒 K 线" : "本机输出估算  ·  每 5 秒一柱")
+                : (drawLine ? "每秒刷新  ·  近 5 秒输出均速" :
+                    LiveStyle == LiveChartStyle.Candlesticks ? "每 5 秒一根 K 线  ·  开 / 高 / 低 / 收" : "每 5 秒一柱  ·  采样均值");
             string summary = inspectingBucket ? DescribeBucket(liveBuckets[selected]) :
                 selected >= 0 ? "采样  " + livePoints[selected].AtUtc.ToLocalTime().ToString("HH:mm:ss") :
                 livePointer.HasValue ? "此处暂无采样" : hasSelection && !speed.HasValue ? "暂未读到本机采样" : interval;
             string value = speed.HasValue ? FormatLiveSpeed(speed.Value) : "—";
 
-            using (Font font = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 8.5f, FontStyle.Regular))
-            using (Font heading = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 10.5f, FontStyle.Regular))
-            using (Font metric = UiDrawing.LogicalFont(this, "Segoe UI", 34f, FontStyle.Bold))
+            using (Font font = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 8.8f, FontStyle.Regular))
+            using (Font heading = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 9.2f, FontStyle.Bold))
+            using (Font metric = UiDrawing.LogicalFont(this, "Segoe UI", 24f, FontStyle.Bold))
             using (SolidBrush ink = new SolidBrush(UiColors.Text))
             using (SolidBrush muted = new SolidBrush(UiColors.Muted))
-            using (SolidBrush delta = new SolidBrush(change < 0 ? UiColors.Danger : UiColors.Success))
             using (SolidBrush dot = new SolidBrush(accent))
-            using (Pen grid = new Pen(UiDrawing.WithAlpha(UiColors.Border, 186)))
+            using (Pen grid = new Pen(UiDrawing.WithAlpha(UiColors.Border, UiTheme.IsDark ? 95 : 135)) { DashStyle = DashStyle.Dot })
             using (Pen crosshair = new Pen(UiDrawing.WithAlpha(accent, 147)) { DashStyle = DashStyle.Dot })
-            using (StringFormat centered = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
-                graphics.DrawString("实时输出速度 · TPS", heading, ink, 0, 7);
-                graphics.DrawString(value, metric, ink, -2, 26);
+                int logicalWidth = UiDrawing.LogicalWidth(this);
+                int metricY = CompactHeader ? -3 : 14;
+                int summaryY = CompactHeader ? 34 : 50;
+                if (!CompactHeader) graphics.DrawString(LiveEstimated ? "本机输出估算 · TPS" : "实时输出速度 · TPS", heading, muted, 0, 2);
+                graphics.DrawString(value, metric, ink, -1, metricY);
                 if (Math.Abs(change) >= 0.05)
-                    graphics.DrawString((change < 0 ? "▼ −" : "▲ +") + FormatLiveSpeed(Math.Abs(change)) + " TPS",
-                        font, delta, graphics.MeasureString(value, metric).Width + 8, 54);
-                graphics.DrawString(summary, font, muted, 0, 83);
+                {
+                    string deltaText = (change < 0 ? "▼ −" : "▲ +") + FormatLiveSpeed(Math.Abs(change)) + " TPS";
+                    DrawDeltaBadge(this, graphics, deltaText, 8.6f, change < 0 ? UiColors.Danger : UiColors.Success,
+                        graphics.MeasureString(value, metric).Width + 6, metricY + 9);
+                }
+                UiDrawing.DrawCrispText(this, graphics, summary, "Microsoft YaHei UI", 8.8f, FontStyle.Regular,
+                    UiColors.Muted, new Rectangle(0, summaryY, logicalWidth, 20),
+                    TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
 
                 for (int step = 0; step <= 4; step++)
                 {
                     float y = plot.Bottom - step * plot.Height / 4;
                     graphics.DrawLine(grid, plot.Left, y, plot.Right, y);
-                    graphics.DrawString(FormatLiveSpeed(step * axisStep), font, muted, plot.Right + 8, y - 7);
+                    UiDrawing.DrawCrispText(this, graphics, FormatLiveSpeed(step * axisStep),
+                        "Microsoft YaHei UI", 8.6f, FontStyle.Regular, UiColors.Muted,
+                        new Rectangle((int)Math.Round(plot.Right + 8), (int)Math.Round(y - 9), 52, 18),
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                 }
                 const int timeDivisions = LiveChartSeconds / LiveTickSeconds;
                 for (int step = 0; step <= timeDivisions; step++)
@@ -761,11 +875,14 @@ namespace UsagePeek
                     string label = secondsAgo == 0 ? "现在" : "−" + secondsAgo + "s";
                     if (step == 0 && plot.Width < 480)
                     {
-                        graphics.DrawString(label, font, muted, plot.Left, plot.Bottom + 9);
+                        UiDrawing.DrawCrispText(this, graphics, label, "Microsoft YaHei UI", 8.6f, FontStyle.Regular,
+                            UiColors.Muted, new Rectangle((int)Math.Round(plot.Left), (int)Math.Round(plot.Bottom + 6), 44, 20),
+                            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                         continue;
                     }
-                    graphics.DrawString(label, font, muted,
-                        new RectangleF(Math.Max(0, x - 28), plot.Bottom + 5, 56, 20), centered);
+                    UiDrawing.DrawCrispText(this, graphics, label, "Microsoft YaHei UI", 8.6f, FontStyle.Regular,
+                        UiColors.Muted, new Rectangle(Math.Max(0, (int)Math.Round(x - 28)), (int)Math.Round(plot.Bottom + 6), 56, 20),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                 }
 
                 if (drawLine) DrawLiveTrace(graphics, plot, max);
@@ -777,16 +894,20 @@ namespace UsagePeek
                         LiveCoordinates(livePoints[selected], plot, max);
                     if (mark.X >= plot.Left)
                     {
-                        DrawGuide(graphics, plot, crosshair, mark, speed.HasValue ? value : null, font);
+                        DrawGuide(graphics, plot, crosshair, mark, speed.HasValue ? value : null, font, accent);
                         if (speed.HasValue) graphics.FillEllipse(dot, mark.X - 4, mark.Y - 4, 8, 8);
                     }
                 }
                 else if (livePointer.HasValue)
                 {
-                    DrawGuide(graphics, plot, crosshair, new PointF(livePointer.Value, plot.Bottom), null, font);
+                    DrawGuide(graphics, plot, crosshair, new PointF(livePointer.Value, plot.Bottom), null, font, accent);
                 }
-                if (!hasData) graphics.DrawString(livePoints.Count == 0 ? "正在等待 Codex 输出采样" : "暂未读到本机采样",
-                    font, muted, plot, centered);
+                if (!hasData)
+                    UiDrawing.DrawCrispText(this, graphics, livePoints.Count == 0
+                        ? "正在等待 " + (string.IsNullOrEmpty(SourceLabel) ? "Codex" : SourceLabel) + " 输出采样"
+                        : "暂未读到本机采样",
+                        "Microsoft YaHei UI", 8.8f, FontStyle.Regular, UiColors.Muted, Rectangle.Round(plot),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                 if (Focused && ShowFocusCues)
                 using (Pen focus = new Pen(accent, 1.2f))
                     graphics.DrawLine(focus, 2, 103, 92, 103);
@@ -837,7 +958,7 @@ namespace UsagePeek
                         if (bucket.Average == 0)
                             graphics.DrawLine(unchanged, x - barWidth / 2, plot.Bottom, x + barWidth / 2, plot.Bottom);
                         else
-                            graphics.FillRectangle(change < 0 ? fallFill : change > 0 ? riseFill : flatFill,
+                            FillRoundedBar(graphics, change < 0 ? fallFill : change > 0 ? riseFill : flatFill,
                                 x - barWidth / 2, y, barWidth, plot.Bottom - y);
                         continue;
                     }
@@ -858,11 +979,26 @@ namespace UsagePeek
                     }
                     if (high < top) graphics.DrawLine(wick, x, high, x, top);
                     if (low > bottom) graphics.DrawLine(wick, x, bottom, x, low);
-                    graphics.FillRectangle(fell ? fallFill : riseFill,
+                    FillRoundedBar(graphics, fell ? fallFill : riseFill,
                         x - candleWidth / 2, top, candleWidth, bottom - top);
                 }
             }
             graphics.Restore(state);
+        }
+
+        private static void FillRoundedBar(Graphics graphics, Brush brush, float x, float y, float width, float height)
+        {
+            Rectangle rect = new Rectangle((int)Math.Round(x), (int)Math.Round(y),
+                Math.Max(1, (int)Math.Round(width)), Math.Max(1, (int)Math.Round(height)));
+            if (rect.Width >= 5 && rect.Height >= 5)
+            {
+                using (GraphicsPath rounded = UiDrawing.RoundedRectangle(rect, Math.Min(3, Math.Min(rect.Width, rect.Height) / 2)))
+                    graphics.FillPath(brush, rounded);
+            }
+            else
+            {
+                graphics.FillRectangle(brush, x, y, width, height);
+            }
         }
 
         private void DrawLiveTrace(Graphics graphics, RectangleF plot, double max)
@@ -965,23 +1101,30 @@ namespace UsagePeek
                 summary = "本机采样";
 
             Color accent = IsWeekly ? UiColors.WeeklyQuota : UiColors.Accent;
-            using (Font font = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 8.5f, FontStyle.Regular))
-            using (Font titleFont = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 10.5f, FontStyle.Regular))
-            using (Font metric = UiDrawing.LogicalFont(this, "Segoe UI", 34f, FontStyle.Bold))
+            using (Font font = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 8.8f, FontStyle.Regular))
+            using (Font titleFont = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 9.2f, FontStyle.Bold))
+            using (Font metric = UiDrawing.LogicalFont(this, "Segoe UI", 24f, FontStyle.Bold))
             using (SolidBrush ink = new SolidBrush(UiColors.Text))
             using (SolidBrush muted = new SolidBrush(UiColors.Muted))
-            using (Pen grid = new Pen(UiDrawing.WithAlpha(UiColors.Border, 186)))
+            using (Pen grid = new Pen(UiDrawing.WithAlpha(UiColors.Border, UiTheme.IsDark ? 95 : 135)) { DashStyle = DashStyle.Dot })
             using (Pen guide = new Pen(UiDrawing.WithAlpha(accent, 145), 1f) { DashStyle = DashStyle.Dot })
-            using (StringFormat centered = new StringFormat { Alignment = StringAlignment.Center })
             {
-                graphics.DrawString(title, titleFont, ink, 0, 7);
-                graphics.DrawString(value, metric, ink, -2, 26);
-                graphics.DrawString(summary, font, muted, 0, 83);
+                int logicalWidth = UiDrawing.LogicalWidth(this);
+                int metricY = CompactHeader ? -3 : 14;
+                int summaryY = CompactHeader ? 34 : 50;
+                if (!CompactHeader) graphics.DrawString(title, titleFont, muted, 0, 2);
+                graphics.DrawString(value, metric, ink, -1, metricY);
+                UiDrawing.DrawCrispText(this, graphics, summary, "Microsoft YaHei UI", 8.8f, FontStyle.Regular,
+                    UiColors.Muted, new Rectangle(0, summaryY, logicalWidth - 90, 20),
+                    TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
                 for (int step = 0; step <= 4; step++)
                 {
                     float y = plot.Top + step * plot.Height / 4;
                     graphics.DrawLine(grid, plot.Left, y, plot.Right, y);
-                    graphics.DrawString((100 - step * 25) + "%", font, muted, plot.Right + 8, y - 7);
+                    UiDrawing.DrawCrispText(this, graphics, (100 - step * 25) + "%",
+                        "Microsoft YaHei UI", 8.6f, FontStyle.Regular, UiColors.Muted,
+                        new Rectangle((int)Math.Round(plot.Right + 8), (int)Math.Round(y - 9), 52, 18),
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                 }
 
                 int divisions = IsWeekly ? 7 : 5;
@@ -990,29 +1133,32 @@ namespace UsagePeek
                 {
                     float x = plot.Left + plot.Width * index / divisions;
                     string label = start.AddTicks(index * stepSize.Ticks).ToLocalTime().ToString(IsWeekly ? "MM/dd" : "HH:mm");
-                    graphics.DrawString(label, font, muted, x, plot.Bottom + 10, centered);
+                    UiDrawing.DrawCrispText(this, graphics, label, "Microsoft YaHei UI", 8.6f, FontStyle.Regular,
+                        UiColors.Muted, new Rectangle((int)Math.Round(x - 24), (int)Math.Round(plot.Bottom + 6), 48, 20),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                 }
 
                 if (DrawQuotaSeries(graphics, plot, start, accent))
-                using (StringFormat right = new StringFormat { Alignment = StringAlignment.Far })
-                    graphics.DrawString("┆ 额度重置", font, muted, plot.Right, 83, right);
+                    UiDrawing.DrawCrispText(this, graphics, "┆ 额度重置", "Microsoft YaHei UI", 8.6f, FontStyle.Regular,
+                        UiColors.Muted, new Rectangle((int)Math.Round(plot.Right - 84), summaryY, 84, 20),
+                        TextFormatFlags.Right | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                 if (point != null)
                 {
                     PointF mark = QuotaCoordinates(point, start, plot);
-                    DrawGuide(graphics, plot, guide, mark, point.UsedPercent(IsWeekly).Value + "%", font);
+                    DrawGuide(graphics, plot, guide, mark, point.UsedPercent(IsWeekly).Value + "%", font, accent);
                     using (SolidBrush dot = new SolidBrush(accent))
                         graphics.FillEllipse(dot, mark.X - 3.5f, mark.Y - 3.5f, 7, 7);
                 }
                 else if (quotaPointer.HasValue)
                 {
-                    DrawGuide(graphics, plot, guide, new PointF(quotaPointer.Value, plot.Bottom), null, font);
+                    DrawGuide(graphics, plot, guide, new PointF(quotaPointer.Value, plot.Bottom), null, font, accent);
                 }
 
                 if (quotaPoints.Count == 0)
                 {
-                    centered.LineAlignment = StringAlignment.Center;
-                    graphics.DrawString(quotaLoading ? "正在读取本机额度历史…" : "这段时间暂无额度采样",
-                        font, muted, plot, centered);
+                    UiDrawing.DrawCrispText(this, graphics, quotaLoading ? "正在读取本机额度历史…" : "这段时间暂无额度采样",
+                        "Microsoft YaHei UI", 8.8f, FontStyle.Regular, UiColors.Muted, Rectangle.Round(plot),
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
                 }
 
                 if (Focused && ShowFocusCues)
@@ -1024,19 +1170,23 @@ namespace UsagePeek
         private bool DrawQuotaSeries(Graphics graphics, RectangleF plot, DateTime start, Color accent)
         {
             QuotaHistorySample previous = null;
-            PointF last = PointF.Empty;
+            List<List<PointF>> segments = new List<List<PointF>>();
+            List<PointF> current = null;
             bool hasReset = false;
             if (quotaHistory == null) return false;
 
-            using (GraphicsPath curve = new GraphicsPath())
-            using (Pen line = new Pen(accent, 2.1f) { LineJoin = LineJoin.Round })
+            using (LinearGradientBrush area = new LinearGradientBrush(plot,
+                UiDrawing.WithAlpha(accent, UiTheme.IsDark ? 76 : 52),
+                UiDrawing.WithAlpha(accent, 0), LinearGradientMode.Vertical))
+            using (Pen line = new Pen(accent, 2.3f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
             using (Pen resetLine = new Pen(UiDrawing.WithAlpha(accent, 145)) { DashStyle = DashStyle.Dash })
             using (SolidBrush dot = new SolidBrush(accent))
+            using (SolidBrush backdrop = new SolidBrush(UiDrawing.BackdropColor(this)))
             {
                 foreach (QuotaHistorySample sample in quotaHistory)
                 {
                     if (sample.AtUtc > QuotaEndUtc) break;
-                    if (!sample.UsedPercent(IsWeekly).HasValue) { previous = null; continue; }
+                    if (!sample.UsedPercent(IsWeekly).HasValue) { previous = null; current = null; continue; }
                     if (sample.AtUtc < start) { previous = sample; continue; }
 
                     PointF point = QuotaCoordinates(sample, start, plot);
@@ -1047,20 +1197,51 @@ namespace UsagePeek
                         float x = QuotaX(reset.Value, start, plot);
                         graphics.DrawLine(resetLine, x, plot.Top, x, plot.Bottom);
                     }
-                    if (previous != null && previous.AtUtc >= start &&
-                        sample.AtUtc - previous.AtUtc <= TimeSpan.FromMinutes(15) && !reset.HasValue)
-                        curve.AddLine(last, point);
-                    else
+                    bool contiguous = previous != null && previous.AtUtc >= start &&
+                        sample.AtUtc - previous.AtUtc <= TimeSpan.FromMinutes(15) && !reset.HasValue;
+                    if (!contiguous || current == null)
                     {
-                        curve.StartFigure();
-                        graphics.FillEllipse(dot, point.X - 2.2f, point.Y - 2.2f, 4.4f, 4.4f);
+                        current = new List<PointF>();
+                        segments.Add(current);
                     }
+                    current.Add(point);
                     previous = sample;
-                    last = point;
                 }
-                if (curve.PointCount > 0) graphics.DrawPath(line, curve);
-                if (previous != null && previous.AtUtc >= start)
-                    graphics.FillEllipse(dot, last.X - 2.7f, last.Y - 2.7f, 5.4f, 5.4f);
+
+                PointF? lastDrawn = null;
+                foreach (List<PointF> seg in segments)
+                {
+                    if (seg.Count >= 2)
+                    {
+                        using (GraphicsPath stroke = new GraphicsPath())
+                        using (GraphicsPath fill = new GraphicsPath())
+                        {
+                            AddMonotoneSpline(stroke, seg);
+                            AddMonotoneSpline(fill, seg);
+                            PointF first = seg[0];
+                            PointF end = seg[seg.Count - 1];
+                            fill.AddLine(end, new PointF(end.X, plot.Bottom));
+                            fill.AddLine(new PointF(end.X, plot.Bottom), new PointF(first.X, plot.Bottom));
+                            fill.CloseFigure();
+                            graphics.FillPath(area, fill);
+                            graphics.DrawPath(line, stroke);
+                        }
+                        lastDrawn = seg[seg.Count - 1];
+                    }
+                    else if (seg.Count == 1)
+                    {
+                        graphics.FillEllipse(dot, seg[0].X - 2.4f, seg[0].Y - 2.4f, 4.8f, 4.8f);
+                        lastDrawn = seg[0];
+                    }
+                }
+                if (lastDrawn.HasValue)
+                {
+                    PointF end = lastDrawn.Value;
+                    using (SolidBrush aura = new SolidBrush(UiDrawing.WithAlpha(accent, UiTheme.IsDark ? 56 : 42)))
+                        graphics.FillEllipse(aura, end.X - 6f, end.Y - 6f, 12f, 12f);
+                    graphics.FillEllipse(backdrop, end.X - 4.2f, end.Y - 4.2f, 8.4f, 8.4f);
+                    graphics.FillEllipse(dot, end.X - 2.8f, end.Y - 2.8f, 5.6f, 5.6f);
+                }
             }
             return hasReset;
         }
@@ -1076,18 +1257,17 @@ namespace UsagePeek
                 plot.Bottom - plot.Height * sample.UsedPercent(IsWeekly).Value / 100f);
         }
 
-        private static void DrawGuide(Graphics graphics, RectangleF plot, Pen guide, PointF point, string label, Font font)
+        private void DrawGuide(Graphics graphics, RectangleF plot, Pen guide, PointF point, string label, Font font, Color accent)
         {
             graphics.DrawLine(guide, point.X, plot.Top, point.X, plot.Bottom);
             if (string.IsNullOrEmpty(label)) return;
             graphics.DrawLine(guide, plot.Left, point.Y, plot.Right, point.Y);
-            using (SolidBrush fill = new SolidBrush(UiColors.Track))
-            using (SolidBrush ink = new SolidBrush(UiColors.Text))
-            {
-                RectangleF bounds = new RectangleF(plot.Right + 2, point.Y - 9, 54, 19);
-                graphics.FillRectangle(fill, bounds);
-                graphics.DrawString(label, font, ink, bounds.Left + 5, bounds.Top + 2);
-            }
+            Rectangle bounds = new Rectangle((int)Math.Round(plot.Right + 3), (int)Math.Round(point.Y - 10), 56, 21);
+            using (GraphicsPath pill = UiDrawing.RoundedRectangle(bounds, 6))
+            using (SolidBrush fill = new SolidBrush(accent))
+                graphics.FillPath(fill, pill);
+            UiDrawing.DrawCrispText(this, graphics, label, "Microsoft YaHei UI", 8.6f, FontStyle.Bold,
+                Color.White, bounds, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
         }
     }
 }

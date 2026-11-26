@@ -11,10 +11,12 @@ namespace UsagePeek
         private readonly string cachePath;
 
         public UsageCache()
+            : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "UsagePeek", "cache.json"))
         {
-            string root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            cachePath = Path.Combine(root, "UsagePeek", "cache.json");
         }
+
+        internal UsageCache(string path) { cachePath = path; }
 
         public UsageSnapshot Load()
         {

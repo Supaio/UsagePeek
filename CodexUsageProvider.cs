@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -33,7 +34,48 @@ namespace UsagePeek
 
         private UsageSnapshot Fetch()
         {
-            using (Process process = StartCodexProcess())
+            List<CodexLaunchSpec> candidates = CodexExecutableLocator.FindAll();
+            if (candidates.Count == 0)
+                throw new InvalidOperationException("未找到 Codex Windows 桌面版组件。请打开并登录 Codex 桌面版，然后刷新。");
+
+            Exception lastStartError = null;
+            Exception desktopReadError = null;
+            bool foundProtectedDesktop = false;
+            foreach (CodexLaunchSpec spec in candidates)
+            {
+                foundProtectedDesktop |= spec.FilePath.IndexOf("\\WindowsApps\\OpenAI.Codex", StringComparison.OrdinalIgnoreCase) >= 0;
+                Process process;
+                try { process = StartCodexProcess(spec); }
+                catch (Exception ex)
+                {
+                    lastStartError = ex;
+                    continue;
+                }
+
+                try { return FetchFrom(process); }
+                catch (Exception ex)
+                {
+                    if (!(ex is InvalidOperationException) && !(ex is IOException) &&
+                        !(ex is TimeoutException) && !(ex is Win32Exception)) throw;
+                    desktopReadError = ex;
+                }
+            }
+
+            if (desktopReadError != null)
+                throw new InvalidOperationException(desktopReadError.Message, desktopReadError);
+
+            if (foundProtectedDesktop)
+                throw new InvalidOperationException(
+                    "检测到 Codex Windows 桌面版，但其内置组件受 Windows 保护，" +
+                    "请先打开或更新 Codex 桌面版，再刷新。", lastStartError);
+
+            throw new InvalidOperationException(
+                "无法启动 Codex Windows 桌面版的本地组件。请更新桌面版后重试。", lastStartError);
+        }
+
+        private UsageSnapshot FetchFrom(Process launched)
+        {
+            using (Process process = launched)
             {
                 Task<string> stderrTask = process.StandardError.ReadToEndAsync();
 
@@ -104,87 +146,32 @@ namespace UsagePeek
             }
         }
 
-        private Process StartCodexProcess()
+        private static Process StartCodexProcess(CodexLaunchSpec spec)
         {
-            List<CodexLaunchSpec> candidates = CodexExecutableLocator.FindAll();
-            if (candidates.Count == 0)
+            var process = new Process { StartInfo = CreateStartInfo(spec) };
+            try
             {
-                CodexExecutableLocator.FindBest();
-            }
-
-            Exception lastError = null;
-            bool foundDesktopPackage = false;
-            foreach (CodexLaunchSpec spec in candidates)
-            {
-                foundDesktopPackage = foundDesktopPackage ||
-                    string.Equals(spec.SourceName, "Codex Windows 桌面版",
-                        StringComparison.Ordinal) ||
-                    spec.FilePath.IndexOf("\\WindowsApps\\OpenAI.Codex",
-                        StringComparison.OrdinalIgnoreCase) >= 0;
-                Process process = new Process();
-                process.StartInfo = CreateStartInfo(spec);
                 bool inputNeedsPriming;
-                try
-                {
-                    if (!StartWithoutInputBom(process, out inputNeedsPriming))
-                    {
-                        throw new InvalidOperationException("进程没有启动。");
-                    }
+                if (!StartWithoutInputBom(process, out inputNeedsPriming))
+                    throw new InvalidOperationException("进程没有启动。");
 
-                    // Always isolate a possible .NET Framework BOM on its own line.
-                    // This is harmless when the selected encoding has no preamble and
-                    // makes WinExe behavior consistent with console-hosted builds.
-                    PrimeInputAfterFrameworkBom(process);
-                    return process;
-                }
-                catch (Exception ex)
-                {
-                    lastError = ex;
-                    try { process.Dispose(); }
-                    catch { }
-                }
+                // Isolate a possible .NET Framework BOM on its own line.
+                PrimeInputAfterFrameworkBom(process);
+                return process;
             }
-
-            if (foundDesktopPackage)
+            catch
             {
-                throw new InvalidOperationException(
-                    "检测到 Codex Windows 桌面版，但其内置组件受 Windows 保护，" +
-                    "其他程序无法直接启动。请另行安装 Codex CLI 并登录一次。",
-                    lastError);
+                StopProcess(process);
+                process.Dispose();
+                throw;
             }
-
-            throw new InvalidOperationException(
-                "找到 Codex 组件，但无法启动。请更新 Codex CLI，或设置 " +
-                "USAGEPEEK_CODEX_PATH 指向可运行的 codex.exe。", lastError);
         }
 
         private static ProcessStartInfo CreateStartInfo(CodexLaunchSpec spec)
         {
-            return spec.RequiresCommandShell
-                ? CreateShellStartInfo(Quote(spec.FilePath) +
-                    " app-server --listen stdio://")
-                : CreateDirectStartInfo(spec.FilePath);
-        }
-
-        private static ProcessStartInfo CreateDirectStartInfo(string path)
-        {
-            ProcessStartInfo info = CreateCommonStartInfo();
-            info.FileName = path;
-            info.Arguments = "app-server --listen stdio://";
-            return info;
-        }
-
-        private static ProcessStartInfo CreateShellStartInfo(string command)
-        {
-            ProcessStartInfo info = CreateCommonStartInfo();
-            info.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-            info.Arguments = "/d /s /c \"" + command + "\"";
-            return info;
-        }
-
-        private static ProcessStartInfo CreateCommonStartInfo()
-        {
             ProcessStartInfo info = new ProcessStartInfo();
+            info.FileName = spec.FilePath;
+            info.Arguments = "app-server --listen stdio://";
             info.UseShellExecute = false;
             info.CreateNoWindow = true;
             info.RedirectStandardInput = true;
@@ -247,11 +234,6 @@ namespace UsagePeek
             Stream stream = process.StandardInput.BaseStream;
             stream.WriteByte((byte)'\n');
             stream.Flush();
-        }
-
-        private static string Quote(string value)
-        {
-            return "\"" + value.Replace("\"", "\"\"") + "\"";
         }
 
         private static void WriteMessage(Process process, string message)
@@ -391,18 +373,17 @@ namespace UsagePeek
                 lower.Contains("authentication required") || lower.Contains("unauthorized") ||
                 lower.Contains("status 401"))
             {
-                return "Codex 尚未登录。请在 Windows 终端运行 codex 并完成 ChatGPT 登录；" +
-                    "若 Codex 运行在 WSL，请先共享 CODEX_HOME。";
+                return "Codex 尚未登录。请在 Windows 桌面版中完成 ChatGPT 登录。";
             }
             if (lower.Contains("method not found") ||
                 lower.Contains("unknown method") || lower.Contains("-32601"))
             {
-                return "当前 Codex 版本过旧，不支持读取用量；请先更新 Codex CLI。";
+                return "当前 Codex 桌面组件版本过旧，请先更新 Codex 桌面版。";
             }
             if (lower.Contains("timeout") || lower.Contains("超时") ||
                 lower.Contains("没有收到 codex 用量响应"))
             {
-                return "Codex 本地接口响应超时。请更新 CLI，并在关闭繁忙任务后重试。";
+                return "Codex 本地接口响应超时。请稍后刷新，或重新打开 Codex 桌面版。";
             }
             if (!string.IsNullOrEmpty(detail))
             {

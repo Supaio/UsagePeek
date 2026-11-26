@@ -142,8 +142,9 @@ namespace UsagePeek
             using (GraphicsPath path = UiDrawing.RoundedRectangle(
                 new Rectangle(1, 1, width - 2, height - 2), 8))
             using (SolidBrush fill = new SolidBrush(hovered || (popup != null && popup.Visible)
-                ? UiColors.FieldHover : UiColors.Field))
-            using (Pen border = new Pen(Focused ? UiColors.Accent : UiColors.Field))
+                ? UiColors.FieldHover : UiColors.Surface))
+            using (Pen border = new Pen(Focused || (popup != null && popup.Visible)
+                ? UiColors.Accent : UiColors.Border))
             using (Pen chevron = new Pen(UiColors.Secondary, 1.4f))
             using (Font font = UiDrawing.LogicalFont(this,
                 "Microsoft YaHei UI", 8.2f, FontStyle.Regular))
@@ -223,7 +224,7 @@ namespace UsagePeek
             Increment = 5;
             input = new TextBox();
             input.BorderStyle = BorderStyle.None;
-            input.BackColor = UiColors.Field;
+            input.BackColor = UiColors.Surface;
             input.ForeColor = UiColors.Text;
             input.TextAlign = HorizontalAlignment.Center;
             input.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
@@ -338,9 +339,13 @@ namespace UsagePeek
             int width = UiDrawing.LogicalWidth(this);
             int height = UiDrawing.LogicalHeight(this);
             using (GraphicsPath path = UiDrawing.RoundedRectangle(
-                new Rectangle(0, 0, width - 1, height - 1), 8))
-            using (SolidBrush fill = new SolidBrush(UiColors.Field))
+                new Rectangle(1, 1, width - 2, height - 2), 8))
+            using (SolidBrush fill = new SolidBrush(UiColors.Surface))
+            using (Pen border = new Pen(UiColors.Border))
+            {
                 e.Graphics.FillPath(fill, path);
+                e.Graphics.DrawPath(border, path);
+            }
             e.Graphics.Restore(state);
         }
 

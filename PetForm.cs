@@ -127,6 +127,11 @@ namespace UsagePeek
         private string latestTpsCaption;
         private string visibleTpsText;
         private string visibleTpsCaption;
+        private bool combinedTpsMode;
+        private bool outputActive;
+        private UsageSnapshot geminiQuota;
+        private UsageSnapshot claudeGptQuota;
+        private UsageSnapshot visibleAntigravityQuota;
         private long presentedFrames;
         private string animationDisplayName;
         private readonly PointF[] overlayAnchors = new PointF[2];
@@ -137,7 +142,9 @@ namespace UsagePeek
         private bool dragging;
         private bool moved;
         private bool quotaCirclePressed;
+        private bool antigravityCirclePressed;
         private bool quotaRefreshInProgress;
+        private bool antigravityRefreshInProgress;
         private double quotaRefreshAnimationSeconds;
         private int? primaryUsedPercent;
         private int? secondaryUsedPercent;
@@ -193,6 +200,7 @@ namespace UsagePeek
 
         public event EventHandler DetailsRequested;
         public event EventHandler RefreshRequested;
+        public event EventHandler AntigravityRefreshRequested;
         public event EventHandler LocationCommitted;
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -286,6 +294,8 @@ namespace UsagePeek
 
         public void SetCodexTps(bool active, double? tokensPerSecond, bool isPreviousTurn)
         {
+            combinedTpsMode = false;
+            outputActive = active;
             if (!active)
             {
                 tpsRotationClock.Reset();
@@ -305,6 +315,48 @@ namespace UsagePeek
                 ApplyLayeredImage();
         }
 
+        public void SetAntigravityQuotas(UsageSnapshot gemini, UsageSnapshot claudeGpt)
+        {
+            if ((geminiQuota == null ? (DateTime?)null : geminiQuota.FetchedAtUtc) ==
+                (gemini == null ? (DateTime?)null : gemini.FetchedAtUtc) &&
+                (claudeGptQuota == null ? (DateTime?)null : claudeGptQuota.FetchedAtUtc) ==
+                (claudeGpt == null ? (DateTime?)null : claudeGpt.FetchedAtUtc)) return;
+            geminiQuota = gemini;
+            claudeGptQuota = claudeGpt;
+            if (UpdateTpsPage(tpsRotationClock.ElapsedMilliseconds) && Visible && !dragging)
+                ApplyLayeredImage();
+        }
+
+        public void SetTotalTps(bool active, double? codex, double? antigravity)
+        {
+            combinedTpsMode = true;
+            outputActive = active;
+            if (active || geminiQuota != null || claudeGptQuota != null)
+            {
+                if (!tpsRotationClock.IsRunning) tpsRotationClock.Start();
+                double rate = codex.GetValueOrDefault() + antigravity.GetValueOrDefault();
+                latestTpsText = codex.HasValue || antigravity.HasValue ? "≈ " + FormatTps(rate) + " TPS" : "— TPS";
+                latestTpsCaption = codex.HasValue && antigravity.HasValue ? "总 TPS · Codex + AGY"
+                    : codex.HasValue ? "总 TPS · 仅 Codex" : antigravity.HasValue ? "总 TPS · 仅 AGY" : "总 TPS · 采样中";
+            }
+            else
+            {
+                tpsRotationClock.Reset();
+                latestTpsText = null;
+                latestTpsCaption = null;
+            }
+            if (UpdateTpsPage(tpsRotationClock.ElapsedMilliseconds) && Visible && !dragging)
+                ApplyLayeredImage();
+        }
+
+        public void SetAntigravityRefreshInProgress(bool refresh)
+        {
+            if (antigravityRefreshInProgress == refresh) return;
+            antigravityRefreshInProgress = refresh;
+            if (refresh) quotaRefreshAnimationSeconds = 0d;
+            if (visibleAntigravityQuota != null) InvalidateUsageBubble();
+        }
+
         private static string FormatTps(double rate)
         {
             if (rate >= 1000000d) return (rate / 1000000d).ToString("0.#", CultureInfo.InvariantCulture) + "M";
@@ -314,12 +366,24 @@ namespace UsagePeek
 
         internal bool UpdateTpsPage(long elapsedMilliseconds)
         {
-            bool showTps = (elapsedMilliseconds / TpsPageMilliseconds) % 2 == 0;
+            long slot = Math.Max(0L, elapsedMilliseconds) / TpsPageMilliseconds;
+            bool showTps = slot % 2 == 0;
+            UsageSnapshot antigravity = null;
+            if (combinedTpsMode)
+            {
+                bool hasAntigravity = geminiQuota != null || claudeGptQuota != null;
+                int pages = 1 + (hasAntigravity ? 1 : 0) + (latestTpsText != null ? 1 : 0);
+                int page = (int)(slot % pages);
+                if (hasAntigravity && page == 1)
+                    antigravity = (slot / pages) % 2 == 0 ? geminiQuota ?? claudeGptQuota : claudeGptQuota ?? geminiQuota;
+                showTps = page > (hasAntigravity ? 1 : 0);
+            }
             string text = showTps ? latestTpsText : null;
             string caption = showTps ? latestTpsCaption : null;
-            if (text == visibleTpsText && caption == visibleTpsCaption) return false;
+            if (text == visibleTpsText && caption == visibleTpsCaption && antigravity == visibleAntigravityQuota) return false;
             visibleTpsText = text;
             visibleTpsCaption = caption;
+            visibleAntigravityQuota = antigravity;
             InvalidateUsageBubble();
             return true;
         }
@@ -1213,7 +1277,7 @@ namespace UsagePeek
             bool roomToWalk = workArea.Width > Width + 16 &&
                 workArea.Height >= Height + 16;
 
-            if (!autoMoveEnabled || !desktopIsActive || latestTpsText != null ||
+            if (!autoMoveEnabled || !desktopIsActive || outputActive ||
                 interactionPaused || !roomToWalk || frogGlancing)
             {
                 desktopActivity = PetActivity.Watching;
@@ -1290,7 +1354,7 @@ namespace UsagePeek
                 if (frogGlanceTime >= FrogGlanceDuration)
                     frogGlanceTime = -(9d + desktopMotionRandom.NextDouble() * 7d);
             }
-            if (quotaRefreshInProgress)
+            if (quotaRefreshInProgress || antigravityRefreshInProgress)
                 quotaRefreshAnimationSeconds =
                     (quotaRefreshAnimationSeconds + elapsed) % QuotaRefreshRotationSeconds;
             else
@@ -1299,7 +1363,7 @@ namespace UsagePeek
             walkingBlend += (targetBlend - walkingBlend) *
                 (float)(1d - Math.Exp(-elapsed * 10d));
             if (Math.Abs(targetBlend - walkingBlend) < 0.001f) walkingBlend = targetBlend;
-            float targetWorkBlend = latestTpsText != null && !pettingActive &&
+            float targetWorkBlend = outputActive && !pettingActive &&
                 mood == PetMood.Normal ? 1f : 0f;
             workingBlend += (targetWorkBlend - workingBlend) *
                 (float)(1d - Math.Exp(-elapsed * 7d));
@@ -1357,7 +1421,7 @@ namespace UsagePeek
             if (mood == PetMood.Happy) return clawdHappy;
             if (desktopActivity == PetActivity.Walking) return clawdWalking;
             if (mood == PetMood.Nervous) return clawdNervous;
-            if (latestTpsText != null) return clawdTyping;
+            if (outputActive) return clawdTyping;
             return clawdIdle;
         }
 
@@ -2040,6 +2104,10 @@ namespace UsagePeek
             Rectangle capsule = GetQuotaCapsuleBounds(width, scale);
             Rectangle pill = new Rectangle(capsule.Left, capsule.Top,
                 circle.Left - capsule.Left, capsule.Height);
+            bool totalTps = combinedTpsMode && visibleTpsText != null;
+            bool single = VisibleSingleQuotaWindow;
+            string shortLabel = visibleAntigravityQuota == null ? shortQuotaLabel : "5h";
+            string weeklyLabel = visibleAntigravityQuota == null ? secondaryQuotaLabel : "7d";
             float indicatorScale = circle.Width / 52f;
             Color pillColor = BlendColor(average, Color.FromArgb(28, 33, 52), 0.55f);
             Color circleColor = BlendColor(average, Color.White, 0.9f);
@@ -2057,10 +2125,16 @@ namespace UsagePeek
                 graphics.Restore(state);
                 graphics.FillPath(fill, path);
                 graphics.DrawPath(edge, path);
-                graphics.FillEllipse(circleFill, circle);
+                if (!totalTps) graphics.FillEllipse(circleFill, circle);
             }
 
-            if (WeeklyQuotaExhausted)
+            if (totalTps)
+            {
+                DrawTpsPage(graphics, capsule, pillColor, scale);
+                return;
+            }
+
+            if (VisibleWeeklyUsedPercent == 100)
                 DrawExhaustedQuotaRing(graphics, circle, indicatorScale);
 
             if (visibleTpsText != null)
@@ -2069,7 +2143,7 @@ namespace UsagePeek
             }
             else DrawQuotaDates(graphics, pill, pillColor, scale);
 
-            if (weeklyWatermarkVisible && !quotaRefreshInProgress)
+            if (weeklyWatermarkVisible && !VisibleQuotaRefreshInProgress)
             {
                 GraphicsState watermarkState = graphics.Save();
                 using (GraphicsPath clip = new GraphicsPath())
@@ -2084,14 +2158,14 @@ namespace UsagePeek
                     format.Alignment = StringAlignment.Center;
                     format.LineAlignment = StringAlignment.Center;
                     format.FormatFlags = StringFormatFlags.NoWrap;
-                    graphics.DrawString(secondaryQuotaLabel, watermarkFont, watermark,
+                    graphics.DrawString(weeklyLabel, watermarkFont, watermark,
                         new RectangleF(circle.Left, circle.Top + 2f * indicatorScale,
                             circle.Width, circle.Height), format);
                 }
                 graphics.Restore(watermarkState);
             }
 
-            if (!singleQuotaWindow)
+            if (!single)
             using (Font captionFont = new Font("Segoe UI",
                 Math.Max(3.5f, 7.8f * indicatorScale), FontStyle.Bold, GraphicsUnit.Pixel))
             using (SolidBrush captionBrush = new SolidBrush(Color.FromArgb(34, 38, 54)))
@@ -2100,8 +2174,8 @@ namespace UsagePeek
                 format.Alignment = StringAlignment.Center;
                 format.LineAlignment = StringAlignment.Center;
                 format.FormatFlags = StringFormatFlags.NoWrap;
-                graphics.DrawString(shortQuotaLabel + " " +
-                    FormatPercent(GetDisplayedPercent(primaryUsedPercent)), captionFont, captionBrush,
+                graphics.DrawString(shortLabel + " " +
+                    FormatPercent(GetDisplayedPercent(VisiblePrimaryUsedPercent)), captionFont, captionBrush,
                     new RectangleF(circle.Left + 5f * indicatorScale, circle.Top + 2f * indicatorScale,
                         circle.Width - 10f * indicatorScale, 12f * indicatorScale), format);
             }
@@ -2145,6 +2219,10 @@ namespace UsagePeek
 
         private void DrawQuotaDates(Graphics graphics, Rectangle pill, Color pillColor, float scale)
         {
+            UsageSnapshot provider = visibleAntigravityQuota;
+            bool single = VisibleSingleQuotaWindow;
+            string shortLabel = provider == null ? shortQuotaLabel : "5h";
+            string weeklyLabel = provider == null ? secondaryQuotaLabel : "7d";
             using (Font labelFont = new Font("Segoe UI",
                 Math.Max(4.5f, 10.5f * scale), FontStyle.Bold,
                 GraphicsUnit.Pixel))
@@ -2159,16 +2237,16 @@ namespace UsagePeek
                 format.Alignment = StringAlignment.Near;
                 format.LineAlignment = StringAlignment.Center;
                 format.FormatFlags |= StringFormatFlags.NoWrap;
-                string primaryDate = FormatResetDate(primaryResetsAtUtc);
-                string weeklyDate = FormatResetDate(secondaryResetsAtUtc);
-                float labelWidth = graphics.MeasureString(secondaryQuotaLabel,
+                string primaryDate = FormatResetDate(provider == null ? primaryResetsAtUtc : ReadResetAt(provider.Primary));
+                string weeklyDate = FormatResetDate(provider == null ? secondaryResetsAtUtc : ReadResetAt(provider.Secondary));
+                float labelWidth = graphics.MeasureString(weeklyLabel,
                     labelFont, int.MaxValue, format).Width;
                 float dateWidth = graphics.MeasureString(weeklyDate,
                     dateFont, int.MaxValue, format).Width;
-                if (!singleQuotaWindow)
+                if (!single)
                 {
                     labelWidth = Math.Max(labelWidth, graphics.MeasureString(
-                        shortQuotaLabel, labelFont, int.MaxValue, format).Width);
+                        shortLabel, labelFont, int.MaxValue, format).Width);
                     dateWidth = Math.Max(dateWidth, graphics.MeasureString(
                         primaryDate, dateFont, int.MaxValue, format).Width);
                 }
@@ -2178,7 +2256,8 @@ namespace UsagePeek
                 float dateLeft = textLeft + labelWidth + columnGap;
                 float rowHeight = Math.Max(labelFont.GetHeight(graphics), dateFont.GetHeight(graphics));
                 float rowSpacing = 3f * scale;
-                float blockHeight = singleQuotaWindow ? rowHeight : rowHeight * 2f + rowSpacing;
+                float headerHeight = provider == null ? 0f : 11f * scale;
+                float blockHeight = headerHeight + (single ? rowHeight : rowHeight * 2f + rowSpacing);
                 float firstRowTop = (pill.Height - blockHeight) / 2f;
                 using (Bitmap textImage = new Bitmap(pill.Width, pill.Height,
                     PixelFormat.Format32bppPArgb))
@@ -2189,15 +2268,28 @@ namespace UsagePeek
                         textGraphics.TextRenderingHint = graphics.TextRenderingHint;
                         textGraphics.CompositingQuality = graphics.CompositingQuality;
                         textGraphics.PixelOffsetMode = graphics.PixelOffsetMode;
-                        if (!singleQuotaWindow)
+                        if (provider != null)
                         {
-                            textGraphics.DrawString(shortQuotaLabel, labelFont, labelBrush,
+                            using (Font providerFont = new Font("Segoe UI", Math.Max(4f, 8.6f * scale),
+                                FontStyle.Bold, GraphicsUnit.Pixel))
+                            {
+                                format.Alignment = StringAlignment.Center;
+                                string name = provider == geminiQuota ? "AGY · Gemini" : "AGY · Claude/GPT";
+                                textGraphics.DrawString(name, providerFont, dateBrush,
+                                    new RectangleF(0, firstRowTop, pill.Width, headerHeight), format);
+                                format.Alignment = StringAlignment.Near;
+                            }
+                            firstRowTop += headerHeight;
+                        }
+                        if (!single)
+                        {
+                            textGraphics.DrawString(shortLabel, labelFont, labelBrush,
                                 new RectangleF(textLeft, firstRowTop, labelWidth, rowHeight), format);
                             textGraphics.DrawString(primaryDate, dateFont, dateBrush,
                                 new RectangleF(dateLeft, firstRowTop, dateWidth, rowHeight), format);
                         }
-                        float weeklyRowTop = singleQuotaWindow ? firstRowTop : firstRowTop + rowHeight + rowSpacing;
-                        textGraphics.DrawString(secondaryQuotaLabel, labelFont, labelBrush,
+                        float weeklyRowTop = single ? firstRowTop : firstRowTop + rowHeight + rowSpacing;
+                        textGraphics.DrawString(weeklyLabel, labelFont, labelBrush,
                             new RectangleF(textLeft, weeklyRowTop, labelWidth, rowHeight), format);
                         textGraphics.DrawString(weeklyDate, dateFont, dateBrush,
                             new RectangleF(dateLeft, weeklyRowTop, dateWidth, rowHeight), format);
@@ -2216,6 +2308,26 @@ namespace UsagePeek
                 }
             }
 
+        }
+
+        private int? VisiblePrimaryUsedPercent
+        {
+            get { return visibleAntigravityQuota == null ? primaryUsedPercent : ReadUsedPercent(visibleAntigravityQuota.Primary); }
+        }
+
+        private int? VisibleWeeklyUsedPercent
+        {
+            get { return visibleAntigravityQuota == null ? secondaryUsedPercent : ReadUsedPercent(visibleAntigravityQuota.Secondary); }
+        }
+
+        private bool VisibleSingleQuotaWindow
+        {
+            get { return visibleAntigravityQuota == null ? singleQuotaWindow : visibleAntigravityQuota.Primary == null; }
+        }
+
+        private bool VisibleQuotaRefreshInProgress
+        {
+            get { return visibleAntigravityQuota == null ? quotaRefreshInProgress : antigravityRefreshInProgress; }
         }
 
         private static Rectangle FindVisibleTextBounds(Bitmap image)
@@ -2275,6 +2387,9 @@ namespace UsagePeek
 
         private void DrawQuotaIndicators(Graphics graphics, Rectangle circle, float scale)
         {
+            if (combinedTpsMode && visibleTpsText != null) return;
+            bool antigravity = visibleAntigravityQuota != null;
+            bool single = VisibleSingleQuotaWindow;
             GraphicsState state = graphics.Save();
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
@@ -2283,21 +2398,21 @@ namespace UsagePeek
             Color accent = BlendColor(average, Color.FromArgb(28, 33, 52), 0.2f);
             float stroke = Math.Max(1.2f, 3f * scale);
             RectangleF arc = GetQuotaArcBounds(circle, scale, stroke);
-            if (!WeeklyQuotaExhausted)
+            if (VisibleWeeklyUsedPercent != 100)
             using (Pen track = new Pen(BlendColor(circleColor, accent, 0.18f), stroke))
             using (Pen progress = new Pen(accent, stroke))
             {
                 track.StartCap = track.EndCap = LineCap.Round;
                 progress.StartCap = progress.EndCap = LineCap.Round;
                 // A single weekly window needs no caption or top gap.
-                float startAngle = singleQuotaWindow ? -90f : -48f;
-                float totalSweep = singleQuotaWindow ? 360f : 276f;
-                if (singleQuotaWindow) graphics.DrawEllipse(track, arc);
+                float startAngle = single ? -90f : -48f;
+                float totalSweep = single ? 360f : 276f;
+                if (single) graphics.DrawEllipse(track, arc);
                 else graphics.DrawArc(track, arc, startAngle, totalSweep);
-                float? percent = AnimatedArcPercent;
+                float? percent = antigravity ? GetDisplayedPercent(single ? VisibleWeeklyUsedPercent : VisiblePrimaryUsedPercent) : AnimatedArcPercent;
                 if (percent.HasValue && percent.Value > 0f)
                 {
-                    if (singleQuotaWindow && percent.Value >= 100f) graphics.DrawEllipse(progress, arc);
+                    if (single && percent.Value >= 100f) graphics.DrawEllipse(progress, arc);
                     else
                     {
                         float sweep = percent.Value / 100f * totalSweep;
@@ -2315,17 +2430,17 @@ namespace UsagePeek
                     circle.Width - 14f * scale, circle.Height - 14f * scale);
                 graphics.SetClip(clip, CombineMode.Intersect);
             }
-            if (quotaRefreshInProgress)
+            if (VisibleQuotaRefreshInProgress)
             {
                 DrawRefreshIndicator(graphics, circle, scale, accent);
                 graphics.Restore(state);
                 return;
             }
-            string value = FormatPercent(GetDisplayedPercent(secondaryUsedPercent));
+            string value = FormatPercent(GetDisplayedPercent(VisibleWeeklyUsedPercent));
             float offset = 0f;
             float opacity = 1f;
             int imageSlot = 0;
-            if (quotaWeeklyAnimating)
+            if (!antigravity && quotaWeeklyAnimating)
             {
                 int direction = Math.Sign(quotaWeeklyToPercent.Value - quotaWeeklyFromPercent.Value);
                 if (quotaTransitionSeconds >= QuotaWeeklyArrowStartSeconds &&
@@ -2870,7 +2985,8 @@ namespace UsagePeek
 
             dragging = true;
             moved = false;
-            quotaCirclePressed = IsQuotaCirclePoint(e.Location);
+            quotaCirclePressed = !(combinedTpsMode && visibleTpsText != null) && IsQuotaCirclePoint(e.Location);
+            antigravityCirclePressed = visibleAntigravityQuota != null;
             dragStartWindow = Location;
             dragStartCursor = PointToScreen(e.Location);
             Capture = true;
@@ -2912,6 +3028,7 @@ namespace UsagePeek
 
             dragging = false;
             bool refreshCircle = quotaCirclePressed;
+            bool refreshAntigravity = antigravityCirclePressed;
             quotaCirclePressed = false;
             Capture = false;
             Cursor = quotaRefreshInProgress ? Cursors.AppStarting : Cursors.Hand;
@@ -2924,9 +3041,9 @@ namespace UsagePeek
 
             if (refreshCircle)
             {
-                if (!quotaRefreshInProgress && IsQuotaCirclePoint(e.Location))
+                if (!(refreshAntigravity ? antigravityRefreshInProgress : quotaRefreshInProgress) && IsQuotaCirclePoint(e.Location))
                 {
-                    EventHandler refresh = RefreshRequested;
+                    EventHandler refresh = refreshAntigravity ? AntigravityRefreshRequested : RefreshRequested;
                     if (refresh != null) refresh(this, EventArgs.Empty);
                 }
                 return;

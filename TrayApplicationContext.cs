@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -16,12 +17,14 @@ namespace UsagePeek
         private readonly EstimateAudit estimateAudit;
         private readonly QuotaHistory quotaHistory = new QuotaHistory();
         private readonly CodexTpsMonitor tpsMonitor = new CodexTpsMonitor(LocalUsageScanner.ResolveCodexHome());
+        private readonly AntigravityTpsMonitor antigravityTpsMonitor = new AntigravityTpsMonitor(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini"));
+        private readonly System.Threading.CancellationTokenSource antigravityLifetime = new System.Threading.CancellationTokenSource();
         private readonly ResetCreditNotificationTracker resetCreditNotificationTracker;
         private readonly ExchangeRateService exchangeRateService;
         private readonly CurrencyDisplayState currencyState;
         private readonly StartupManager startupManager;
         private readonly UpdateService updateService;
-        private readonly CodexBootstrapService bootstrapService;
         private readonly DisplayModeSettings displayModeSettings;
         private readonly DisplayModePreference displayPreference;
         private readonly MainForm form;
@@ -43,9 +46,9 @@ namespace UsagePeek
         private UsageSnapshot lastSnapshot;
         private bool refreshing;
         private bool pollingTps;
+        private bool refreshingAntigravity;
         private bool exiting;
         private bool checkingUpdate;
-        private bool repairingCodex;
         private DateTime? lastRefreshAttemptUtc;
         private DateTime? lastRefreshSuccessUtc;
         private string lastRefreshErrorCode;
@@ -62,7 +65,6 @@ namespace UsagePeek
             currencyState = new CurrencyDisplayState();
             startupManager = new StartupManager();
             updateService = new UpdateService();
-            bootstrapService = new CodexBootstrapService();
             displayModeSettings = new DisplayModeSettings();
             displayPreference = displayModeSettings.Load();
             UiTheme.SetMode(displayPreference.GetThemeMode());
@@ -79,7 +81,7 @@ namespace UsagePeek
                 displayPreference.GetPetAutoMoveEnabled());
             form.RefreshRequested += async delegate { await RefreshAsync(); };
             form.CurrencyToggleRequested += async delegate { await ToggleCurrencyAsync(); };
-            form.RepairRequested += async delegate { await RepairCodexAsync(); };
+            form.RepairRequested += delegate { ShowCodexConnectionHelp(); };
             form.ModelUsageRequested += delegate { ShowModelUsage(); };
             form.UsageHistoryRequested += delegate { ShowUsageHistory(); };
             form.EstimateAuditRequested += delegate { ShowEstimateAudit(); };
@@ -88,6 +90,7 @@ namespace UsagePeek
             form.FormClosed += delegate { ExitApplication(); };
             petForm.DetailsRequested += delegate { ShowDetails(); };
             petForm.RefreshRequested += async delegate { await RefreshAsync(); };
+            petForm.AntigravityRefreshRequested += async delegate { await RefreshAntigravityQuotaAsync(true); };
             petForm.LocationCommitted += delegate
             {
                 displayPreference.SetPetLocation(petForm.Location);
@@ -185,7 +188,7 @@ namespace UsagePeek
 
             refreshTimer = new Timer();
             refreshTimer.Interval = RefreshIntervalMilliseconds;
-            refreshTimer.Tick += async delegate { await RefreshAsync(); };
+            refreshTimer.Tick += async delegate { await Task.WhenAll(RefreshAsync(), RefreshAntigravityQuotaAsync(false)); };
             refreshTimer.Start();
 
             tpsTimer = new Timer { Interval = 1000 };
@@ -198,7 +201,7 @@ namespace UsagePeek
             initialRefreshTimer.Tick += async delegate
             {
                 initialRefreshTimer.Stop();
-                await RefreshAsync();
+                await Task.WhenAll(RefreshAsync(), RefreshAntigravityQuotaAsync(false));
                 if (updateService.IsConfigured)
                 {
                     await CheckForUpdatesAsync(true);
@@ -349,24 +352,71 @@ namespace UsagePeek
 
         private void UpdateTpsPolling()
         {
-            tpsTimer.Enabled = !exiting && (petForm.Visible || form.IsLiveChartVisible);
+            tpsTimer.Enabled = !exiting && (petForm.Visible || form.IsLiveChartVisible || form.IsAntigravityLiveChartVisible);
         }
 
         private async Task PollCodexTpsAsync()
         {
-            if (exiting || pollingTps || (!petForm.Visible && !form.IsLiveChartVisible)) return;
+            if (exiting || pollingTps || (!petForm.Visible && !form.IsLiveChartVisible && !form.IsAntigravityLiveChartVisible)) return;
             pollingTps = true;
             try
             {
                 DateTime observedAtUtc = DateTime.UtcNow;
-                CodexTpsReading reading = await Task.Run(delegate { return tpsMonitor.Poll(observedAtUtc); });
+                bool sampleAntigravity = petForm.Visible || form.IsAntigravityLiveChartVisible;
+                double? antigravityRate = null;
+                SourceQuotaSnapshot antigravityQuota = null;
+                CodexTpsReading reading = await Task.Run(delegate
+                {
+                    CodexTpsReading codex = tpsMonitor.Poll(observedAtUtc);
+                    if (sampleAntigravity)
+                    {
+                        antigravityRate = antigravityTpsMonitor.Poll(observedAtUtc);
+                        antigravityQuota = SourceQuotaStatusLine.Load(AdditionalUsageSource.Antigravity);
+                    }
+                    return codex;
+                });
                 if (exiting) return;
                 form.SetLiveTps(observedAtUtc, tpsMonitor.LiveTokensPerSecond);
-                if (petForm.Visible)
-                    petForm.SetCodexTps(reading != null,
-                        reading == null ? null : reading.TokensPerSecond, reading != null && reading.IsPreviousTurn);
+                if (sampleAntigravity)
+                {
+                    form.SetAntigravityLiveTps(observedAtUtc, antigravityRate);
+                    ApplyAntigravityPetQuota(antigravityQuota);
+                }
+                if (petForm.Visible && sampleAntigravity)
+                {
+                    petForm.SetTotalTps(reading != null || antigravityRate.GetValueOrDefault() > 0,
+                        tpsMonitor.LiveTokensPerSecond, antigravityRate);
+                }
             }
             finally { pollingTps = false; }
+        }
+
+        private async Task RefreshAntigravityQuotaAsync(bool fromPet)
+        {
+            if (exiting) return;
+            if (fromPet) petForm.SetAntigravityRefreshInProgress(true);
+            if (refreshingAntigravity) return;
+            refreshingAntigravity = true;
+            try
+            {
+                SourceQuotaSnapshot quota = await SourceQuotaStatusLine.RefreshAntigravityAsync(antigravityLifetime.Token);
+                if (!exiting && quota != null) ApplyAntigravityPetQuota(quota);
+            }
+            catch (OperationCanceledException) { }
+            finally
+            {
+                refreshingAntigravity = false;
+                if (exiting) antigravityLifetime.Dispose();
+                else petForm.SetAntigravityRefreshInProgress(false);
+            }
+        }
+
+        private void ApplyAntigravityPetQuota(SourceQuotaSnapshot quota)
+        {
+            if (quota == null) return;
+            form.ReceiveAntigravityQuota(quota);
+            petForm.SetAntigravityQuotas(quota.GetAntigravityGroup(AntigravityQuotaGroup.Gemini),
+                quota.GetAntigravityGroup(AntigravityQuotaGroup.ClaudeGpt));
         }
 
         private async Task ToggleCurrencyAsync()
@@ -392,6 +442,21 @@ namespace UsagePeek
                     lastSnapshot.EstimateAudit = estimateAudit;
                     cache.Save(lastSnapshot);
                 }
+                AdditionalUsageTotals agTotals = form.CurrentAntigravityTotals;
+                if (agTotals != null && agTotals.LocalUsage != null)
+                {
+                    LocalTokenUsageSnapshot agLocal = agTotals.LocalUsage;
+                    CurrencyDisplayState rateCopy = new CurrencyDisplayState
+                    {
+                        ShowCny = currencyState.ShowCny,
+                        UsdToCnyRate = currencyState.UsdToCnyRate,
+                        RateDateUtc = currencyState.RateDateUtc
+                    };
+                    agTotals.EstimateAudit = await Task.Run(delegate
+                    {
+                        return AdditionalUsageReader.UpdateAntigravityEstimateAudit(agLocal, rateCopy);
+                    });
+                }
                 form.SetCurrencyState(currencyState);
                 string date = rate.RateDateUtc.HasValue
                     ? rate.RateDateUtc.Value.ToLocalTime().ToString("yyyy-MM-dd")
@@ -409,7 +474,10 @@ namespace UsagePeek
                 form.SetCurrencyLoading(false);
                 form.SetCurrencyState(currencyState);
                 if (historyDialog != null && historyDialog.Visible)
-                    historyDialog.SetUsage(lastSnapshot);
+                {
+                    historyDialog.SetUsage(form.CurrentSource == UsageSource.Antigravity
+                        ? form.BuildAntigravityUsageSnapshot() : lastSnapshot);
+                }
             }
         }
 
@@ -485,44 +553,19 @@ namespace UsagePeek
             }
         }
 
-        private async Task RepairCodexAsync()
+        private void ShowCodexConnectionHelp()
         {
-            if (repairingCodex || refreshing)
-            {
-                return;
-            }
-
-            DialogResult choice = MessageBox.Show(
-                "UsagePeek 将从 OpenAI 官方地址下载并运行 Codex CLI 安装器，" +
-                "安装到当前用户目录。无需管理员权限，也不会读取或复制登录令牌。\r\n\r\n" +
-                "是否继续？",
-                "修复 Codex 连接", MessageBoxButtons.YesNo,
+            if (exiting) return;
+            MessageBox.Show(
+                "UsagePeek 通过本机 Codex 桌面版内置组件读取额度。\r\n\r\n" +
+                "请按以下步骤处理：\r\n" +
+                "1. 打开或更新 Codex 桌面版到最新版本；\r\n" +
+                "2. 在 Codex 桌面版中完成账号登录；\r\n" +
+                "3. 返回 UsagePeek 点击「↻ 刷新」。",
+                "UsagePeek · Codex 连接帮助",
+                MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
-            if (choice != DialogResult.Yes)
-            {
-                return;
-            }
-
-            repairingCodex = true;
-            form.SetRepairing(true);
-            form.ShowTransientStatus("正在获取 OpenAI 官方 Codex CLI…", false);
-            try
-            {
-                await bootstrapService.InstallAsync();
-                form.ShowTransientStatus("Codex CLI 安装完成，正在重新连接…", false);
-                await RefreshAsync();
-            }
-            catch (Exception ex)
-            {
-                form.ShowTransientStatus("修复失败 · " + ex.Message, true);
-                MessageBox.Show("无法完成连接修复：" + ex.Message,
-                    "UsagePeek", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-            finally
-            {
-                repairingCodex = false;
-                form.SetRepairing(false);
-            }
+            if (!exiting) ShowDetails();
         }
 
         private void UpdateTrayText(UsageSnapshot snapshot, bool stale)
@@ -591,11 +634,13 @@ namespace UsagePeek
         private void ShowModelUsage()
         {
             if (historyDialog != null && historyDialog.Visible) return;
-            if (lastSnapshot == null || lastSnapshot.LocalTokenUsage == null ||
-                lastSnapshot.LocalTokenUsage.ModelUsage == null ||
-                lastSnapshot.LocalTokenUsage.ModelUsage.Count == 0)
+            bool isAntigravity = form.CurrentSource == UsageSource.Antigravity;
+            UsageSnapshot target = isAntigravity ? form.BuildAntigravityUsageSnapshot() : lastSnapshot;
+            if (target == null || target.LocalTokenUsage == null ||
+                target.LocalTokenUsage.ModelUsage == null ||
+                target.LocalTokenUsage.ModelUsage.Count == 0)
             {
-                form.ShowSource(UsageSource.Codex);
+                if (!isAntigravity) form.ShowSource(UsageSource.Codex);
                 ShowDetails();
                 form.ShowTransientStatus("暂无模型分组数据，请先刷新。", true);
                 return;
@@ -605,7 +650,7 @@ namespace UsagePeek
                 displayPreference.GetDisplayMode() == UsageDisplayMode.Classic;
             form.Hide();
             DialogResult result;
-            using (ModelUsageForm dialog = new ModelUsageForm(lastSnapshot))
+            using (ModelUsageForm dialog = new ModelUsageForm(target))
             {
                 dialog.PlaceNearTray();
                 result = dialog.ShowDialog();
@@ -661,7 +706,16 @@ namespace UsagePeek
                 return;
             }
             UsageHistoryForm dialog = EnsureHistoryWindow(Screen.FromControl(form));
-            dialog.SetUsage(lastSnapshot, true);
+            if (form.CurrentSource == UsageSource.Antigravity)
+            {
+                dialog.SetSource(UsageSource.Antigravity, form.SelectedAntigravityGroup);
+                dialog.SetUsage(form.BuildAntigravityUsageSnapshot(), true);
+            }
+            else
+            {
+                dialog.SetSource(UsageSource.Codex);
+                dialog.SetUsage(lastSnapshot, true);
+            }
             dialog.BringToForeground();
             form.Hide();
             await dialog.LoadHistoryAsync();
@@ -708,8 +762,16 @@ namespace UsagePeek
         {
             if (exiting || estimateDialog != null || (historyDialog != null && historyDialog.Visible)) return;
             Screen screen = Screen.FromControl(form);
+            EstimateAudit auditToShow = estimateAudit;
             LocalTokenUsageSnapshot local = lastSnapshot == null ? null : lastSnapshot.LocalTokenUsage;
-            using (UsageBreakdownForm dialog = UsageBreakdownForm.ForEstimate(estimateAudit, local))
+            if (form.CurrentSource == UsageSource.Antigravity)
+            {
+                AdditionalUsageTotals agTotals = form.CurrentAntigravityTotals;
+                local = agTotals == null ? null : agTotals.LocalUsage;
+                auditToShow = (agTotals == null ? null : agTotals.EstimateAudit)
+                    ?? AdditionalUsageReader.UpdateAntigravityEstimateAudit(local, currencyState);
+            }
+            using (UsageBreakdownForm dialog = UsageBreakdownForm.ForEstimate(auditToShow, local))
             {
                 dialog.PlaceOnScreen(screen);
                 form.Hide();
@@ -1005,7 +1067,7 @@ namespace UsagePeek
             }
             catch
             {
-                diagnostics.CodexStatus = "自定义组件路径无效";
+                diagnostics.CodexStatus = "桌面组件检测失败";
             }
 
             UsageSnapshot snapshot = lastSnapshot;
@@ -1096,10 +1158,6 @@ namespace UsagePeek
         private static string ClassifyRefreshError(string message)
         {
             string value = message ?? string.Empty;
-            if (Contains(value, "USAGEPEEK_CODEX_PATH"))
-            {
-                return "UP-CX-003 自定义 Codex 路径无效";
-            }
             if (Contains(value, "未找到 Codex"))
             {
                 return "UP-CX-001 未找到 Codex 本地组件";
@@ -1267,6 +1325,8 @@ namespace UsagePeek
             UiTheme.Changed -= HandleThemeChanged;
             refreshTimer.Stop();
             tpsTimer.Stop();
+            antigravityLifetime.Cancel();
+            if (!refreshingAntigravity) antigravityLifetime.Dispose();
             initialRefreshTimer.Stop();
             initialRefreshTimer.Dispose();
             activationTimer.Stop();

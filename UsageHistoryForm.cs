@@ -43,7 +43,18 @@ namespace UsagePeek
 
         private readonly QuotaHistory quotaHistory;
         private readonly CurrencyDisplayState currency;
+        private UsageSource historySource = UsageSource.Codex;
+        private AntigravityQuotaGroup antigravityGroup = AntigravityQuotaGroup.Gemini;
         private DateTime today = DateTime.Today;
+        private readonly Label subtitleLabel;
+        private readonly Label footerNoteLabel;
+        private readonly GlyphButtonControl detailButton;
+        private readonly GlyphButtonControl agGeminiHistoryTab;
+        private readonly GlyphButtonControl agClaudeHistoryTab;
+        private readonly Label sessionTitleLabel;
+        private readonly Label weeklyTitleLabel;
+        private readonly Label accountTitleLabel;
+        private readonly Label[] accountLabels = new Label[5];
         private readonly RoundedButton weekButton;
         private readonly RoundedButton monthButton;
         private readonly RoundedButton previousPage;
@@ -128,23 +139,55 @@ namespace UsagePeek
             DoubleBuffered = true;
 
             Label title = AddLabel(this, "用量历史", 22, 16, 180, 33, 16f, UiColors.Text, true);
-            Label subtitle = AddLabel(this, "OpenAI 与本机 · Token 用量", 23, 48, 468, 22, 8.5f, UiColors.Secondary);
+            subtitleLabel = AddLabel(this, "OpenAI 与本机 · Token 用量", 23, 48, 468, 22, 8.5f, UiColors.Secondary);
             title.MouseDown += DragWindow;
-            subtitle.MouseDown += DragWindow;
+            subtitleLabel.MouseDown += DragWindow;
             MouseDown += DragWindow;
 
+            agGeminiHistoryTab = new GlyphButtonControl("Gemini", false)
+            {
+                VisualStyle = GlyphButtonStyle.PillTab,
+                Bounds = new Rectangle(216, 22, 74, 28),
+                Visible = false,
+                Selected = true,
+                AccessibleRole = AccessibleRole.PageTab,
+                AccessibleDescription = "查看 Antigravity Gemini 分组额度历史"
+            };
+            agGeminiHistoryTab.Click += delegate { SelectAntigravityGroup(AntigravityQuotaGroup.Gemini); };
+            Controls.Add(agGeminiHistoryTab);
+
+            agClaudeHistoryTab = new GlyphButtonControl("Claude / GPT", false)
+            {
+                VisualStyle = GlyphButtonStyle.PillTab,
+                Bounds = new Rectangle(294, 22, 92, 28),
+                Visible = false,
+                AccessibleRole = AccessibleRole.PageTab,
+                AccessibleDescription = "查看 Antigravity Claude / GPT 分组额度历史"
+            };
+            agClaudeHistoryTab.Click += delegate { SelectAntigravityGroup(AntigravityQuotaGroup.ClaudeGpt); };
+            Controls.Add(agClaudeHistoryTab);
+
             RoundedButton back = AddButton("← 返回详情", 394, 22, 104, Hide);
+            back.ShowBorder = true;
             CancelButton = back;
             weekButton = AddButton("7 天", 22, 78, 76, delegate { SetRange(7); });
             monthButton = AddButton("30 天", 104, 78, 88, delegate { SetRange(QuotaHistory.Days); });
             previousPage = AddButton("‹", 210, 78, 31, delegate { ChangePage(1); });
+            previousPage.ShowBorder = true;
             previousPage.AccessibleName = "上一期";
             nextPage = AddButton("›", 247, 78, 31, delegate { ChangePage(-1); });
+            nextPage.ShowBorder = true;
             nextPage.AccessibleName = "下一期";
             rangeLabel = AddLabel(this, "", 286, 78, 212, 29, 8.5f, UiColors.Secondary);
             rangeLabel.TextAlign = ContentAlignment.MiddleRight;
 
-            SurfacePanel tokenCard = new SurfacePanel { Bounds = new Rectangle(18, 118, 484, 329) };
+            SurfacePanel tokenCard = new SurfacePanel
+            {
+                Bounds = new Rectangle(18, 118, 484, 329),
+                ShowTopRule = false,
+                ShowSoftCard = true,
+                CardRadius = 15
+            };
             Controls.Add(tokenCard);
             AddLabel(tokenCard, "每日 Token", 14, 8, 120, 26, 10f, UiColors.Text, true);
             tokenTotal = AddLabel(tokenCard, "", 146, 8, 324, 26, 9f, UiColors.Secondary);
@@ -160,13 +203,15 @@ namespace UsagePeek
             tokenLegend = AddLabel(tokenCard, TokenLegendText(), 16, 146, 265, 20, 8.2f, UiColors.Secondary);
             GlyphButtonControl rankingButton = new GlyphButtonControl("会话排行 ↓", false)
             {
+                VisualStyle = GlyphButtonStyle.Subtle,
                 Bounds = new Rectangle(284, 144, 79, 24),
                 AccessibleDescription = "查看所选日期或区间的本机会话用量排行"
             };
             rankingButton.Click += delegate { ScrollControlIntoView(rankingCard); };
             tokenCard.Controls.Add(rankingButton);
-            GlyphButtonControl detailButton = new GlyphButtonControl("官方按功能 ↗", false)
+            detailButton = new GlyphButtonControl("官方按功能 ↗", false)
             {
+                VisualStyle = GlyphButtonStyle.Subtle,
                 Bounds = new Rectangle(365, 144, 103, 24),
                 AccessibleDescription = "打开官方用量记录，查看按功能拆分的用量"
             };
@@ -209,7 +254,7 @@ namespace UsagePeek
                     AccessibleDescription = "仅显示此分类的本机用量"
                 };
                 UiDrawing.StyleButton(categoryButton, false);
-                categoryButton.BackColor = UiColors.Background;
+                categoryButton.BackColor = UiColors.Surface;
                 categoryButton.Click += delegate { ToggleCategoryFilter(category); };
                 categoryButtons[index] = categoryButton;
                 tokenCard.Controls.Add(categoryButton);
@@ -227,12 +272,12 @@ namespace UsagePeek
             }
 
             sessionCard = AddQuotaCard(QuotaTop, "5h · 已用趋势", UiColors.Accent,
-                out sessionChart, out sessionNote);
+                out sessionTitleLabel, out sessionChart, out sessionNote);
             sessionChart.Name = "SessionQuotaHistoryChart";
             sessionChart.AccessibleName = "5h 已用额度，横轴 5 小时";
             WireQuotaChart(sessionChart, false);
             weeklyCard = AddQuotaCard(QuotaTop + QuotaRowHeight, "7d · 已用趋势", UiColors.WeeklyQuota,
-                out weeklyChart, out weeklyNote);
+                out weeklyTitleLabel, out weeklyChart, out weeklyNote);
             weeklyChart.Name = "WeeklyQuotaHistoryChart";
             weeklyChart.AccessibleName = "7d 已用额度，横轴 7 天";
             WireQuotaChart(weeklyChart, true);
@@ -240,7 +285,10 @@ namespace UsagePeek
             rankingCard = new SurfacePanel
             {
                 Name = "ConversationUsageRanking",
-                Bounds = new Rectangle(18, RankingTop, 484, RankingHeight)
+                Bounds = new Rectangle(18, RankingTop, 484, RankingHeight),
+                ShowTopRule = false,
+                ShowSoftCard = true,
+                CardRadius = 15
             };
             Controls.Add(rankingCard);
             AddLabel(rankingCard, "最高用量会话", 14, 6, 168, 26, 10f, UiColors.Text, true);
@@ -278,22 +326,28 @@ namespace UsagePeek
             }
             rankingUnattributed = AddLabel(rankingCard, "", 16, 159, 452, 19, 8.2f, UiColors.Secondary);
 
-            SurfacePanel accountCard = new SurfacePanel { Bounds = new Rectangle(18, AccountTop, 484, 130) };
+            SurfacePanel accountCard = new SurfacePanel
+            {
+                Bounds = new Rectangle(18, AccountTop, 484, 130),
+                ShowTopRule = false,
+                ShowSoftCard = true,
+                CardRadius = 15
+            };
             Controls.Add(accountCard);
-            AddLabel(accountCard, "官方账号概览", 14, 6, 210, 26, 10f, UiColors.Text, true);
+            accountTitleLabel = AddLabel(accountCard, "官方账号概览", 14, 6, 210, 26, 10f, UiColors.Text, true);
             string[] metrics = { "累计 Token", "单日峰值", "当前连续使用", "最长连续使用", "最长单轮" };
             for (int index = 0; index < metrics.Length; index++)
             {
                 int x = 16 + index % 2 * 231;
                 int y = 34 + index / 2 * 23;
-                AddLabel(accountCard, metrics[index], x, y, 104, 23, 8.5f, UiColors.Secondary);
+                accountLabels[index] = AddLabel(accountCard, metrics[index], x, y, 104, 23, 8.5f, UiColors.Secondary);
                 accountValues[index] = AddLabel(accountCard, "—", x + 105, y, 111, 23, 9.5f, UiColors.Text, true);
                 accountValues[index].TextAlign = ContentAlignment.MiddleRight;
             }
             accountSource = AddLabel(accountCard, "等待同步官方账号记录",
                 16, 105, 452, 20, 8.5f, UiColors.Secondary);
 
-            AddLabel(this, "官方按账号日期汇总  ·  本机按 Windows 本地日期汇总",
+            footerNoteLabel = AddLabel(this, "官方按账号日期汇总  ·  本机按 Windows 本地日期汇总",
                 22, AccountTop + 135, 478, 23, 8f, UiColors.Secondary);
             SetRange(7);
             ResumeLayout(false);
@@ -301,12 +355,18 @@ namespace UsagePeek
         }
 
         private SurfacePanel AddQuotaCard(int top, string title, Color color,
-            out HistoryChart chart, out Label note)
+            out Label titleLabel, out HistoryChart chart, out Label note)
         {
-            SurfacePanel card = new SurfacePanel { Bounds = new Rectangle(18, top, 484, QuotaCardHeight) };
+            SurfacePanel card = new SurfacePanel
+            {
+                Bounds = new Rectangle(18, top, 484, QuotaCardHeight),
+                ShowTopRule = false,
+                ShowSoftCard = true,
+                CardRadius = 15
+            };
             Controls.Add(card);
-            AddLabel(card, title, 14, 7, 155, 23, 10f, color, true);
-            note = AddLabel(card, "", 173, 7, 295, 23, 8.2f, UiColors.Secondary);
+            titleLabel = AddLabel(card, title, 14, 7, 175, 23, 10f, color, true);
+            note = AddLabel(card, "", 192, 7, 276, 23, 8.2f, UiColors.Secondary);
             note.TextAlign = ContentAlignment.MiddleRight;
             chart = new HistoryChart(new Rectangle(8, 29, 468, QuotaChartHeight));
             card.Controls.Add(chart);
@@ -340,22 +400,93 @@ namespace UsagePeek
             displayPrepared = true;
         }
 
+        internal void SetSource(UsageSource source, AntigravityQuotaGroup group = AntigravityQuotaGroup.Gemini)
+        {
+            bool changed = historySource != source || antigravityGroup != group;
+            historySource = source;
+            antigravityGroup = group;
+            bool isAntigravity = historySource == UsageSource.Antigravity;
+            subtitleLabel.Text = isAntigravity
+                ? "Antigravity 本机 · Token 与分组额度历史"
+                : "OpenAI 与本机 · Token 用量";
+            detailButton.Visible = !isAntigravity;
+            agGeminiHistoryTab.Visible = isAntigravity;
+            agClaudeHistoryTab.Visible = isAntigravity;
+            agGeminiHistoryTab.Selected = antigravityGroup == AntigravityQuotaGroup.Gemini;
+            agClaudeHistoryTab.Selected = antigravityGroup == AntigravityQuotaGroup.ClaudeGpt;
+            categoryButtons[Categories.Length - 1].Text = isAntigravity ? "未知" : CategoryNames[Categories.Length - 1];
+            string prefix = isAntigravity
+                ? (antigravityGroup == AntigravityQuotaGroup.Gemini ? "Gemini · " : "Claude / GPT · ")
+                : string.Empty;
+            sessionTitleLabel.Text = prefix + "5h · 已用趋势";
+            weeklyTitleLabel.Text = prefix + "7d · 已用趋势";
+            accountTitleLabel.Text = isAntigravity ? "本机汇总与数据范围" : "官方账号概览";
+            string[] labels = isAntigravity
+                ? new[] { "本机累计 Token", "本机单日峰值", "官方账号累计", "官方用途明细", "重置卡" }
+                : new[] { "累计 Token", "单日峰值", "当前连续使用", "最长连续使用", "最长单轮" };
+            for (int index = 0; index < accountLabels.Length; index++)
+                accountLabels[index].Text = labels[index];
+            footerNoteLabel.Text = isAntigravity
+                ? "Antigravity 本机按 Windows 本地日期汇总  ·  官方账号累计、官方明细与重置卡暂未接入"
+                : "官方按账号日期汇总  ·  本机按 Windows 本地日期汇总";
+            tokenLegend.Text = TokenLegendText();
+            if (changed)
+            {
+                hasDisplayedSnapshot = false;
+                historyReady = false;
+                historyReadRequest++;
+                historyLoadTask = null;
+                loadingQuota = true;
+                loadingDaily = true;
+                dailyTokens = null;
+                samples = new List<QuotaHistorySample>();
+            }
+        }
+
+        private async void SelectAntigravityGroup(AntigravityQuotaGroup group)
+        {
+            if (historySource != UsageSource.Antigravity || antigravityGroup == group) return;
+            antigravityGroup = group;
+            agGeminiHistoryTab.Selected = group == AntigravityQuotaGroup.Gemini;
+            agClaudeHistoryTab.Selected = group == AntigravityQuotaGroup.ClaudeGpt;
+            string prefix = group == AntigravityQuotaGroup.Gemini ? "Gemini · " : "Claude / GPT · ";
+            sessionTitleLabel.Text = prefix + "5h · 已用趋势";
+            weeklyTitleLabel.Text = prefix + "7d · 已用趋势";
+            loadingQuota = true;
+            historyReady = false;
+            historyReadRequest++;
+            historyLoadTask = null;
+            UpdateQuotaCharts(daySelect.SelectedIndex);
+            await LoadHistoryAsync();
+        }
+
         internal Task LoadHistoryAsync()
         {
-            if (historyReady || quotaHistory == null || IsDisposed || Disposing) return Task.FromResult(0);
+            bool canLoad = historySource == UsageSource.Antigravity || quotaHistory != null;
+            if (historyReady || !canLoad || IsDisposed || Disposing) return Task.FromResult(0);
             if (historyLoadTask == null || historyLoadTask.IsCompleted)
-                historyLoadTask = ReadHistoryAsync(historyReadRequest, today, !hasDailySummary && loadingDaily);
+                historyLoadTask = ReadHistoryAsync(historyReadRequest, today, !hasDailySummary && loadingDaily,
+                    historySource, antigravityGroup);
             return historyLoadTask;
         }
 
-        private async Task ReadHistoryAsync(int request, DateTime readDay, bool readLedger)
+        private async Task ReadHistoryAsync(int request, DateTime readDay, bool readLedger,
+            UsageSource source, AntigravityQuotaGroup group)
         {
             DateTime fromUtc = readDay.AddDays(-QuotaHistory.Days).ToUniversalTime();
             DateTime untilUtc = readDay.AddDays(1).ToUniversalTime();
-            Task<List<QuotaHistorySample>> quotaTask = Task.Run(
-                delegate { return quotaHistory.Read(fromUtc, untilUtc); });
-            Task<Dictionary<DateTime, LocalUsageDay>> ledgerTask = readLedger ? Task.Run(
-                delegate { return new LocalUsageScanner().ReadDailyHistory(DateTime.MinValue, readDay); }) : null;
+            Task<List<QuotaHistorySample>> quotaTask = Task.Run(delegate
+            {
+                return source == UsageSource.Antigravity
+                    ? SourceQuotaStatusLine.ReadAntigravityHistory(group, fromUtc, untilUtc)
+                    : quotaHistory.Read(fromUtc, untilUtc);
+            });
+            Task<Dictionary<DateTime, LocalUsageDay>> ledgerTask = readLedger ? Task.Run(delegate
+            {
+                return source == UsageSource.Antigravity
+                    ? AdditionalUsageReader.ReadAntigravityDailyHistory(DateTime.MinValue, readDay)
+                    : new LocalUsageScanner().ReadDailyHistory(DateTime.MinValue, readDay);
+            }) : null;
 
             List<QuotaHistorySample> quota = await quotaTask;
             if (CanApplyHistory(request)) ApplyQuotaHistory(quota);
@@ -388,7 +519,34 @@ namespace UsagePeek
             historyReady = true;
             dailyTokens = daily;
             samples = quota;
+            if (historySource == UsageSource.Antigravity) UpdateAntigravityScopeSummary();
             SetRange(localDays.Length);
+        }
+
+        private void UpdateAntigravityScopeSummary()
+        {
+            long lifetime = 0L;
+            long peak = 0L;
+            LocalTokenUsageSnapshot local = displayedSnapshot == null ? null : displayedSnapshot.LocalTokenUsage;
+            if (local != null && local.Lifetime != null && local.Lifetime.HasData)
+                lifetime = local.Lifetime.TotalTokens;
+            if (dailyTokens != null && dailyTokens.Count > 0)
+            {
+                long summed = 0L;
+                foreach (LocalUsageDay day in dailyTokens.Values)
+                {
+                    if (day == null) continue;
+                    summed += day.TotalTokens;
+                    if (day.TotalTokens > peak) peak = day.TotalTokens;
+                }
+                if (lifetime <= 0L) lifetime = summed;
+            }
+            accountValues[0].Text = lifetime > 0L ? DisplayFormatting.FormatTokens(lifetime) : "—";
+            accountValues[1].Text = peak > 0L ? DisplayFormatting.FormatTokens(peak) : "—";
+            accountValues[2].Text = "未接入";
+            accountValues[3].Text = "未接入";
+            accountValues[4].Text = "未接入";
+            accountSource.Text = "当前展示 Antigravity 本机账本与分组额度采样（用途缺失标为「未知」）";
         }
 
         internal void SetUsage(UsageSnapshot snapshot, bool resetView = false)
@@ -445,11 +603,18 @@ namespace UsagePeek
                         accountDaily[day] = entry.Value;
                 }
             }
-            accountValues[0].Text = FormatAccountTokens(account == null ? null : account.LifetimeTokens);
-            accountValues[1].Text = FormatAccountTokens(account == null ? null : account.PeakDailyTokens);
-            accountValues[2].Text = FormatAccountDays(account == null ? null : account.CurrentStreakDays);
-            accountValues[3].Text = FormatAccountDays(account == null ? null : account.LongestStreakDays);
-            accountValues[4].Text = FormatAccountDuration(account == null ? null : account.LongestRunningTurnSec);
+            if (historySource == UsageSource.Antigravity)
+            {
+                UpdateAntigravityScopeSummary();
+            }
+            else
+            {
+                accountValues[0].Text = FormatAccountTokens(account == null ? null : account.LifetimeTokens);
+                accountValues[1].Text = FormatAccountTokens(account == null ? null : account.PeakDailyTokens);
+                accountValues[2].Text = FormatAccountDays(account == null ? null : account.CurrentStreakDays);
+                accountValues[3].Text = FormatAccountDays(account == null ? null : account.LongestStreakDays);
+                accountValues[4].Text = FormatAccountDuration(account == null ? null : account.LongestRunningTurnSec);
+            }
             SetRange(resetView ? 7 : localDays.Length, resetView);
         }
 
@@ -502,7 +667,9 @@ namespace UsagePeek
             localPeriod = new LocalUsageDay();
             officialPeriod = null;
             UiDrawing.StyleButton(weekButton, days == 7);
+            weekButton.ShowBorder = days != 7;
             UiDrawing.StyleButton(monthButton, days == QuotaHistory.Days);
+            monthButton.ShowBorder = days != QuotaHistory.Days;
 
             daySelect.SelectedIndex = -1;
             daySelect.Items.Clear();
@@ -812,6 +979,12 @@ namespace UsagePeek
 
         private string TokenLegendText()
         {
+            if (historySource == UsageSource.Antigravity)
+            {
+                string filterName = categoryFilter < 0 ? "本机用途（点分类筛选）"
+                    : (categoryFilter == Categories.Length - 1 ? "未知" : CategoryNames[categoryFilter]) + "（再点取消）";
+                return "彩柱  " + filterName + "  ·  无官方明细";
+            }
             return "灰柱  官方总量    ·    彩柱  " + (categoryFilter < 0
                 ? "本机用途（点分类筛选）" : CategoryNames[categoryFilter] + "（再点取消）");
         }
@@ -828,7 +1001,7 @@ namespace UsagePeek
             {
                 bool selected = index == categoryFilter;
                 RoundedButton button = categoryButtons[index];
-                button.BackColor = selected ? UiColors.Selection : UiColors.Background;
+                button.BackColor = selected ? UiColors.Selection : UiColors.Surface;
                 button.ForeColor = selected ? UiColors.Text : UiColors.Secondary;
                 button.AccessibleDescription = selected ? "已筛选，按下取消" : "仅显示此分类的本机用量";
             }
@@ -844,11 +1017,15 @@ namespace UsagePeek
             return day.CategoryTokens.TryGetValue(Categories[category], out amount) ? amount : 0L;
         }
 
-        private static string DescribeTotals(long? official, LocalUsageDay local, bool exact, int category = -1)
+        private string DescribeTotals(long? official, LocalUsageDay local, bool exact, int category = -1)
         {
             long? localTotal = local != null && local.TotalTokens > 0
                 ? (long?)FilteredLocalTokens(local, category) : null;
-            string localLabel = category < 0 ? "本机" : "本机" + CategoryNames[category];
+            string categoryName = category < 0 ? string.Empty
+                : (historySource == UsageSource.Antigravity && category == Categories.Length - 1 ? "未知" : CategoryNames[category]);
+            string localLabel = category < 0 ? "本机" : "本机" + categoryName;
+            if (historySource == UsageSource.Antigravity)
+                return localLabel + " " + FormatHistoryTokens(localTotal, exact);
             return "官方 " + FormatHistoryTokens(official, exact) +
                 "   ·   " + localLabel + " " + FormatHistoryTokens(localTotal, exact);
         }
@@ -993,7 +1170,7 @@ namespace UsagePeek
                 int top = Math.Max(3, Math.Min((int)plot.Top, UiDrawing.LogicalHeight(chart) - height - 3));
                 Rectangle bounds = new Rectangle(left, top, width, height);
                 using (GraphicsPath bubble = UiDrawing.RoundedRectangle(bounds, 8))
-                using (SolidBrush fill = new SolidBrush(UiColors.Background))
+                using (SolidBrush fill = new SolidBrush(UiColors.Surface))
                 using (Pen border = new Pen(UiColors.Border))
                 using (SolidBrush text = new SolidBrush(UiColors.Text))
                 {
@@ -1191,7 +1368,7 @@ namespace UsagePeek
             public HistoryChart(Rectangle bounds)
             {
                 Bounds = bounds;
-                BackColor = UiColors.Background;
+                BackColor = UiColors.Surface;
                 SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
                     ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer, true);
             }

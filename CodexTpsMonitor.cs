@@ -80,8 +80,7 @@ namespace UsagePeek
                 if (!sessions.TryGetValue(file.FullName, out state))
                     sessions.Add(file.FullName, state = new SessionTail());
                 if (!TryReadTail(file, state)) { unreadable = true; continue; }
-                if (live == 0d) live = state.ReadRecentRate(nowUtc);
-                if (current != null && live > 0d) break;
+                live += state.ReadRecentRate(nowUtc);
                 if (current != null || !state.StartedAtUtc.HasValue ||
                     (!state.SawLifecycle && nowUtc - (state.LastOutputAtUtc ?? state.StartedAtUtc.Value) > InferredActivityTimeout)) continue;
 
@@ -89,7 +88,6 @@ namespace UsagePeek
                 if (rate.HasValue)
                 {
                     current = new CodexTpsReading { TokensPerSecond = rate };
-                    if (live > 0d) break;
                     continue;
                 }
                 if (fallback == null) fallback = new CodexTpsReading();

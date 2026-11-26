@@ -10,29 +10,29 @@ namespace UsagePeek
     {
         private static readonly Color[] light =
         {
-            Color.FromArgb(247, 248, 250), Color.White,
-            Color.FromArgb(24, 27, 34), Color.FromArgb(55, 63, 76),
-            Color.FromArgb(92, 101, 118), Color.FromArgb(215, 220, 229),
-            Color.FromArgb(44, 83, 181), Color.FromArgb(228, 235, 251),
-            Color.FromArgb(22, 109, 71), Color.FromArgb(139, 87, 17),
-            Color.FromArgb(175, 47, 66), Color.FromArgb(222, 227, 236),
-            Color.FromArgb(235, 238, 244), Color.FromArgb(223, 231, 245),
-            Color.FromArgb(47, 82, 182), Color.FromArgb(38, 70, 165),
-            Color.FromArgb(33, 57, 132), Color.FromArgb(172, 180, 193),
-            Color.FromArgb(102, 70, 172)
+            Color.FromArgb(245, 246, 250), Color.White,
+            Color.FromArgb(29, 29, 31), Color.FromArgb(81, 81, 84),
+            Color.FromArgb(134, 134, 139), Color.FromArgb(224, 228, 236),
+            Color.FromArgb(0, 122, 255), Color.FromArgb(232, 242, 255),
+            Color.FromArgb(30, 174, 72), Color.FromArgb(217, 130, 0),
+            Color.FromArgb(230, 56, 49), Color.FromArgb(232, 234, 240),
+            Color.FromArgb(233, 236, 242), Color.FromArgb(222, 227, 236),
+            Color.FromArgb(0, 121, 254), Color.FromArgb(0, 106, 230),
+            Color.FromArgb(0, 90, 200), Color.FromArgb(206, 210, 219),
+            Color.FromArgb(164, 82, 222)
         };
         private static readonly Color[] dark =
         {
-            Color.FromArgb(22, 23, 26), Color.FromArgb(30, 32, 37),
-            Color.FromArgb(242, 244, 248), Color.FromArgb(208, 212, 222),
-            Color.FromArgb(163, 171, 187), Color.FromArgb(58, 63, 74),
-            Color.FromArgb(151, 181, 255), Color.FromArgb(41, 53, 81),
-            Color.FromArgb(111, 207, 153), Color.FromArgb(240, 190, 115),
-            Color.FromArgb(245, 135, 146), Color.FromArgb(46, 51, 61),
-            Color.FromArgb(36, 40, 48), Color.FromArgb(48, 58, 79),
-            Color.FromArgb(53, 90, 188), Color.FromArgb(61, 98, 196),
-            Color.FromArgb(40, 70, 152), Color.FromArgb(89, 98, 115),
-            Color.FromArgb(185, 166, 245)
+            Color.FromArgb(22, 23, 27), Color.FromArgb(34, 36, 43),
+            Color.FromArgb(245, 245, 247), Color.FromArgb(196, 199, 208),
+            Color.FromArgb(136, 140, 152), Color.FromArgb(52, 55, 66),
+            Color.FromArgb(10, 132, 255), Color.FromArgb(28, 52, 86),
+            Color.FromArgb(48, 209, 88), Color.FromArgb(255, 196, 26),
+            Color.FromArgb(255, 69, 58), Color.FromArgb(48, 51, 61),
+            Color.FromArgb(38, 40, 48), Color.FromArgb(50, 53, 64),
+            Color.FromArgb(10, 131, 254), Color.FromArgb(32, 146, 255),
+            Color.FromArgb(0, 110, 224), Color.FromArgb(72, 75, 88),
+            Color.FromArgb(191, 90, 242)
         };
         private static Color Get(int index) { return (UiTheme.IsDark ? dark : light)[index]; }
         public static Color Background { get { return Get(0); } }
@@ -54,10 +54,18 @@ namespace UsagePeek
         public static Color PrimaryPressed { get { return Get(16); } }
         public static Color SwitchOff { get { return Get(17); } }
         public static Color WeeklyQuota { get { return Get(18); } }
+        public static Color AccentCyan { get { return UiTheme.IsDark ? Color.FromArgb(100, 210, 255) : Color.FromArgb(50, 173, 230); } }
+        public static Color WeeklyIndigo { get { return UiTheme.IsDark ? Color.FromArgb(94, 92, 230) : Color.FromArgb(88, 86, 214); } }
+        public static Color Sidebar { get { return UiTheme.IsDark ? Color.FromArgb(17, 18, 22) : Color.FromArgb(236, 239, 245); } }
+        public static Color SegmentActive { get { return UiTheme.IsDark ? Color.FromArgb(56, 60, 72) : Color.White; } }
 
         internal static Color Map(Color value, bool wasDark)
         {
             if (value.A == 0) return value;
+            Color oldSidebar = wasDark ? Color.FromArgb(17, 18, 22) : Color.FromArgb(236, 239, 245);
+            if (value.ToArgb() == oldSidebar.ToArgb()) return Sidebar;
+            Color oldSeg = wasDark ? Color.FromArgb(56, 60, 72) : Color.White;
+            if (wasDark && value.ToArgb() == oldSeg.ToArgb()) return SegmentActive;
             Color[] old = wasDark ? dark : light;
             Color[] next = UiTheme.IsDark ? dark : light;
             for (int index = 0; index < old.Length; index++)

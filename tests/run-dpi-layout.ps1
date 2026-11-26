@@ -54,8 +54,11 @@ $output = Join-Path $outputDirectory 'DpiLayoutQa.exe'
     (Join-Path $root 'AdditionalUsageReader.cs') `
     (Join-Path $root 'AntigravityUsageDatabase.cs') `
     (Join-Path $root 'SourceQuotaStatusLine.cs') `
+    (Join-Path $root 'AntigravityDesktopStatus.cs') `
     (Join-Path $root 'QuotaHistory.cs') `
     (Join-Path $root 'LocalUsageScanner.cs') `
+    (Join-Path $root 'OpenAiModelPrices.cs') `
+    (Join-Path $root 'AntigravityModelPrices.cs') `
     (Join-Path $root 'UsageCache.cs') `
     (Join-Path $root 'AboutForm.cs') `
     (Join-Path $root 'SettingsForm.cs') `

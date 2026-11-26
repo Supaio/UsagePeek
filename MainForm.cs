@@ -12,12 +12,11 @@ namespace UsagePeek
     internal sealed class MainForm : DpiAwareForm
     {
         internal const string OfficialUsageUrl = "https://chatgpt.com/codex/settings/usage";
-        private const int DashboardWidth = 450;
-        private const int DashboardHeight = 586;
-        private const int QuotaRowGap = 9;
-        private const int QuotaBannerHeight = 23;
-        private const int ContentLeft = 60;
-        private const int ContentRightMargin = 14;
+        internal const int DashboardWidth = 448;
+        internal const int DashboardHeight = 636;
+        private const int ContentInset = 14;
+        private const int ContentWidth = DashboardWidth - ContentInset * 2;
+        private const int BentoGap = 10;
         private const int WmNclButtonDown = 0xA1;
         private const int HtCaption = 0x2;
 
@@ -40,7 +39,10 @@ namespace UsagePeek
         private readonly Panel pageHeader;
         private readonly Panel trendPage;
         private readonly Panel ledgerPage;
+        private readonly SurfacePanel chartCard;
+        private readonly Label chartTitleLabel;
         private readonly Label sourceTitle;
+        private readonly Label sourceSubtitle;
         private readonly GlyphButtonControl closeButton;
         private readonly GlyphButtonControl statusButton;
         private readonly GlyphButtonControl dashboardButton;
@@ -74,10 +76,44 @@ namespace UsagePeek
         public event EventHandler SettingsRequested;
         public event EventHandler LiveChartVisibilityChanged;
 
+        public UsageSource CurrentSource { get { return currentSource; } }
+
         public bool IsLiveChartVisible
         {
-            get { return Visible && currentSource == UsageSource.Codex && !ledgerSelected &&
-                activity.Period == UsageChartPeriod.LiveTps; }
+            get
+            {
+                return Visible && currentSource == UsageSource.Codex && !ledgerSelected &&
+                    activity.Period == UsageChartPeriod.LiveTps;
+            }
+        }
+
+        public bool IsAntigravityLiveChartVisible
+        {
+            get
+            {
+                return Visible && currentSource == UsageSource.Antigravity &&
+                    additionalUsagePanel != null && additionalUsagePanel.IsAntigravityLiveChartVisible;
+            }
+        }
+
+        public SourceQuotaSnapshot CurrentAntigravityQuota
+        {
+            get { return additionalUsagePanel == null ? null : additionalUsagePanel.CurrentAntigravityQuota; }
+        }
+
+        public AdditionalUsageTotals CurrentAntigravityTotals
+        {
+            get { return additionalUsagePanel == null ? null : additionalUsagePanel.CurrentAntigravityTotals; }
+        }
+
+        public AntigravityQuotaGroup SelectedAntigravityGroup
+        {
+            get { return additionalUsagePanel == null ? AntigravityQuotaGroup.Gemini : additionalUsagePanel.SelectedAntigravityGroup; }
+        }
+
+        public UsageSnapshot BuildAntigravityUsageSnapshot()
+        {
+            return additionalUsagePanel == null ? null : additionalUsagePanel.BuildAntigravityUsageSnapshot();
         }
 
         [DllImport("user32.dll")]
@@ -108,61 +144,79 @@ namespace UsagePeek
             Padding = new Padding(0);
 
             sidebar = new Panel { BackColor = UiColors.Background };
+            sidebar.Paint += PaintProviderDock;
             Controls.Add(sidebar);
-            BrandMarkControl brandMark = new BrandMarkControl
-            {
-                Location = new Point(8, 5), Size = new Size(30, 30),
-                AccessibleName = "UsagePeek"
-            };
-            sourceToolTip.SetToolTip(brandMark, "UsagePeek");
-            sidebar.Controls.Add(brandMark);
             AddSourceButton(sidebar, UsageSource.Codex, "Codex", "ProviderCodex.png", new Rectangle(6, 6, 91, 92));
             AddSourceButton(sidebar, UsageSource.Antigravity, "Antigravity", "ProviderAntigravity.png", new Rectangle(67, 84, 404, 372));
             AddSourceButton(sidebar, UsageSource.ClaudeCode, "Claude Code", "ProviderClaude.png", new Rectangle(4, 2, 933, 935));
             AddSourceButton(sidebar, UsageSource.UstcDeepSeek, "中科大 DeepSeek", "ProviderUstc.jpg", new Rectangle(14, 32, 624, 624));
             sourceButtons[(int)UsageSource.Codex].Selected = true;
 
-            pageHeader = new Panel { BackColor = Color.Transparent };
-            Controls.Add(pageHeader);
-            sourceTitle = CreateLabel(pageHeader, "Codex", Rectangle.Empty, 21f, true, "Segoe UI");
-            sourceTitle.AccessibleName = "当前用量来源 · Codex";
+            historyButton = new GlyphButtonControl("用量历史", false)
+            {
+                VisualStyle = GlyphButtonStyle.Subtle,
+                AccessibleDescription = "打开每日用量、会话排行与额度趋势"
+            };
+            historyButton.Click += delegate
+            {
+                EventHandler handler = UsageHistoryRequested;
+                if (handler != null) handler(this, EventArgs.Empty);
+            };
+            Controls.Add(historyButton);
 
-            planPill = new PillLabelControl();
-            pageHeader.Controls.Add(planPill);
+            settingsButton = new GlyphButtonControl("设置", false);
+            settingsButton.VisualStyle = GlyphButtonStyle.Subtle;
+            settingsButton.Click += delegate { RequestSettings(); };
+            Controls.Add(settingsButton);
 
             closeButton = new GlyphButtonControl("×", false);
+            closeButton.VisualStyle = GlyphButtonStyle.Ghost;
             closeButton.Font = new Font("Segoe UI", 13f, FontStyle.Regular);
             closeButton.ForeColor = UiColors.Muted;
             closeButton.Click += delegate { Hide(); };
             closeButton.AccessibleName = "关闭用量面板";
-            pageHeader.Controls.Add(closeButton);
+            Controls.Add(closeButton);
 
-            settingsButton = new GlyphButtonControl("设置", false);
-            settingsButton.Click += delegate { RequestSettings(); };
-            pageHeader.Controls.Add(settingsButton);
+            pageHeader = new Panel { BackColor = UiColors.Background };
+            pageHeader.Paint += PaintPageHeaderChrome;
+            Controls.Add(pageHeader);
+            sourceTitle = CreateLabel(pageHeader, "Codex", Rectangle.Empty, 17.8f, true, "Segoe UI");
+            sourceTitle.AccessibleName = "当前用量来源 · Codex";
+            sourceSubtitle = CreateLabel(pageHeader, "本机会话统计", Rectangle.Empty, 8.8f, false);
+            sourceSubtitle.ForeColor = UiColors.Muted;
+            sourceSubtitle.TextAlign = ContentAlignment.MiddleRight;
+            sourceSubtitle.Visible = false;
 
-            codexPanel = new Panel { BackColor = Color.Transparent };
-            Controls.Add(codexPanel);
-            trendPage = new Panel { BackColor = UiColors.Background };
-            ledgerPage = new Panel { BackColor = UiColors.Background, Visible = false };
-            codexPanel.Controls.AddRange(new Control[] { trendPage, ledgerPage });
+            planPill = new PillLabelControl();
+            pageHeader.Controls.Add(planPill);
+
             trendTab = CreatePageTab("用量走势", delegate { SelectCodexPage(false); });
             ledgerTab = CreatePageTab("累计与估值", delegate { SelectCodexPage(true); });
             trendTab.Selected = true;
             trendTab.TabIndex = 0;
             ledgerTab.TabIndex = 1;
 
+            codexPanel = new Panel { BackColor = UiColors.Background };
+            codexPanel.Paint += PaintCodexFooterRule;
+            Controls.Add(codexPanel);
+            trendPage = new Panel { BackColor = UiColors.Background };
+            ledgerPage = new Panel { BackColor = UiColors.Background, Visible = false };
+            codexPanel.Controls.AddRange(new Control[] { trendPage, ledgerPage });
+
             quotaPanel = new SurfacePanel { ShowTopRule = false };
             trendPage.Controls.Add(quotaPanel);
-            statusBanner = new StatusBannerControl();
-            quotaPanel.Controls.Add(statusBanner);
             primaryCard = new UsageCardControl("5 小时窗口");
             secondaryCard = new UsageCardControl("7 天窗口");
             quotaPanel.Controls.Add(primaryCard);
             quotaPanel.Controls.Add(secondaryCard);
 
-            activity = new UsageActivityControl();
-            trendPage.Controls.Add(activity);
+            chartCard = new SurfacePanel { ShowTopRule = false, ShowSoftCard = true, CardRadius = 15 };
+            chartCard.Paint += PaintChartCardChrome;
+            trendPage.Controls.Add(chartCard);
+
+            chartTitleLabel = CreateLabel(chartCard, "实时输出速度 · TPS", Rectangle.Empty, 9.5f, true);
+            chartTitleLabel.ForeColor = UiColors.Secondary;
+
             tpsRange = CreateRangeTab("TPS", "近 " + UsageActivityControl.LiveChartSeconds + " 秒 Codex 实时输出速度", UsageChartPeriod.LiveTps);
             tokenRange = CreateRangeTab("Token", "近 7 天每日 Token", UsageChartPeriod.Tokens);
             sessionRange = CreateRangeTab("5h", "近 5 小时已用额度", UsageChartPeriod.SessionQuota);
@@ -172,18 +226,16 @@ namespace UsagePeek
             liveStyleTabs[2] = CreateLiveStyleTab("折线", "每秒采样的 TPS", LiveChartStyle.Line);
             for (int index = 0; index < liveStyleTabs.Length; index++)
                 liveStyleTabs[index].TabIndex = 7 + index;
+
+            activity = new UsageActivityControl { CompactHeader = true };
+            chartCard.Controls.Add(activity);
+
             SelectLiveStyle(LiveChartStyle.Candlesticks);
             SelectChartPeriod(UsageChartPeriod.LiveTps);
-            historyButton = new GlyphButtonControl("用量历史", false)
-            {
-                AccessibleDescription = "打开每日用量、会话排行与额度趋势"
-            };
-            historyButton.Click += delegate
-            {
-                EventHandler handler = UsageHistoryRequested;
-                if (handler != null) handler(this, EventArgs.Empty);
-            };
-            codexPanel.Controls.Add(historyButton);
+
+            statusBanner = new StatusBannerControl();
+            trendPage.Controls.Add(statusBanner);
+
             trendPage.TabIndex = ledgerPage.TabIndex = 10;
             historyButton.TabIndex = 6;
 
@@ -197,68 +249,73 @@ namespace UsagePeek
             detailsPanel = new UsageDetailsControl(false);
             ledgerPage.Controls.Add(detailsPanel);
 
-            statusLabel = CreateLabel(codexPanel, "正在准备读取…", Rectangle.Empty, 8, false);
+            statusLabel = CreateLabel(codexPanel, "正在准备读取…", Rectangle.Empty, 8.8f, false);
             statusLabel.ForeColor = UiColors.Muted;
 
             statusButton = new GlyphButtonControl("系统状态 ↗", false);
-            statusButton.Click += delegate
-            {
-                OpenUrl("https://status.openai.com/");
-            };
+            statusButton.VisualStyle = GlyphButtonStyle.Subtle;
+            statusButton.Click += delegate { OpenUrl("https://status.openai.com/"); };
 
             dashboardButton = new GlyphButtonControl("官方用量 ↗", false);
-            dashboardButton.Click += delegate
-            {
-                OpenUrl(OfficialUsageUrl);
-            };
+            dashboardButton.VisualStyle = GlyphButtonStyle.Subtle;
+            dashboardButton.Click += delegate { OpenUrl(OfficialUsageUrl); };
 
             currencyButton = new GlyphButtonControl("$ USD  ·  换算", false);
+            currencyButton.VisualStyle = GlyphButtonStyle.Subtle;
             currencyButton.Click += delegate
             {
                 EventHandler handler = CurrencyToggleRequested;
-                if (handler != null)
-                {
-                    handler(this, EventArgs.Empty);
-                }
+                if (handler != null) handler(this, EventArgs.Empty);
             };
 
             refreshButton = new GlyphButtonControl("↻  刷新", true);
             refreshButton.Click += delegate
             {
                 EventHandler handler = RefreshRequested;
-                if (handler != null)
-                {
-                    handler(this, EventArgs.Empty);
-                }
+                if (handler != null) handler(this, EventArgs.Empty);
             };
 
             modelUsageButton = new GlyphButtonControl("模型占比", false);
+            modelUsageButton.VisualStyle = GlyphButtonStyle.Subtle;
             modelUsageButton.Enabled = false;
             modelUsageButton.Click += delegate
             {
                 EventHandler handler = ModelUsageRequested;
-                if (handler != null)
-                {
-                    handler(this, EventArgs.Empty);
-                }
+                if (handler != null) handler(this, EventArgs.Empty);
             };
 
-            repairButton = new GlyphButtonControl("修复连接", false);
+            repairButton = new GlyphButtonControl("连接帮助", false);
+            repairButton.VisualStyle = GlyphButtonStyle.Subtle;
             repairButton.Visible = false;
             repairButton.Click += delegate
             {
                 EventHandler handler = RepairRequested;
-                if (handler != null)
-                {
-                    handler(this, EventArgs.Empty);
-                }
+                if (handler != null) handler(this, EventArgs.Empty);
             };
 
-            codexPanel.Controls.AddRange(new Control[] {
+            codexPanel.Controls.AddRange(new Control[]
+            {
                 statusButton, dashboardButton, modelUsageButton, repairButton, refreshButton
             });
             detailsPanel.Controls.Add(currencyButton);
             additionalUsagePanel = new AdditionalUsagePanel();
+            additionalUsagePanel.AntigravityPlanChanged += delegate { UpdateHeaderPlanPill(); };
+            additionalUsagePanel.CurrencyToggleRequested += delegate
+            {
+                EventHandler handler = CurrencyToggleRequested;
+                if (handler != null) handler(this, EventArgs.Empty);
+            };
+            additionalUsagePanel.EstimateAuditRequested += delegate
+            {
+                EventHandler handler = EstimateAuditRequested;
+                if (handler != null) handler(this, EventArgs.Empty);
+            };
+            additionalUsagePanel.ModelUsageRequested += delegate
+            {
+                EventHandler handler = ModelUsageRequested;
+                if (handler != null) handler(this, EventArgs.Empty);
+            };
+            additionalUsagePanel.LiveChartVisibilityChanged += delegate { OnLiveChartVisibilityChanged(); };
             Controls.Add(additionalUsagePanel);
 
             MouseDown += DragWindow;
@@ -267,10 +324,11 @@ namespace UsagePeek
             trendPage.MouseDown += DragWindow;
             ledgerPage.MouseDown += DragWindow;
             quotaPanel.MouseDown += DragWindow;
+            chartCard.MouseDown += DragWindow;
             additionalUsagePanel.MouseDown += DragWindow;
-            brandMark.MouseDown += DragWindow;
             pageHeader.MouseDown += DragWindow;
             sourceTitle.MouseDown += DragWindow;
+            sourceSubtitle.MouseDown += DragWindow;
             KeyDown += delegate(object sender, KeyEventArgs args)
             {
                 if (args.KeyCode == Keys.Escape)
@@ -300,26 +358,24 @@ namespace UsagePeek
             };
             Deactivate += delegate
             {
-                if (Visible && !refreshButton.Focused)
-                {
-                    Hide();
-                }
+                if (Visible && !refreshButton.Focused) Hide();
             };
             LayoutDashboard();
             UpdateRoundedRegion();
             InitializeDpiLayout();
         }
 
-        private void AddSourceButton(Panel sidebar, UsageSource source, string title, string resource, Rectangle artwork)
+        private void AddSourceButton(Panel container, UsageSource source, string title, string resource, Rectangle artwork)
         {
             UsageSourceButton button = new UsageSourceButton(title, resource, artwork, source == UsageSource.UstcDeepSeek)
             {
+                DockMode = true,
                 AccessibleDescription = source == UsageSource.UstcDeepSeek ? "中科大 DeepSeek 待接入" : "查看" + title + "用量"
             };
             button.Click += delegate { ShowSource(source); };
             sourceButtons[(int)source] = button;
             sourceToolTip.SetToolTip(button, title);
-            sidebar.Controls.Add(button);
+            container.Controls.Add(button);
         }
 
         public void ShowSource(UsageSource source)
@@ -327,6 +383,7 @@ namespace UsagePeek
             if (currentSource == source) return;
             currentSource = source;
             bool showCodex = source == UsageSource.Codex;
+            bool showAntigravity = source == UsageSource.Antigravity;
 
             SuspendLayout();
             try
@@ -337,9 +394,16 @@ namespace UsagePeek
                 sourceTitle.Text = sourceButtons[(int)source].Text;
                 sourceTitle.AccessibleName = "当前用量来源 · " + sourceTitle.Text;
                 codexPanel.Visible = showCodex;
-                planPill.Visible = showCodex;
+                trendTab.Visible = showCodex || showAntigravity;
+                ledgerTab.Visible = showCodex || showAntigravity;
+                sourceSubtitle.Visible = !showCodex && !showAntigravity;
+                sourceSubtitle.Text = source == UsageSource.UstcDeepSeek ? "待接入" : "本机会话统计";
                 additionalUsagePanel.SetSource(source);
+                if (showAntigravity) additionalUsagePanel.SetAntigravityPage(ledgerSelected);
+                UpdateHeaderPlanPill();
                 LayoutDashboard();
+                sidebar.Invalidate();
+                pageHeader.Invalidate();
             }
             finally { ResumeLayout(true); }
             LoadQuotaChart();
@@ -366,9 +430,14 @@ namespace UsagePeek
 
         private GlyphButtonControl CreatePageTab(string name, EventHandler select)
         {
-            GlyphButtonControl tab = new GlyphButtonControl(name, false) { AccessibleRole = AccessibleRole.PageTab };
+            GlyphButtonControl tab = new GlyphButtonControl(name, false)
+            {
+                VisualStyle = GlyphButtonStyle.Segment,
+                Font = new Font("Microsoft YaHei UI", 9.0f, FontStyle.Regular),
+                AccessibleRole = AccessibleRole.PageTab
+            };
             tab.Click += select;
-            codexPanel.Controls.Add(tab);
+            pageHeader.Controls.Add(tab);
             return tab;
         }
 
@@ -383,6 +452,8 @@ namespace UsagePeek
             ledgerTab.Selected = showLedger;
             ApplyQuotaCardLayout();
             codexPanel.ResumeLayout(false);
+            if (additionalUsagePanel != null) additionalUsagePanel.SetAntigravityPage(showLedger);
+            pageHeader.Invalidate();
             AutoScrollPosition = Point.Empty;
             if (!showLedger) LoadQuotaChart();
             OnLiveChartVisibilityChanged();
@@ -392,12 +463,14 @@ namespace UsagePeek
         {
             GlyphButtonControl tab = new GlyphButtonControl(text, false)
             {
+                VisualStyle = GlyphButtonStyle.Segment,
+                Font = new Font("Segoe UI", 9.0f, FontStyle.Regular),
                 AccessibleRole = AccessibleRole.PageTab,
                 AccessibleDescription = label
             };
             tab.Click += delegate { SelectChartPeriod(period); };
             tab.TabIndex = period == UsageChartPeriod.LiveTps ? 2 : (int)period + 3;
-            codexPanel.Controls.Add(tab);
+            chartCard.Controls.Add(tab);
             return tab;
         }
 
@@ -405,11 +478,13 @@ namespace UsagePeek
         {
             GlyphButtonControl tab = new GlyphButtonControl(text, false)
             {
+                VisualStyle = GlyphButtonStyle.PillTab,
+                Font = new Font("Microsoft YaHei UI", 8.6f, FontStyle.Regular),
                 AccessibleRole = AccessibleRole.PageTab,
                 AccessibleDescription = label
             };
             tab.Click += delegate { SelectLiveStyle(style); };
-            codexPanel.Controls.Add(tab);
+            chartCard.Controls.Add(tab);
             return tab;
         }
 
@@ -428,6 +503,13 @@ namespace UsagePeek
             tokenRange.Selected = period == UsageChartPeriod.Tokens;
             sessionRange.Selected = period == UsageChartPeriod.SessionQuota;
             weeklyRange.Selected = period == UsageChartPeriod.WeeklyQuota;
+            if (chartTitleLabel != null)
+            {
+                chartTitleLabel.Text = period == UsageChartPeriod.Tokens ? "近 7 天 Token"
+                    : period == UsageChartPeriod.SessionQuota ? "5 小时额度 · 已用"
+                    : period == UsageChartPeriod.WeeklyQuota ? "7 天额度 · 已用"
+                    : "实时输出速度 · TPS";
+            }
             UpdateLiveStyleVisibility();
             LoadQuotaChart();
             OnLiveChartVisibilityChanged();
@@ -437,11 +519,125 @@ namespace UsagePeek
         {
             bool show = !ledgerSelected && activity.Period == UsageChartPeriod.LiveTps;
             foreach (GlyphButtonControl tab in liveStyleTabs) tab.Visible = show;
+            if (chartTitleLabel != null) chartTitleLabel.Visible = true;
+            if (chartCard != null) chartCard.Invalidate();
+        }
+
+        private void PaintProviderDock(object sender, PaintEventArgs e)
+        {
+            GraphicsState state = e.Graphics.Save();
+            UiDrawing.BeginLogicalPaint(sidebar, e.Graphics);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int w = UiDrawing.LogicalWidth(sidebar);
+            int h = UiDrawing.LogicalHeight(sidebar);
+            using (GraphicsPath track = UiDrawing.RoundedRectangle(new Rectangle(0, 0, w - 1, h - 1), 11))
+            using (SolidBrush brush = new SolidBrush(UiColors.Field))
+                e.Graphics.FillPath(brush, track);
+            e.Graphics.Restore(state);
+        }
+
+        private void PaintPageHeaderChrome(object sender, PaintEventArgs e)
+        {
+            if (currentSource != UsageSource.Codex && currentSource != UsageSource.Antigravity) return;
+            GraphicsState state = e.Graphics.Save();
+            UiDrawing.BeginLogicalPaint(pageHeader, e.Graphics);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int w = UiDrawing.LogicalWidth(pageHeader);
+            using (GraphicsPath segTrack = UiDrawing.RoundedRectangle(new Rectangle(w - 176, 3, 176, 32), 9))
+            using (SolidBrush brush = new SolidBrush(UiColors.Field))
+                e.Graphics.FillPath(brush, segTrack);
+            e.Graphics.Restore(state);
+        }
+
+        private void PaintChartCardChrome(object sender, PaintEventArgs e)
+        {
+            GraphicsState state = e.Graphics.Save();
+            UiDrawing.BeginLogicalPaint(chartCard, e.Graphics);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int w = UiDrawing.LogicalWidth(chartCard);
+            int h = UiDrawing.LogicalHeight(chartCard);
+            if (!ledgerSelected && activity.Period == UsageChartPeriod.LiveTps && w > 180)
+            {
+                using (GraphicsPath styleTrack = UiDrawing.RoundedRectangle(
+                    new Rectangle(w - 14 - 146, 10, 146, 26), 8))
+                using (SolidBrush brush = new SolidBrush(UiColors.Field))
+                    e.Graphics.FillPath(brush, styleTrack);
+            }
+            using (GraphicsPath bottomTrack = UiDrawing.RoundedRectangle(
+                new Rectangle(12, h - 40, Math.Max(1, w - 24), 30), 9))
+            using (SolidBrush brush = new SolidBrush(UiColors.Field))
+                e.Graphics.FillPath(brush, bottomTrack);
+            e.Graphics.Restore(state);
+        }
+
+        private void PaintCodexFooterRule(object sender, PaintEventArgs e)
+        {
+            GraphicsState state = e.Graphics.Save();
+            UiDrawing.BeginLogicalPaint(codexPanel, e.Graphics);
+            int w = UiDrawing.LogicalWidth(codexPanel);
+            using (Pen divider = new Pen(UiDrawing.WithAlpha(UiColors.Border, UiTheme.IsDark ? 110 : 145)))
+                e.Graphics.DrawLine(divider, 0, 452, w, 452);
+            e.Graphics.Restore(state);
         }
 
         public void SetLiveTps(DateTime atUtc, double? speed)
         {
             activity.AddLiveTps(atUtc, speed);
+        }
+
+        public void SetAntigravityLiveTps(DateTime atUtc, double? speed)
+        {
+            if (additionalUsagePanel != null) additionalUsagePanel.SetAntigravityLiveTps(atUtc, speed);
+        }
+
+        public void ReceiveAntigravityQuota(SourceQuotaSnapshot snapshot)
+        {
+            if (additionalUsagePanel != null) additionalUsagePanel.ReceiveAntigravityQuotaSnapshot(snapshot);
+            if (currentSource == UsageSource.Antigravity) UpdateHeaderPlanPill();
+        }
+
+        private void UpdateHeaderPlanPill()
+        {
+            if (currentSource == UsageSource.Codex)
+            {
+                planPill.Visible = true;
+                if (currentSnapshot != null)
+                    planPill.SetValue(currentSnapshot.PlanType, UiDrawing.UsageColor(HighestUsage(currentSnapshot)));
+                return;
+            }
+            if (currentSource == UsageSource.Antigravity)
+            {
+                SourceQuotaSnapshot ag = additionalUsagePanel == null ? null : additionalUsagePanel.CurrentAntigravityQuota;
+                if (ag != null && !string.IsNullOrWhiteSpace(ag.PlanType))
+                {
+                    planPill.Visible = true;
+                    planPill.SetValue(ag.PlanType, ResolveAntigravityPlanAccent(ag));
+                }
+                else
+                {
+                    planPill.Visible = false;
+                }
+                return;
+            }
+            planPill.Visible = false;
+        }
+
+        private static Color ResolveAntigravityPlanAccent(SourceQuotaSnapshot snapshot)
+        {
+            decimal? lowest = null;
+            if (snapshot != null && snapshot.Windows != null)
+            {
+                foreach (SourceQuotaWindow window in snapshot.Windows)
+                {
+                    if (window != null && window.RemainingPercent.HasValue &&
+                        (!lowest.HasValue || window.RemainingPercent.Value < lowest.Value))
+                        lowest = window.RemainingPercent.Value;
+                }
+            }
+            if (!lowest.HasValue) return UiColors.Accent;
+            if (lowest.Value <= 10m) return UiColors.Danger;
+            if (lowest.Value <= 25m) return UiColors.Warning;
+            return UiColors.Success;
         }
 
         private void OnLiveChartVisibilityChanged()
@@ -478,50 +674,80 @@ namespace UsagePeek
             activity.SetQuotaHistory(samples, untilUtc);
         }
 
+        internal void SetAntigravityPreviewForTesting(
+            SourceQuotaSnapshot quota,
+            AdditionalUsageTotals totals,
+            AntigravityCreditsSnapshot credits = null,
+            IList<QuotaHistorySample> quotaHistorySamples = null,
+            DateTime? quotaHistoryUntilUtc = null)
+        {
+            additionalUsagePanel.SetAntigravityPreviewForTesting(quota, totals, credits, quotaHistorySamples, quotaHistoryUntilUtc);
+            UpdateHeaderPlanPill();
+        }
+
         protected override void OnWorkingAreaFitted()
         {
             LayoutDashboard();
         }
 
+        private bool IsWeeklyOnly()
+        {
+            return currentSnapshot != null &&
+                currentSnapshot.Primary == null &&
+                (currentSnapshot.Secondary != null || currentSnapshot.IsProPlan());
+        }
+
         private void LayoutDashboard()
         {
             if (additionalUsagePanel == null) return;
-            const int contentWidth = DashboardWidth - ContentLeft - ContentRightMargin;
-            const int footer = 470;
-            SetBounds(sidebar, 4, 12, 48, 254);
+            const int dockWidth = 238;
+            SetBounds(sidebar, ContentInset, 14, dockWidth, 36);
+            int cursorX = 3;
             for (int index = 0; index < sourceButtons.Length; index++)
-                SetBounds(sourceButtons[index], 1, 53 + index * 46, 44, 42);
+            {
+                bool active = index == (int)currentSource;
+                int buttonWidth = active ? 112 : 38;
+                SetBounds(sourceButtons[index], cursorX, 3, buttonWidth, 30);
+                cursorX += buttonWidth + 2;
+            }
 
-            SetBounds(pageHeader, ContentLeft, 9, contentWidth, 40);
-            SetBounds(sourceTitle, 0, 0, currentSource == UsageSource.Codex ? 102 : contentWidth - 111, 40);
-            SetBounds(planPill, 104, 9, 88, 24);
-            SetBounds(settingsButton, contentWidth - 94, 4, 56, 31);
-            SetBounds(closeButton, contentWidth - 30, 4, 30, 31);
+            SetBounds(historyButton, DashboardWidth - ContentInset - 156, 16, 72, 32);
+            SetBounds(settingsButton, DashboardWidth - ContentInset - 80, 16, 48, 32);
+            SetBounds(closeButton, DashboardWidth - ContentInset - 28, 16, 28, 32);
 
-            SetBounds(codexPanel, ContentLeft, 51, contentWidth, footer + 56);
-            SetBounds(trendTab, 0, 0, 76, 31);
-            SetBounds(ledgerTab, 77, 0, 94, 31);
-            const int trendTop = 70;
-            SetBounds(trendPage, 0, trendTop, contentWidth, footer - trendTop - 5);
-            SetBounds(ledgerPage, 0, 41, contentWidth, footer - 46);
-            const int quotaTop = 228;
-            SetBounds(activity, 0, 0, contentWidth, quotaTop - 8);
-            SetBounds(historyButton, contentWidth - 94, 0, 94, 31);
-            SetBounds(quotaPanel, 0, quotaTop, contentWidth, QuotaBannerHeight + 6 + 2 * UsageCardControl.RowHeight + QuotaRowGap);
-            SetBounds(statusBanner, 0, 0, contentWidth, QuotaBannerHeight);
-            SetBounds(totalsPanel, 0, 0, contentWidth, 90);
-            SetBounds(detailsPanel, 0, 99, contentWidth, 286);
-            SetBounds(currencyButton, contentWidth - 124, 3, 124, 29);
-            const int actionsY = footer + 24;
-            SetBounds(statusLabel, 0, footer, contentWidth, 23);
-            SetBounds(statusButton, 0, actionsY, 80, 32);
-            SetBounds(dashboardButton, 83, actionsY, 80, 32);
-            SetBounds(modelUsageButton, 166, actionsY, 85, 32);
-            SetBounds(repairButton, 166, actionsY, 85, 32);
-            SetBounds(refreshButton, contentWidth - 76, actionsY, 76, 32);
+            SetBounds(pageHeader, ContentInset, 58, ContentWidth, 38);
+            bool isCodex = currentSource == UsageSource.Codex;
+            bool isAntigravity = currentSource == UsageSource.Antigravity;
+            SetBounds(sourceTitle, 2, 0, isCodex ? 92 : isAntigravity ? 158 : ContentWidth - 140, 38);
+            SetBounds(planPill, isAntigravity ? 160 : 94, 6, 82, 26);
+            SetBounds(trendTab, ContentWidth - 175, 3, 84, 32);
+            SetBounds(ledgerTab, ContentWidth - 91, 3, 90, 32);
+            SetBounds(sourceSubtitle, ContentWidth - 138, 5, 136, 28);
 
-            int sourceHeight = currentSource == UsageSource.UstcDeepSeek ? 100 : 464;
-            SetBounds(additionalUsagePanel, ContentLeft, 52, contentWidth, sourceHeight);
+            SetBounds(codexPanel, ContentInset, 102, ContentWidth, 520);
+            SetBounds(trendPage, 0, 0, ContentWidth, 448);
+            SetBounds(ledgerPage, 0, 0, ContentWidth, 448);
+
+            SetBounds(quotaPanel, 0, 0, ContentWidth, UsageCardControl.RowHeight + 2);
+            SetBounds(chartCard, 0, 132, ContentWidth, 276);
+            SetBounds(chartTitleLabel, 14, 11, 200, 24);
+            SetBounds(activity, 14, 38, ContentWidth - 28, 194);
+            SetBounds(statusBanner, 0, 415, ContentWidth, 32);
+
+            SetBounds(totalsPanel, 0, 0, ContentWidth, 98);
+            SetBounds(detailsPanel, 0, 108, ContentWidth, 336);
+            SetBounds(currencyButton, ContentWidth - 142, 12, 126, 30);
+
+            SetBounds(statusLabel, 2, 457, ContentWidth - 4, 21);
+            const int actionsY = 483;
+            SetBounds(statusButton, 0, actionsY, 86, 34);
+            SetBounds(dashboardButton, 92, actionsY, 86, 34);
+            SetBounds(modelUsageButton, 184, actionsY, 82, 34);
+            SetBounds(repairButton, 184, actionsY, 82, 34);
+            SetBounds(refreshButton, ContentWidth - 88, actionsY, 88, 34);
+
+            int sourceHeight = currentSource == UsageSource.UstcDeepSeek ? 112 : 520;
+            SetBounds(additionalUsagePanel, ContentInset, 102, ContentWidth, sourceHeight);
             additionalUsagePanel.Arrange(DpiScaleFactor);
             ApplyQuotaCardLayout();
         }
@@ -539,10 +765,7 @@ namespace UsagePeek
         private void RequestSettings()
         {
             EventHandler handler = SettingsRequested;
-            if (handler != null)
-            {
-                handler(this, EventArgs.Empty);
-            }
+            if (handler != null) handler(this, EventArgs.Empty);
         }
 
         protected override CreateParams CreateParams
@@ -570,10 +793,9 @@ namespace UsagePeek
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             int logicalWidth = UiDrawing.LogicalWidth(this);
             int logicalHeight = UiDrawing.LogicalHeight(this);
-            Rectangle borderBounds = new Rectangle(
-                0, 0, logicalWidth - 1, logicalHeight - 1);
+            Rectangle borderBounds = new Rectangle(0, 0, logicalWidth - 1, logicalHeight - 1);
             using (GraphicsPath borderPath = UiDrawing.RoundedRectangle(
-                borderBounds, systemRoundedCorners ? 8 : 23))
+                borderBounds, systemRoundedCorners ? 8 : 22))
             using (Pen border = new Pen(UiColors.Border))
             {
                 e.Graphics.DrawPath(border, borderPath);
@@ -589,11 +811,7 @@ namespace UsagePeek
                 Math.Max(workArea.Left + 8, workArea.Right - Width - 12),
                 Math.Max(workArea.Top + 8, workArea.Bottom - Height - 12));
 
-            if (!Visible)
-            {
-                Show();
-            }
-
+            if (!Visible) Show();
             WindowState = FormWindowState.Normal;
             BringToFront();
             Activate();
@@ -605,22 +823,12 @@ namespace UsagePeek
             PrepareForScreen(screen);
             Rectangle workArea = screen.WorkingArea;
             int left = anchor.Left - Width - 14;
-            if (left < workArea.Left + 8)
-            {
-                left = anchor.Right + 14;
-            }
-            left = Math.Max(workArea.Left + 8,
-                Math.Min(left, workArea.Right - Width - 8));
-            int top = Math.Max(workArea.Top + 8,
-                Math.Min(anchor.Bottom - Height,
-                    workArea.Bottom - Height - 8));
+            if (left < workArea.Left + 8) left = anchor.Right + 14;
+            left = Math.Max(workArea.Left + 8, Math.Min(left, workArea.Right - Width - 8));
+            int top = Math.Max(workArea.Top + 8, Math.Min(anchor.Bottom - Height, workArea.Bottom - Height - 8));
             Location = new Point(left, top);
 
-            if (!Visible)
-            {
-                Show();
-            }
-
+            if (!Visible) Show();
             WindowState = FormWindowState.Normal;
             BringToFront();
             Activate();
@@ -628,23 +836,14 @@ namespace UsagePeek
 
         public void ToggleNearTray()
         {
-            if (Visible)
-            {
-                Hide();
-            }
-            else
-            {
-                ShowNearTray();
-            }
+            if (Visible) Hide();
+            else ShowNearTray();
         }
 
         public void SetLoading(bool loading)
         {
             refreshButton.Enabled = !loading;
-            if (repairButton.Visible)
-            {
-                repairButton.Enabled = !loading;
-            }
+            if (repairButton.Visible) repairButton.Enabled = !loading;
             refreshButton.DisplayText = loading ? "同步中…" : "↻  刷新";
             if (loading && currentSnapshot == null)
             {
@@ -656,22 +855,17 @@ namespace UsagePeek
 
         public void SetRepairing(bool repairing)
         {
-            if (repairing)
-            {
-                repairButton.Visible = true;
-            }
+            if (repairing) repairButton.Visible = true;
             repairButton.Enabled = !repairing;
-            repairButton.DisplayText = repairing ? "安装中…" : "修复连接";
+            repairButton.DisplayText = repairing ? "检测中…" : "连接帮助";
             refreshButton.Enabled = !repairing;
         }
 
         public void SetCurrencyLoading(bool loading)
         {
             currencyButton.Enabled = !loading;
-            if (loading)
-            {
-                currencyButton.DisplayText = "正在读取汇率…";
-            }
+            if (loading) currencyButton.DisplayText = "正在读取汇率…";
+            if (additionalUsagePanel != null) additionalUsagePanel.SetCurrencyLoading(loading);
         }
 
         public void SetCurrencyState(CurrencyDisplayState state)
@@ -683,13 +877,12 @@ namespace UsagePeek
             currencyButton.DisplayText = safe.ShowCny && safe.UsdToCnyRate.HasValue
                 ? "¥ CNY  ·  " + safe.UsdToCnyRate.Value.ToString("0.00")
                 : "$ USD  ·  换算";
+            if (additionalUsagePanel != null) additionalUsagePanel.SetCurrencyState(safe);
         }
 
         public void ShowTransientStatus(string message, bool isError)
         {
-            statusLabel.ForeColor = isError
-                ? UiColors.Warning
-                : UiColors.Success;
+            statusLabel.ForeColor = isError ? UiColors.Warning : UiColors.Success;
             statusLabel.Text = Shorten(message, 64);
         }
 
@@ -706,8 +899,7 @@ namespace UsagePeek
             ApplyQuotaCardLayout();
             primaryCard.SetWindow(snapshot.Primary);
             secondaryCard.SetWindow(snapshot.Secondary);
-            int highest = HighestUsage(snapshot);
-            planPill.SetValue(snapshot.PlanType, UiDrawing.UsageColor(highest));
+            if (currentSource == UsageSource.Codex) UpdateHeaderPlanPill();
             totalsPanel.SetSnapshot(snapshot);
             detailsPanel.SetSnapshot(snapshot);
             activity.SetSnapshot(snapshot);
@@ -743,7 +935,7 @@ namespace UsagePeek
             statusLabel.Text = string.IsNullOrWhiteSpace(message)
                 ? "暂时无法读取用量。"
                 : Shorten(message, 64);
-            planPill.SetValue("--", Color.FromArgb(100, 116, 139));
+            if (currentSource == UsageSource.Codex) planPill.SetValue("--", Color.FromArgb(100, 116, 139));
             SetRepairVisibility(NeedsRepair(message));
             if (currentSnapshot == null)
             {
@@ -769,9 +961,7 @@ namespace UsagePeek
         private void ApplyQuotaCardLayout()
         {
             if (primaryCard == null || secondaryCard == null) return;
-            bool weeklyOnly = currentSnapshot != null &&
-                currentSnapshot.Primary == null &&
-                (currentSnapshot.Secondary != null || currentSnapshot.IsProPlan());
+            bool weeklyOnly = IsWeeklyOnly();
             primaryCard.Visible = !weeklyOnly;
             tpsRange.Visible = tokenRange.Visible = weeklyRange.Visible = !ledgerSelected;
             sessionRange.Visible = !ledgerSelected && !weeklyOnly;
@@ -780,30 +970,45 @@ namespace UsagePeek
             {
                 SelectChartPeriod(UsageChartPeriod.WeeklyQuota);
             }
+
             int width = UiDrawing.LogicalWidth(quotaPanel);
+            int half = (width - BentoGap) / 2;
+            SetBounds(primaryCard, 0, 0, half, UsageCardControl.RowHeight);
+            SetBounds(secondaryCard, weeklyOnly ? 0 : half + BentoGap, 0,
+                weeklyOnly ? width : width - half - BentoGap, UsageCardControl.RowHeight);
+
+            int cardWidth = UiDrawing.LogicalWidth(chartCard);
+            int cardHeight = UiDrawing.LogicalHeight(chartCard);
+            int segY = cardHeight - 39;
+            int segInnerWidth = cardWidth - 28;
+            int segCount = weeklyOnly ? 3 : 4;
+            int segW = segInnerWidth / segCount;
+            SetBounds(tpsRange, 14, segY, segW, 28);
+            SetBounds(tokenRange, 14 + segW, segY, segW, 28);
+            if (weeklyOnly)
+            {
+                SetBounds(weeklyRange, 14 + segW * 2, segY, segInnerWidth - segW * 2, 28);
+            }
+            else
+            {
+                SetBounds(sessionRange, 14 + segW * 2, segY, segW, 28);
+                SetBounds(weeklyRange, 14 + segW * 3, segY, segInnerWidth - segW * 3, 28);
+            }
+
             for (int index = 0; index < liveStyleTabs.Length; index++)
-                SetBounds(liveStyleTabs[index], width - (liveStyleTabs.Length - index) * 48, 36, 44, 29);
-            SetBounds(tpsRange, 0, 36, 48, 29);
-            SetBounds(tokenRange, 51, 36, 58, 29);
-            SetBounds(sessionRange, 112, 36, 43, 29);
-            SetBounds(weeklyRange, weeklyOnly ? 112 : 158, 36, 43, 29);
-            const int rowTop = QuotaBannerHeight + 6;
-            SetBounds(primaryCard, 0, rowTop, width, UsageCardControl.RowHeight);
-            SetBounds(secondaryCard, 0, weeklyOnly ? rowTop : rowTop + UsageCardControl.RowHeight + QuotaRowGap,
-                width, UsageCardControl.RowHeight);
+            {
+                liveStyleTabs[index].VisualStyle = GlyphButtonStyle.Segment;
+                SetBounds(liveStyleTabs[index], cardWidth - 14 - 144 + index * 48, 11, 48, 24);
+            }
+
+            chartCard.Invalidate();
         }
 
         private static int HighestUsage(UsageSnapshot snapshot)
         {
             int highest = 0;
-            if (snapshot.Primary != null)
-            {
-                highest = Math.Max(highest, snapshot.Primary.UsedPercent);
-            }
-            if (snapshot.Secondary != null)
-            {
-                highest = Math.Max(highest, snapshot.Secondary.UsedPercent);
-            }
+            if (snapshot.Primary != null) highest = Math.Max(highest, snapshot.Primary.UsedPercent);
+            if (snapshot.Secondary != null) highest = Math.Max(highest, snapshot.Secondary.UsedPercent);
             return highest;
         }
 
@@ -817,25 +1022,20 @@ namespace UsagePeek
 
         private static bool NeedsRepair(string message)
         {
-            if (string.IsNullOrWhiteSpace(message))
-            {
-                return false;
-            }
-            return message.IndexOf("Windows 桌面版",
-                       StringComparison.OrdinalIgnoreCase) >= 0 ||
-                message.IndexOf("未找到 Codex",
-                       StringComparison.OrdinalIgnoreCase) >= 0 ||
-                message.IndexOf("Windows 保护",
-                       StringComparison.OrdinalIgnoreCase) >= 0 ||
-                message.IndexOf("无法启动",
-                       StringComparison.OrdinalIgnoreCase) >= 0;
+            if (string.IsNullOrWhiteSpace(message)) return false;
+            return message.IndexOf("Windows 桌面版", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("未找到 Codex", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("Windows 保护", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("无法启动", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("尚未登录", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                message.IndexOf("过旧", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void SetRepairVisibility(bool visible)
         {
             repairButton.Visible = visible;
             repairButton.Enabled = visible;
-            repairButton.DisplayText = "修复连接";
+            repairButton.DisplayText = "连接帮助";
             modelUsageButton.Visible = !visible;
         }
 
@@ -849,11 +1049,7 @@ namespace UsagePeek
 
         private void DragWindow(object sender, MouseEventArgs e)
         {
-            if (e.Button != MouseButtons.Left)
-            {
-                return;
-            }
-
+            if (e.Button != MouseButtons.Left) return;
             ReleaseCapture();
             SendMessage(Handle, WmNclButtonDown, new IntPtr(HtCaption), IntPtr.Zero);
         }
@@ -875,18 +1071,12 @@ namespace UsagePeek
                 Process.Start(info);
                 return true;
             }
-            catch
-            {
-                return false;
-            }
+            catch { return false; }
         }
 
         private void UpdateRoundedRegion()
         {
-            if (Width <= 0 || Height <= 0)
-            {
-                return;
-            }
+            if (Width <= 0 || Height <= 0) return;
 
             if (systemRoundedCorners)
             {
@@ -900,14 +1090,11 @@ namespace UsagePeek
             }
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(
-                new Rectangle(0, 0, Width, Height), ScaleLogical(24)))
+                new Rectangle(0, 0, Width, Height), ScaleLogical(22)))
             {
                 Region oldRegion = Region;
                 Region = new Region(path);
-                if (oldRegion != null)
-                {
-                    oldRegion.Dispose();
-                }
+                if (oldRegion != null) oldRegion.Dispose();
             }
         }
 

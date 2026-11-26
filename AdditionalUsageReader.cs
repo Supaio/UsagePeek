@@ -22,6 +22,21 @@ namespace UsagePeek
         public long LocalTotal { get; private set; }
         public bool Partial { get; set; }
         public readonly Dictionary<DateTime, long> RecentDays = new Dictionary<DateTime, long>();
+        public LocalTokenUsageSnapshot LocalUsage { get; private set; }
+        public EstimateAudit EstimateAudit { get; internal set; }
+
+        internal void SetLocalUsage(LocalTokenUsageSnapshot usage, DateTime localToday)
+        {
+            LocalUsage = usage;
+            Today = usage.Today.TotalTokens;
+            Yesterday = usage.Yesterday.TotalTokens;
+            Last30Days = usage.Last30Days.TotalTokens;
+            LocalTotal = usage.Lifetime.TotalTokens;
+            if (usage.DailyHistory == null) { Partial = true; return; }
+            foreach (KeyValuePair<DateTime, LocalUsageDay> day in usage.DailyHistory)
+                if (day.Key >= localToday.AddDays(-6) && day.Key <= localToday)
+                    RecentDays[day.Key] = day.Value.TotalTokens;
+        }
 
         public void Add(long tokens, DateTime recordedAtUtc, DateTime localToday)
         {
@@ -51,6 +66,7 @@ namespace UsagePeek
         private const int MaximumLogLineLength = 8 * 1024 * 1024;
         private static readonly DateTime UnixEpoch =
             new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        private static readonly object AntigravityAuditSync = new object();
 
         private struct UsageEvent
         {
@@ -65,43 +81,31 @@ namespace UsagePeek
             string root = source == AdditionalUsageSource.ClaudeCode
                 ? Path.Combine(string.IsNullOrWhiteSpace(config) ? Path.Combine(home, ".claude") : config, "projects")
                 : Path.Combine(home, ".gemini");
-            return Read(source, root, DateTime.Today, cancellation);
+            AdditionalUsageTotals totals = Read(source, root, DateTime.Today, cancellation, AntigravityLedgerPath());
+            if (source == AdditionalUsageSource.Antigravity)
+                totals.EstimateAudit = UpdateAntigravityEstimateAudit(totals.LocalUsage, null);
+            return totals;
         }
 
         internal static AdditionalUsageTotals Read(AdditionalUsageSource source, string root,
-            DateTime localToday, CancellationToken cancellation)
+            DateTime localToday, CancellationToken cancellation, string antigravityLedgerPath = null)
         {
             AdditionalUsageTotals totals = new AdditionalUsageTotals();
+            if (source == AdditionalUsageSource.Antigravity)
+            {
+                string path = antigravityLedgerPath ?? Path.Combine(root, "usagepeek-antigravity-ledger.json");
+                ReadAntigravity(root, path, localToday, totals, cancellation, antigravityLedgerPath != null);
+                return totals;
+            }
+
             Dictionary<string, UsageEvent> events = new Dictionary<string, UsageEvent>(StringComparer.Ordinal);
             try
             {
-                if (source == AdditionalUsageSource.ClaudeCode)
+                JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = MaximumLogLineLength };
+                foreach (string path in FindClaudeLogs(root, totals))
                 {
-                    JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = MaximumLogLineLength };
-                    foreach (string path in FindClaudeLogs(root, totals))
-                    {
-                        cancellation.ThrowIfCancellationRequested();
-                        ReadClaudeLog(path, json, totals, events, cancellation);
-                    }
-                }
-                else
-                {
-                    foreach (string store in Directory.GetDirectories(root, "antigravity*"))
-                    {
-                        cancellation.ThrowIfCancellationRequested();
-                        string conversations = Path.Combine(store, "conversations");
-                        foreach (string path in ListPaths(conversations, "*.db", false, totals))
-                        {
-                            cancellation.ThrowIfCancellationRequested();
-                            string conversation = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
-                            bool complete = AntigravityUsageDatabase.Read(path, cancellation,
-                                delegate(long index, long tokens, DateTime timestamp)
-                                {
-                                    Merge(events, conversation + ":" + index, tokens, timestamp);
-                                });
-                            totals.Partial |= !complete;
-                        }
-                    }
+                    cancellation.ThrowIfCancellationRequested();
+                    ReadClaudeLog(path, json, totals, events, cancellation);
                 }
             }
             catch (DirectoryNotFoundException) { }
@@ -117,6 +121,93 @@ namespace UsagePeek
                 totals.Add(item.Tokens, item.AtUtc, localToday);
             }
             return totals;
+        }
+
+        public static Dictionary<DateTime, LocalUsageDay> ReadAntigravityDailyHistory(DateTime firstDay, DateTime lastDay)
+        {
+            return new LocalUsageScanner(null, AntigravityLedgerPath(), null).ReadDailyHistory(firstDay, lastDay);
+        }
+
+        public static EstimateAudit UpdateAntigravityEstimateAudit(LocalTokenUsageSnapshot usage, CurrencyDisplayState currency)
+        {
+            lock (AntigravityAuditSync)
+            {
+                var cache = new UsageCache(Path.Combine(Path.GetDirectoryName(AntigravityLedgerPath()), "antigravity-estimate-audit.json"));
+                UsageSnapshot saved = cache.Load();
+                EstimateAudit audit = (saved == null ? null : saved.EstimateAudit) ?? new EstimateAudit();
+                CurrencyDisplayState rate = currency ?? new CurrencyDisplayState
+                {
+                    UsdToCnyRate = audit.Current == null ? null : audit.Current.CnyRate,
+                    RateDateUtc = audit.Current == null ? null : audit.Current.RateDateUtc
+                };
+                EstimateLedgerTotals previous = audit.Current == null ? null : audit.Current.Ledger;
+                EstimateLedgerTotals candidate = usage == null ? null : usage.EstimateTotals;
+                bool older = previous != null && candidate != null && previous.LedgerId == candidate.LedgerId &&
+                    !candidate.CanCompareWith(previous);
+                bool changed = older ? currency != null && audit.RecordRate(rate, DateTime.UtcNow) :
+                    audit.RecordLedger(usage, rate, DateTime.UtcNow);
+                if (changed) cache.Save(new UsageSnapshot { EstimateAudit = audit });
+                return audit;
+            }
+        }
+
+        private static string AntigravityLedgerPath()
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "UsagePeek", "antigravity-usage-ledger.json");
+        }
+
+        private static void ReadAntigravity(string root, string ledgerPath, DateTime localToday,
+            AdditionalUsageTotals totals, CancellationToken cancellation, bool fetchPublished)
+        {
+            var events = new Dictionary<string, LocalUsageScanner.UsageLedgerEvent>(StringComparer.Ordinal);
+            int filesScanned = 0;
+            try
+            {
+                foreach (string path in FindAntigravityDatabases(root, totals))
+                {
+                    cancellation.ThrowIfCancellationRequested();
+                    string conversation = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
+                    totals.Partial |= !AntigravityUsageDatabase.Read(path, cancellation, generation =>
+                    {
+                        if (generation.AtUtc.ToLocalTime().Date > localToday.Date) return;
+                        string key = AntigravityGenerationKey(conversation, generation.Index);
+                        LocalUsageScanner.UsageLedgerEvent previous;
+                        if (events.TryGetValue(key, out previous) && (previous.TotalTokens > generation.TotalTokens ||
+                            previous.TotalTokens == generation.TotalTokens && previous.Model != "未知模型")) return;
+                        events[key] = LocalUsageScanner.UsageLedgerEvent.From(key, generation.AtUtc,
+                            generation.Model ?? "未知模型", LocalUsageCategory.Unknown, new LocalUsageScanner.TokenVector
+                            {
+                                InputTokens = generation.InputTokens,
+                                CachedInputTokens = generation.CachedInputTokens,
+                                CacheWriteInputTokens = generation.CacheWriteInputTokens,
+                                OutputTokens = generation.OutputTokens,
+                                ReasoningOutputTokens = generation.ReasoningOutputTokens,
+                                TotalTokens = generation.TotalTokens
+                            }, conversation, null);
+                    });
+                    filesScanned++;
+                }
+            }
+            catch (IOException) { totals.Partial = true; }
+            catch (UnauthorizedAccessException) { totals.Partial = true; }
+            catch (SecurityException) { totals.Partial = true; }
+            catch (DllNotFoundException) { totals.Partial = true; }
+            catch (EntryPointNotFoundException) { totals.Partial = true; }
+            totals.SetLocalUsage(LocalUsageScanner.ReconcileAntigravity(ledgerPath, events.Values,
+                filesScanned, localToday, cancellation, fetchPublished), localToday);
+        }
+
+        internal static string AntigravityGenerationKey(string conversation, long generationIndex)
+        {
+            return conversation + ":" + generationIndex.ToString(CultureInfo.InvariantCulture);
+        }
+
+        internal static IEnumerable<string> FindAntigravityDatabases(string root, AdditionalUsageTotals totals)
+        {
+            foreach (string store in ListPaths(root, "antigravity*", true, totals))
+                foreach (string database in ListPaths(Path.Combine(store, "conversations"), "*.db", false, totals))
+                    yield return database;
         }
 
         private static IEnumerable<string> FindClaudeLogs(string root, AdditionalUsageTotals totals)

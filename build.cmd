@@ -49,9 +49,9 @@ if not "%~1"=="" set "OUTPUT=%~1"
   /reference:System.Web.Extensions.dll ^
   /out:"%OUTPUT%" ^
   Program.cs UsageModels.cs IUsageProvider.cs CodexResponseParser.cs ^
-  CodexExecutableLocator.cs CodexUsageProvider.cs CodexTpsMonitor.cs LocalUsageScanner.cs UsageCache.cs DisplayFormatting.cs ^
-  AdditionalUsageReader.cs AntigravityUsageDatabase.cs SourceQuotaStatusLine.cs AdditionalUsagePanel.cs UsageSourceButton.cs ^
-  ExchangeRateService.cs StartupManager.cs ExecutableIntegrity.cs UpdateService.cs CodexBootstrapService.cs ^
+  CodexExecutableLocator.cs CodexUsageProvider.cs CodexTpsMonitor.cs LocalUsageScanner.cs OpenAiModelPrices.cs AntigravityModelPrices.cs UsageCache.cs DisplayFormatting.cs ^
+  AdditionalUsageReader.cs AntigravityUsageDatabase.cs AntigravityTpsMonitor.cs AntigravityDesktopStatus.cs SourceQuotaStatusLine.cs AdditionalUsagePanel.cs UsageSourceButton.cs ^
+  ExchangeRateService.cs StartupManager.cs ExecutableIntegrity.cs UpdateService.cs ^
   DisplayModeSettings.cs DiagnosticsSnapshot.cs SettingsForm.cs ^
   PetRigAnimation.cs PetGifAnimation.cs AnimationFrameClock.cs LayeredPetSurface.cs ^
   PetForm.cs PetSizeDialog.cs TaskbarCreatedListener.cs ^

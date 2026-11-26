@@ -27,6 +27,7 @@ internal static class PetModeQa
             VerifyRefreshSpinnerCompletion();
             VerifyStatusHudContent();
             VerifyTpsRotation();
+            VerifyCombinedTpsRotation();
             VerifyRemainingArcComplementsUsedArc();
             VerifyWeeklyExhaustionHud();
             VerifyWeeklyWatermark();
@@ -773,6 +774,35 @@ internal static class PetModeQa
                             Check(CountChangedPixels(dates, stopped) == 0, "TPS stops rotating after the turn at " + scope);
                     }
                 }
+    }
+
+    private static void VerifyCombinedTpsRotation()
+    {
+        DateTime now = DateTime.UtcNow;
+        UsageSnapshot codex = Snapshot(7, 28, now.AddHours(1), now.AddDays(2));
+        UsageSnapshot gemini = Snapshot(32, 19, now.AddHours(3), now.AddDays(5));
+        UsageSnapshot claude = Snapshot(50, 60, now.AddHours(4), now.AddDays(6));
+        FieldInfo provider = typeof(PetForm).GetField("visibleAntigravityQuota", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo text = typeof(PetForm).GetField("visibleTpsText", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo caption = typeof(PetForm).GetField("visibleTpsCaption", BindingFlags.Instance | BindingFlags.NonPublic);
+        using (PetForm form = new PetForm())
+        {
+            form.SetUsage(codex);
+            form.SetAntigravityQuotas(gemini, claude);
+            form.SetTotalTps(true, 20, 12.5);
+            form.UpdateTpsPage(0);
+            Check(provider.GetValue(form) == null && text.GetValue(form) == null,
+                "combined capsule starts on Codex dates");
+            form.UpdateTpsPage(3000);
+            Check(provider.GetValue(form) == gemini && text.GetValue(form) == null,
+                "Antigravity dates are between Codex and total TPS");
+            form.UpdateTpsPage(6000);
+            Check(provider.GetValue(form) == null && (string)text.GetValue(form) == "≈ 32.5 TPS" &&
+                (string)caption.GetValue(form) == "总 TPS · Codex + AGY", "total TPS combines both measured sources");
+            form.UpdateTpsPage(12000);
+            Check(provider.GetValue(form) == claude,
+                "the next Antigravity slot displays the other model group");
+        }
     }
 
     private static void VerifyRefreshSpinnerCompletion()

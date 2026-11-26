@@ -11,7 +11,12 @@ namespace UsagePeek
         private readonly bool showTotals;
         private UsageSnapshot snapshot;
         private CurrencyDisplayState currency = new CurrencyDisplayState();
+        private AntigravityCreditsSnapshot antigravityCredits;
+        private bool antigravityCreditsLoading;
+        private DateTime? ledgerUpdatedAtUtc;
         private bool estimateHovered;
+
+        public bool AntigravityMode { get; set; }
 
         public event EventHandler EstimateAuditRequested;
 
@@ -41,6 +46,14 @@ namespace UsagePeek
         public void SetCurrency(CurrencyDisplayState value)
         {
             currency = value ?? new CurrencyDisplayState();
+            Invalidate();
+        }
+
+        public void SetAntigravityCredits(AntigravityCreditsSnapshot credits, bool loading, DateTime? ledgerObservedUtc)
+        {
+            antigravityCredits = credits;
+            antigravityCreditsLoading = loading;
+            if (ledgerObservedUtc.HasValue) ledgerUpdatedAtUtc = ledgerObservedUtc;
             Invalidate();
         }
 
@@ -127,62 +140,114 @@ namespace UsagePeek
             string lifetimeTokens = DisplayFormatting.FormatLifetimeTokens(snapshot);
             string lifetimeCost = FormatLifetimeCost();
             bool highlight = estimateHovered || (Focused && ShowFocusCues);
-            using (Font label = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 9f, FontStyle.Regular))
-            using (Font note = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 8f, FontStyle.Regular))
+            Rectangle leftTile = new Rectangle(0, 0, Math.Max(1, estimate.Left - 9), 96);
+            Rectangle rightTile = new Rectangle(estimate.Left, 0, Math.Max(1, estimate.Width - 1), 96);
+            UiDrawing.DrawAppleCard(graphics, leftTile, 15, false);
+            UiDrawing.DrawAppleCard(graphics, rightTile, 15, highlight);
+            using (Font label = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 9.0f, FontStyle.Regular))
+            using (Font note = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 8.5f, FontStyle.Regular))
             using (SolidBrush muted = new SolidBrush(UiColors.Muted))
             using (SolidBrush ink = new SolidBrush(UiColors.Text))
-            using (SolidBrush link = new SolidBrush(highlight ? UiColors.Accent : UiColors.Secondary))
+            using (SolidBrush link = new SolidBrush(highlight ? UiColors.Accent : UiColors.Accent))
             {
-                DrawText(graphics, "累计 Token", label, muted, new RectangleF(0, 2, estimate.Left, 19), false);
+                DrawText(graphics, AntigravityMode ? "本机累计 Token" : "累计 Token", label, muted, new RectangleF(14, 11, leftTile.Width - 24, 20), false);
                 DrawText(graphics, "本机累计估值 ›", label, link,
-                    new RectangleF(estimate.Left, 2, estimate.Width, 19), false);
+                    new RectangleF(rightTile.X + 14, 11, rightTile.Width - 24, 20), false);
                 DrawMetric(graphics, lifetimeTokens == "暂无数据"
                         ? "—" : lifetimeTokens.Replace(" tokens", string.Empty),
-                    ink, new RectangleF(0, 20, estimate.Left - 12, 49));
+                    ink, new RectangleF(14, 31, leftTile.Width - 26, 36));
                 DrawMetric(graphics, lifetimeCost == "暂无数据" ? "—" : lifetimeCost, ink,
-                    new RectangleF(estimate.Left, 20, estimate.Width, 49));
+                    new RectangleF(rightTile.X + 14, 31, rightTile.Width - 26, 36));
                 DrawText(graphics, DisplayFormatting.FormatLifetimeScope(snapshot), note, muted,
-                    new RectangleF(0, 69, estimate.Left, 17), false);
+                    new RectangleF(14, 71, leftTile.Width - 24, 18), false);
                 DrawText(graphics, FormatLifetimeCostNote(), note, muted,
-                    new RectangleF(estimate.Left, 69, estimate.Width, 17), false);
+                    new RectangleF(rightTile.X + 14, 71, rightTile.Width - 24, 18), false);
             }
         }
 
         private void DrawRows(Graphics graphics)
         {
+            int fullW = UiDrawing.LogicalWidth(this);
+            int fullH = UiDrawing.LogicalHeight(this);
+            UiDrawing.DrawAppleCard(graphics, new Rectangle(0, 0, Math.Max(1, fullW - 1), Math.Max(1, fullH - 2)), 15);
+            const float pad = 16f;
             using (Font labelFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 8.5f, FontStyle.Regular))
+                this, "Microsoft YaHei UI", 9.2f, FontStyle.Regular))
             using (Font valueFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 9f, FontStyle.Regular))
+                this, "Microsoft YaHei UI", 9.6f, FontStyle.Regular))
             using (Font smallFont = UiDrawing.LogicalFont(
-                this, "Microsoft YaHei UI", 7.8f, FontStyle.Regular))
+                this, "Microsoft YaHei UI", 8.6f, FontStyle.Regular))
             using (SolidBrush valueBrush = new SolidBrush(UiColors.Text))
             using (SolidBrush mutedBrush = new SolidBrush(UiColors.Muted))
             using (SolidBrush accentBrush = new SolidBrush(UiColors.Success))
-            using (Pen divider = new Pen(UiColors.Border))
+            using (Pen divider = new Pen(UiDrawing.WithAlpha(UiColors.Border, UiTheme.IsDark ? 120 : 155)))
             {
-                float width = UiDrawing.LogicalWidth(this);
-                float tokenEnd = Math.Max(139, width * 0.53f);
+                float width = fullW - pad;
+                float tokenEnd = Math.Max(pad + 138, fullW * 0.54f);
                 using (Font heading = UiDrawing.LogicalFont(this, "Microsoft YaHei UI", 11f, FontStyle.Bold))
-                    DrawText(graphics, "本机用量", heading, valueBrush, new RectangleF(0, 6, width - 130, 24), false);
+                    DrawText(graphics, AntigravityMode ? "本机用量与 Credits" : "本机用量", heading, valueBrush, new RectangleF(pad, 14, width - 150, 26), false);
 
                 DrawText(graphics, "本机周期", smallFont, mutedBrush,
-                    new RectangleF(0, 48, 64, 18), false);
+                    new RectangleF(pad, 52, 64, 18), false);
                 DrawText(graphics, "Token", smallFont, mutedBrush,
-                    new RectangleF(67, 48, tokenEnd - 67, 18), true);
+                    new RectangleF(pad + 66, 52, tokenEnd - pad - 66, 18), true);
                 DrawText(graphics, "API 等价估值", smallFont, mutedBrush,
-                    new RectangleF(tokenEnd + 8, 48, width - tokenEnd - 8, 18), true);
+                    new RectangleF(tokenEnd + 8, 52, width - tokenEnd - 8, 18), true);
 
-                DrawPeriodRow(graphics, "今天", 0, 72, tokenEnd,
+                DrawPeriodRow(graphics, "今天", 0, 78, tokenEnd,
                     labelFont, valueFont, mutedBrush, valueBrush);
-                DrawPeriodRow(graphics, "昨天", 1, 104, tokenEnd,
+                DrawPeriodRow(graphics, "昨天", 1, 108, tokenEnd,
                     labelFont, valueFont, mutedBrush, valueBrush);
-                DrawPeriodRow(graphics, "近 30 天", 2, 136, tokenEnd,
+                DrawPeriodRow(graphics, "近 30 天", 2, 138, tokenEnd,
                     labelFont, valueFont, mutedBrush, valueBrush);
 
-                graphics.DrawLine(divider, 0, 171, width, 171);
+                if (AntigravityMode)
+                {
+                    TokenPeriodSnapshot lifetime = snapshot == null || snapshot.LocalTokenUsage == null
+                        ? null : snapshot.LocalTokenUsage.Lifetime;
+                    long unpriced = lifetime == null ? 0L : Math.Max(0L, lifetime.TotalTokens - lifetime.PricedTokens);
+                    DrawText(graphics, "待补价 Token", labelFont, mutedBrush,
+                        new RectangleF(pad, 168, 96, 19), false);
+                    string unpricedText = lifetime == null || !lifetime.HasData ? "—"
+                        : unpriced > 0 ? DisplayFormatting.FormatTokens(unpriced) + "（待补公开单价）" : "0（已全部估价）";
+                    using (SolidBrush warnBrush = new SolidBrush(UiColors.Warning))
+                        DrawText(graphics, unpricedText, smallFont, unpriced > 0 ? warnBrush : mutedBrush,
+                            new RectangleF(pad + 98, 169, width - pad - 98, 18), true);
+
+                    string ledgerTime = ledgerUpdatedAtUtc.HasValue
+                        ? "本机估值更新 " + ledgerUpdatedAtUtc.Value.ToLocalTime().ToString("MM/dd HH:mm:ss", CultureInfo.InvariantCulture)
+                        : "本机账本扫描中…";
+                    DrawText(graphics, ledgerTime, smallFont, mutedBrush,
+                        new RectangleF(pad, 191, width - pad, 17), true);
+
+                    graphics.DrawLine(divider, pad, 214, width, 214);
+
+                    DrawText(graphics, "Antigravity Credits", labelFont, mutedBrush,
+                        new RectangleF(pad, 226, 132, 20), false);
+                    string creditsValue = FormatAntigravityCredits();
+                    DrawText(graphics, creditsValue, antigravityCredits != null ? valueFont : smallFont,
+                        antigravityCredits != null && antigravityCredits.RemainingCredits > 0m ? accentBrush
+                            : antigravityCredits != null ? valueBrush : mutedBrush,
+                        new RectangleF(pad + 134, 225, width - pad - 134, 20), true);
+
+                    DrawText(graphics, "Credits 更新", labelFont, mutedBrush,
+                        new RectangleF(pad, 254, 112, 20), false);
+                    string creditsTime = antigravityCredits != null && antigravityCredits.ObservedAtUtc != default(DateTime)
+                        ? antigravityCredits.ObservedAtUtc.ToLocalTime().ToString("MM/dd HH:mm:ss", CultureInfo.InvariantCulture)
+                        : antigravityCreditsLoading ? "同步中…" : "—";
+                    DrawText(graphics, creditsTime, smallFont, mutedBrush,
+                        new RectangleF(pad + 114, 255, width - pad - 114, 18), true);
+
+                    DrawText(graphics, "官方累计 / 重置卡", labelFont, mutedBrush,
+                        new RectangleF(pad, 282, 132, 20), false);
+                    DrawText(graphics, "暂未接入", smallFont, mutedBrush,
+                        new RectangleF(pad + 134, 283, width - pad - 134, 18), true);
+                    return;
+                }
+
+                graphics.DrawLine(divider, pad, 178, width, 178);
                 DrawText(graphics, "重置卡", labelFont, mutedBrush,
-                    new RectangleF(0, 186, 56, 18), false);
+                    new RectangleF(pad, 194, 56, 18), false);
                 string resetCount = snapshot != null &&
                     snapshot.RateLimitResetCreditsAvailable.HasValue
                     ? snapshot.RateLimitResetCreditsAvailable.Value + " 个可用"
@@ -190,21 +255,21 @@ namespace UsagePeek
                 DrawText(graphics, resetCount, labelFont,
                     snapshot != null && snapshot.RateLimitResetCreditsAvailable.GetValueOrDefault() > 0
                         ? accentBrush : valueBrush,
-                    new RectangleF(68, 186, width - 68, 18), true);
+                    new RectangleF(pad + 66, 194, width - pad - 66, 18), true);
                 DrawText(graphics, "Credits", labelFont, mutedBrush,
-                    new RectangleF(0, 212, 70, 18), false);
+                    new RectangleF(pad, 222, 70, 18), false);
                 DrawText(graphics, FormatCredits(), labelFont, valueBrush,
-                    new RectangleF(75, 212, width - 75, 18), true);
+                    new RectangleF(pad + 74, 222, width - pad - 74, 18), true);
 
                 DrawText(graphics, "最近到期", labelFont, mutedBrush,
-                    new RectangleF(0, 238, 78, 18), false);
+                    new RectangleF(pad, 250, 78, 18), false);
                 string expiryValue;
                 string expiryDetail;
                 FormatExpiry(out expiryValue, out expiryDetail);
                 DrawText(graphics, expiryValue, labelFont, valueBrush,
-                    new RectangleF(82, 238, width - 82, 18), true);
+                    new RectangleF(pad + 80, 250, width - pad - 80, 18), true);
                 DrawText(graphics, expiryDetail, smallFont, mutedBrush,
-                    new RectangleF(79, 258, width - 79, 16), true);
+                    new RectangleF(pad + 76, 270, width - pad - 76, 16), true);
             }
         }
 
@@ -215,7 +280,7 @@ namespace UsagePeek
             RectangleF bounds)
         {
             bool awaitingPrice = text == "价格待补充";
-            for (float size = awaitingPrice ? 23f : 29f; size >= 13f; size -= 1f)
+            for (float size = awaitingPrice ? 18f : 23f; size >= 13f; size -= 1f)
             {
                 using (Font font = UiDrawing.LogicalFont(
                     this, awaitingPrice ? "Microsoft YaHei UI" : "Segoe UI", size, FontStyle.Bold))
@@ -262,6 +327,13 @@ namespace UsagePeek
                 : DisplayFormatting.FormatDuration(remaining) + "后";
             detail = string.Format(CultureInfo.CurrentCulture,
                 "到期 {0:yyyy年M月d日 HH:mm}", earliest.Value.ToLocalTime());
+        }
+
+        internal string FormatAntigravityCredits()
+        {
+            if (antigravityCredits != null)
+                return antigravityCredits.RemainingCredits.ToString("#,0.##", CultureInfo.CurrentCulture) + " Credits";
+            return antigravityCreditsLoading ? "读取中…" : "请打开并登录桌面版后刷新";
         }
 
         private string FormatCredits()
@@ -354,12 +426,14 @@ namespace UsagePeek
                         ? DisplayFormatting.FormatPartialEstimatedMoney(period.EstimatedCostUsd, currency)
                         : "价格待补充";
             }
+            const float pad = 16f;
+            float rightEdge = UiDrawing.LogicalWidth(this) - pad;
             DrawText(graphics, label, labelFont, labelBrush,
-                new RectangleF(0, y, 65, 20), false);
+                new RectangleF(pad, y, 65, 20), false);
             DrawText(graphics, hasData ? DisplayFormatting.FormatTokens(period.TotalTokens) : "—",
-                valueFont, valueBrush, new RectangleF(67, y - 1, tokenEnd - 67, 20), true);
+                valueFont, valueBrush, new RectangleF(pad + 66, y - 1, tokenEnd - pad - 66, 20), true);
             DrawText(graphics, cost, valueFont, valueBrush,
-                new RectangleF(tokenEnd + 8, y - 1, UiDrawing.LogicalWidth(this) - tokenEnd - 8, 20), true);
+                new RectangleF(tokenEnd + 8, y - 1, rightEdge - tokenEnd - 8, 20), true);
         }
 
         private static void DrawText(

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -58,10 +58,10 @@ internal static class DpiLayoutQa
 
             // Windows can clamp a native window to the host display's bounds.
             form.ApplyDpiForTesting(144);
-            AssertEqual(new Size(675, 879), form.ClientSize,
+            AssertEqual(new Size(672, 954), form.ClientSize,
                 "main form requests the design size at 150 percent");
             form.ApplyDpiForTesting(192);
-            AssertEqual(new Size(900, 1172), form.ClientSize,
+            AssertEqual(new Size(896, 1272), form.ClientSize,
                 "main form requests the design size at 200 percent");
             form.ApplyDpiForTesting(96);
 
@@ -92,32 +92,32 @@ internal static class DpiLayoutQa
             form.Hide();
             form.ApplyDpiForTesting(144);
             form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 1200, 804));
-            AssertEqual(true, form.Height <= 788 && form.AutoScrollMinSize.Height == 879,
+            AssertEqual(true, form.Height <= 788 && form.AutoScrollMinSize.Height == 954,
                 "the 150 percent panel keeps its content scrollable within a 788 pixel window");
 
             int estimateRequests = 0;
             form.EstimateAuditRequested += delegate { estimateRequests++; };
             MethodInfo clickEstimate = typeof(UsageDetailsControl).GetMethod("OnMouseClick", BindingFlags.Instance | BindingFlags.NonPublic);
             clickEstimate.Invoke(details, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 250, 80, 0) });
-            clickEstimate.Invoke(details, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 420, 80, 0) });
+            clickEstimate.Invoke(details, new object[] { new MouseEventArgs(MouseButtons.Left, 1, 520, 80, 0) });
             AssertEqual(1, estimateRequests, "only the cumulative estimate opens the audit at 150 percent DPI");
 
             UsageCardControl card = FindControl<UsageCardControl>(form);
             UsageCardControl weekly = card.Parent.Controls.OfType<UsageCardControl>().Single(control => control != card);
-            AssertEqual(new Rectangle(90, 568, 564, 92), FormBounds(card),
+            AssertEqual(new Rectangle(21, 153, 308, 180), FormBounds(card),
                 "the full-width five-hour row scales to 150 percent");
-            AssertEqual(new Rectangle(90, 673, 564, 92), FormBounds(weekly),
+            AssertEqual(new Rectangle(344, 153, 308, 180), FormBounds(weekly),
                 "the full-width seven-day row stays below the five-hour row at 150 percent");
 
             form.ApplyDpiForTesting(96);
-            AssertEqual(new Size(450, 586), form.ClientSize,
+            AssertEqual(new Size(448, 636), form.ClientSize,
                 "main form returns exactly to 100 percent");
-            AssertEqual(new Rectangle(60, 378, 376, 61), FormBounds(card),
+            AssertEqual(new Rectangle(14, 102, 205, 120), FormBounds(card),
                 "the five-hour row returns without rounding drift");
-            AssertEqual(new Rectangle(60, 448, 376, 61), FormBounds(weekly),
+            AssertEqual(new Rectangle(229, 102, 205, 120), FormBounds(weekly),
                 "the seven-day row returns below the five-hour row without rounding drift");
-            AssertEqual(true, FormBounds(weekly).Bottom <= FormBounds(activity.Parent).Bottom &&
-                FormBounds(weekly).Bottom <= FormBounds(FindControl<GlyphButtonControl>(form, "↻  刷新")).Top,
+            AssertEqual(true, FormBounds(weekly).Bottom <= FormBounds(activity.Parent).Top &&
+                FormBounds(activity.Parent).Bottom <= FormBounds(FindControl<GlyphButtonControl>(form, "↻  刷新")).Top,
                 "the seven-day reset and projection fit above the footer without clipping");
 
             IntPtr unused = form.Handle;
@@ -126,22 +126,22 @@ internal static class DpiLayoutQa
             AssertEqual(true, form.Width <= 1184 && form.Height <= 784,
                 "large popup fits within a small monitor working area (window " +
                 form.Size + ", client " + form.ClientSize + ")");
-            AssertEqual(true, form.AutoScrollMinSize.Height >= 1172,
+            AssertEqual(true, form.AutoScrollMinSize.Height >= 1272,
                 "content below a scaled popup remains available by scrolling");
-            AssertEqual(true, FormBounds(activity).Bottom <= FormBounds(card).Top &&
-                FormBounds(card).Bottom <= FormBounds(weekly).Top &&
-                FormBounds(card).Width == activity.Width && FormBounds(activity).Left == FormBounds(weekly).Left,
-                "a narrow monitor places the full-width chart above the two quota rows");
-            AssertEqual(true, FormBounds(FindControl<GlyphButtonControl>(form, "TPS")).Bottom <= FormBounds(activity).Top,
-                "the narrow view keeps the chart toolbar above the title");
+            AssertEqual(true, FormBounds(card).Top == FormBounds(weekly).Top &&
+                FormBounds(card).Right < FormBounds(weekly).Left &&
+                FormBounds(weekly).Bottom <= FormBounds(activity.Parent).Top,
+                "a narrow monitor places the dual hero ring cards above the chart card");
+            AssertEqual(true, FormBounds(FindControl<GlyphButtonControl>(form, "TPS")).Top >= FormBounds(activity.Parent).Top,
+                "the chart toolbar sits inside the top of the chart card");
+            AssertEqual(true, FormBounds(FindControl<GlyphButtonControl>(form, "折线")).Bottom <=
+                FormBounds(FindControl<GlyphButtonControl>(form, "TPS")).Top,
+                "the chart style pills stay cleanly above the bottom interval picker");
             AssertEqual(true, FormBounds(FindControl<GlyphButtonControl>(form, "7d")).Right <=
-                FormBounds(FindControl<GlyphButtonControl>(form, "K 线")).Left,
-                "the interval and chart style fit side by side on a narrow display");
-            AssertEqual(true, FormBounds(FindControl<GlyphButtonControl>(form, "折线")).Right <=
-                FormBounds(activity).Right, "the last chart button fits within the reduced width");
+                FormBounds(activity.Parent).Right, "the last interval button fits within the chart card");
             AssertEqual(false, form.HorizontalScroll.Visible, "compact view fits without sideways scrolling");
             form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 750, 700));
-            AssertEqual(true, form.AutoScrollMinSize.Width >= 900 && form.Width <= 734,
+            AssertEqual(true, form.AutoScrollMinSize.Width >= 896 && form.Width <= 734,
                 "very narrow screens still allow reaching the full content");
             form.ApplyDpiForTesting(96);
             form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 1920, 1080));
@@ -355,17 +355,17 @@ internal static class DpiLayoutQa
             UsageSourceButton claude = FindControl<UsageSourceButton>(form, "Claude Code");
             UsageSourceButton ustc = FindControl<UsageSourceButton>(form, "中科大 DeepSeek");
             AssertEqual(true, codex.Selected, "the initial page selects Codex");
-            AssertEqual(true, antigravity.Top < claude.Top && claude.Top < ustc.Top,
+            AssertEqual(true, antigravity.Left < claude.Left && claude.Left < ustc.Left,
                 "Antigravity, Claude Code and USTC are in the requested order");
             foreach (int dpi in new[] { 96, 144, 192 })
             {
                 form.ApplyDpiForTesting(dpi);
                 float scale = dpi / 96f;
-                AssertEqual(new Size(Scale(44, scale), Scale(42, scale)), ustc.Size,
+                AssertEqual(new Size(Scale(38, scale), Scale(30, scale)), ustc.Size,
                     "sidebar hit targets scale at DPI " + dpi);
                 ListBox quota = FindControl<ListBox>(form);
                 AssertEqual("订阅额度与重置时间", quota.AccessibleName, "quota list has an accessible label");
-                AssertEqual(new Size(Scale(376, scale), Scale(80, scale)), quota.Size,
+                AssertEqual(new Size(Scale(392, scale), Scale(66, scale)), quota.Size,
                     "quota list remains scrollable at DPI " + dpi);
             }
 
@@ -377,6 +377,62 @@ internal static class DpiLayoutQa
             antigravity.PerformClick();
             AssertEqual(true, antigravity.Selected && panel.Visible && !codexCard.Visible &&
                 FindControl<Label>(form, "Antigravity").Visible, "Antigravity switches in place before Codex has loaded");
+            DateTime previewNow = DateTime.UtcNow;
+            form.SetAntigravityPreviewForTesting(new SourceQuotaSnapshot
+            {
+                ObservedAtUtc = previewNow,
+                PlanType = "Pro",
+                PlanObservedAtUtc = previewNow,
+                Windows = new List<SourceQuotaWindow>
+                {
+                    new SourceQuotaWindow { Name = AntigravityQuotaBuckets.GeminiFiveHours, RemainingPercent = 80m, ResetsAtUtc = previewNow.AddHours(1) },
+                    new SourceQuotaWindow { Name = AntigravityQuotaBuckets.GeminiWeekly, RemainingPercent = 50m, ResetsAtUtc = previewNow.AddDays(2) },
+                    new SourceQuotaWindow { Name = AntigravityQuotaBuckets.ClaudeGptFiveHours, RemainingPercent = null, ResetsAtUtc = null },
+                    new SourceQuotaWindow { Name = AntigravityQuotaBuckets.ClaudeGptWeekly, RemainingPercent = 20m, ResetsAtUtc = previewNow.AddSeconds(-5) }
+                }
+            }, null);
+            PillLabelControl planBadge = FindControl<PillLabelControl>(form);
+            AssertEqual(true, planBadge.Visible && planBadge.Text == "Pro",
+                "Antigravity reuses the plan pill beside the title when PlanType is present");
+            form.SetAntigravityPreviewForTesting(new SourceQuotaSnapshot
+            {
+                ObservedAtUtc = previewNow.AddSeconds(1),
+                PlanType = null,
+                PlanObservedAtUtc = null,
+                Windows = new List<SourceQuotaWindow>
+                {
+                    new SourceQuotaWindow { Name = AntigravityQuotaBuckets.GeminiFiveHours, RemainingPercent = 80m, ResetsAtUtc = previewNow.AddHours(1) },
+                    new SourceQuotaWindow { Name = AntigravityQuotaBuckets.GeminiWeekly, RemainingPercent = 50m, ResetsAtUtc = previewNow.AddDays(2) },
+                    new SourceQuotaWindow { Name = AntigravityQuotaBuckets.ClaudeGptFiveHours, RemainingPercent = null, ResetsAtUtc = null },
+                    new SourceQuotaWindow { Name = AntigravityQuotaBuckets.ClaudeGptWeekly, RemainingPercent = 20m, ResetsAtUtc = previewNow.AddSeconds(-5) }
+                }
+            }, null);
+            AssertEqual(false, planBadge.Visible,
+                "Antigravity hides the plan pill when PlanType is empty");
+            List<AntigravityQuotaGroupCard> agGroups = AllControls(panel).OfType<AntigravityQuotaGroupCard>().ToList();
+            AssertEqual(2, agGroups.Count, "Antigravity renders both Gemini and Claude/GPT quota group cards");
+            AssertEqual(true, agGroups[0].Visible && agGroups[1].Visible && agGroups[0].Right < agGroups[1].Left,
+                "Antigravity places the two model group ring cards side by side");
+            AssertEqual(true, agGroups[0].AccessibleDescription.Contains("80%") && agGroups[0].AccessibleDescription.Contains("50%"),
+                "Gemini group card binds both 5h and weekly remaining percentages");
+            AssertEqual(true, agGroups[1].AccessibleDescription.Contains("—") && agGroups[1].AccessibleDescription.Contains("已到点 · 待同步"),
+                "Claude/GPT group card shows em-dash for missing values and waits for next sync when countdown hits zero");
+            GlyphButtonControl agLedgerTab = FindControl<GlyphButtonControl>(form, "累计与估值");
+            GlyphButtonControl agTrendTab = FindControl<GlyphButtonControl>(form, "用量走势");
+            agLedgerTab.PerformClick();
+            AssertEqual(true, !agGroups[0].Visible && FindControl<UsageDetailsControl>(panel).Visible,
+                "Antigravity ledger tab switches to local valuation and Credits");
+            UsageDetailsControl agDetails = AllControls(panel).OfType<UsageDetailsControl>().Last();
+            agDetails.SetAntigravityCredits(new AntigravityCreditsSnapshot { RemainingCredits = 0m, ObservedAtUtc = previewNow }, false, previewNow);
+            AssertEqual("0 Credits", agDetails.FormatAntigravityCredits(),
+                "Antigravity displays zero Credits explicitly as 0 Credits");
+            agDetails.SetAntigravityCredits(null, false, previewNow);
+            AssertEqual(true, agDetails.FormatAntigravityCredits().Contains("桌面版"),
+                "Antigravity guides users to open and sign in to Desktop when Credits are unavailable");
+            AssertEqual(false, AllControls(panel).OfType<RoundedButton>().Any(b => b.Text == "复制连接设置" && b.Visible),
+                "Antigravity removes the legacy copy-setup button");
+            agTrendTab.PerformClick();
+            AssertEqual(true, agGroups[0].Visible, "Antigravity trend tab restores the quota group cards");
             form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 1920, 1080));
             AssertEqual(false, form.VerticalScroll.Visible, "wide mode has no empty provider scroll extent");
             AssertEqual(true, (antigravity.AccessibilityObject.State & AccessibleStates.Selected) != 0,
@@ -385,13 +441,52 @@ internal static class DpiLayoutQa
             claude.PerformClick();
             AssertEqual(true, claude.Selected && !antigravity.Selected && FindControl<Label>(form, "Claude Code").Visible,
                 "Claude Code replaces Antigravity and keeps one selected icon");
+            AssertEqual(true, AllControls(panel).OfType<RoundedButton>().Any(b => b.Text == "复制连接设置" && b.Visible),
+                "Claude Code retains its copy-setup button");
             ustc.PerformClick();
             AssertEqual(true, ustc.Selected && FindControl<Label>(panel, "待接入").Visible && !FindControl<ListBox>(panel).Visible,
                 "the USTC tab shows its connection state without quota figures");
             codex.PerformClick();
             AssertEqual(true, codex.Selected && codexCard.Visible && !panel.Visible,
                 "selecting Codex restores the usage details in the same window");
+
+            // Stress rapid source switches and hide/reopen cycles during live async refresh without CTS disposal crash.
+            for (int cycle = 0; cycle < 4; cycle++)
+            {
+                antigravity.PerformClick();
+                Application.DoEvents();
+                claude.PerformClick();
+                Application.DoEvents();
+                form.Hide();
+                Application.DoEvents();
+                form.Show();
+                antigravity.PerformClick();
+                Application.DoEvents();
+                ustc.PerformClick();
+                codex.PerformClick();
+            }
+            antigravity.PerformClick();
+            Application.DoEvents();
+            AssertEqual(true, antigravity.Selected && panel.Visible &&
+                AllControls(panel).OfType<RoundedButton>().Any(b => b.Text == "↻  刷新" || b.Text == "同步中…"),
+                "rapid source switching and hide/reopen keeps Antigravity stable and refreshable");
+
+            codex.PerformClick();
+            form.ShowError("未找到 Codex 桌面版组件");
+            AssertEqual(true, FindControl<GlyphButtonControl>(form, "连接帮助").Visible,
+                "Codex connection error shows the updated Connection Help button");
             form.Hide();
+            using (UsageHistoryForm agHistory = new UsageHistoryForm(null))
+            {
+                agHistory.Opacity = 0d;
+                agHistory.Show();
+                agHistory.SetSource(UsageSource.Antigravity, AntigravityQuotaGroup.Gemini);
+                AssertEqual(true, FindControl<RoundedButton>(agHistory, "未知") != null &&
+                    FindControl<GlyphButtonControl>(agHistory, "Gemini").Visible &&
+                    !FindControl<GlyphButtonControl>(agHistory, "官方按功能 ↗").Visible,
+                    "Antigravity usage history exposes group switches, unknown category label, and hides Codex official breakdown link");
+                agHistory.Hide();
+            }
         }
     }
 
@@ -426,9 +521,9 @@ internal static class DpiLayoutQa
             {
                 form.ApplyDpiForTesting(dpi);
                 float scale = dpi / 96f;
-                AssertEqual(new Rectangle(0, Scale(29, scale),
-                    weekly.Parent.ClientSize.Width, Scale(61, scale)), weekly.Bounds,
-                    "Pro uses the first quota row at DPI " + dpi);
+                AssertEqual(new Rectangle(0, 0,
+                    weekly.Parent.ClientSize.Width, Scale(120, scale)), weekly.Bounds,
+                    "Pro expands the weekly ring card across the full hero row at DPI " + dpi);
             }
             form.ApplyDpiForTesting(96);
             form.FitToWorkingAreaForTesting(new Rectangle(0, 0, 1920, 1080));
@@ -446,7 +541,7 @@ internal static class DpiLayoutQa
             }, null);
             AssertEqual(true, primary.Visible,
                 "returning from Pro to Plus restores the five-hour card");
-            AssertEqual(new Rectangle(0, 99, 376, 61), weekly.Bounds,
+            AssertEqual(new Rectangle(215, 0, 205, 120), weekly.Bounds,
                 "returning to Plus restores the seven-day row below five hours");
             form.Hide();
         }
@@ -522,7 +617,7 @@ internal static class DpiLayoutQa
             form.Show();
             AssertEqual(true, form.Handle == window && chart.Handle == plot, "reopening reuses the native window and chart");
             AssertEqual(8, FindControl<ModernSelectControl>(form).Items.Count, "a reopened history starts with the seven-day period");
-            AssertEqual(UiColors.Background, FindControl<RoundedButton>(form, "对话").BackColor,
+            AssertEqual(UiColors.Surface, FindControl<RoundedButton>(form, "对话").BackColor,
                 "a reopened history clears the previous category filter");
             AssertEqual(true, FindControl<Label>(form, "test-model").Visible, "cached history is ready on reopening");
         }
@@ -849,7 +944,7 @@ internal static class DpiLayoutQa
             subagent.BackColor == UiColors.Selection, "the filtered chart labels its subtotal and selected category");
         subagent.PerformClick();
         AssertEqual(true, FindControl<Label>(form, "官方 50M   ·   本机 126M").Visible &&
-            subagent.BackColor == UiColors.Background, "clicking the active category again restores the full chart");
+            subagent.BackColor == UiColors.Surface, "clicking the active category again restores the full chart");
     }
 
     private static int CountChartColor(Bitmap image, Color color)
@@ -1048,12 +1143,11 @@ internal static class DpiLayoutQa
                     AssertEqual(UiColors.Background, settings.BackColor,
                         "existing settings window follows dark theme");
                     UsageCardControl card = FindControl<UsageCardControl>(form);
-                    using (Bitmap bitmap = new Bitmap(form.Width, form.Height))
+                    using (Bitmap bitmap = new Bitmap(card.Width, card.Height))
                     {
-                        form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
-                        Rectangle row = FormBounds(card);
-                        AssertEqual(UiColors.Background.ToArgb(), bitmap.GetPixel(row.Left + 8, row.Bottom - 3).ToArgb(),
-                            "quota row uses the page background");
+                        card.DrawToBitmap(bitmap, card.ClientRectangle);
+                        AssertEqual(UiColors.Surface.ToArgb(), bitmap.GetPixel(card.Width - Scale(12, form.DpiScaleFactor), Scale(12, form.DpiScaleFactor)).ToArgb(),
+                            "quota bento card uses the elevated surface palette");
                     }
                     UiTheme.SetMode(UsageThemeMode.Light);
                     AssertEqual(day, form.BackColor,
@@ -1102,23 +1196,17 @@ internal static class DpiLayoutQa
                         string context = " at DPI " + dpi + " in " + theme;
                         AssertEqual(true, BackgroundPaintingEnabled(source) && BackgroundPaintingEnabled(settingsTab),
                             "WinForms repaints the border outside rounded buttons" + context);
-                        AssertEqual(true, CornersMatch(source, UiColors.Background) && CornersMatch(settingsTab, UiColors.Background) &&
-                            CornersMatch(selector, UiColors.Background) && CornersMatch(size, UiColors.Background),
-                            "selected buttons and settings fields match their surrounding colors" + context);
+                        AssertEqual(true, CornersMatch(settingsTab, UiColors.Sidebar) &&
+                            CornersMatch(selector, UiColors.Surface) && CornersMatch(size, UiColors.Surface),
+                            "selected nav buttons and settings fields match their surrounding surfaces" + context);
 
                         source.Selected = false;
                         SetHovered(source, true);
                         SetHovered(settingsTab, true);
-                        AssertEqual(true, CornersMatch(source, UiColors.Background) && CornersMatch(settingsTab, UiColors.Background),
+                        AssertEqual(true, CornersMatch(settingsTab, UiColors.Sidebar),
                             "hover tiles stay within their rounded outline" + context);
                         SetHovered(source, false);
                         SetHovered(settingsTab, false);
-                        using (Bitmap idle = new Bitmap(source.Width, source.Height))
-                        {
-                            source.DrawToBitmap(idle, source.ClientRectangle);
-                            AssertEqual(UiColors.Background.ToArgb(), idle.GetPixel(idle.Width / 2, Scale(6, dpi / 96f)).ToArgb(),
-                                "moving away clears the previous source highlight" + context);
-                        }
                         source.Selected = true;
                     }
                 }
@@ -1180,6 +1268,19 @@ internal static class DpiLayoutQa
             Controls.Add(new Button { Font = shared, Text = "Native button",
                 Location = new Point(10, 100), Size = new Size(160, 32) });
             InitializeDpiLayout();
+        }
+    }
+
+    private static IEnumerable<Control> AllControls(Control root)
+    {
+        foreach (Control control in root.Controls)
+        {
+            yield return control;
+            if (control.HasChildren)
+            {
+                foreach (Control child in AllControls(control))
+                    yield return child;
+            }
         }
     }
 

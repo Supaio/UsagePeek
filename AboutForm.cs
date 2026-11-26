@@ -19,6 +19,7 @@ namespace UsagePeek
 
         internal string ExecutableSha256 { get; private set; }
         private readonly LinkLabel hashLabel;
+        private bool systemRoundedCorners;
 
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
@@ -58,6 +59,7 @@ namespace UsagePeek
 
             GlyphButtonControl closeButton =
                 new GlyphButtonControl("×", false);
+            closeButton.VisualStyle = GlyphButtonStyle.Ghost;
             closeButton.Size = new Size(30, 30);
             closeButton.Location = new Point(342, 25);
             closeButton.Font = new Font("Segoe UI", 13f, FontStyle.Regular);
@@ -98,6 +100,9 @@ namespace UsagePeek
                 new Point(16, 36), new Size(318, 36),
                 8.1f, FontStyle.Regular, UiColors.Secondary);
             SurfacePanel appInfoCard = new SurfacePanel();
+            appInfoCard.ShowTopRule = false;
+            appInfoCard.ShowSoftCard = true;
+            appInfoCard.CardRadius = 14;
             appInfoCard.Location = new Point(20, 80);
             appInfoCard.Size = new Size(350, 80);
             appInfoCard.Controls.Add(versionLabel);
@@ -198,15 +203,24 @@ namespace UsagePeek
                 area.Top + Math.Max(8, (area.Height - Height) / 2));
         }
 
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            systemRoundedCorners = UiTheme.TryApplyRoundedCorners(this);
+            UpdateRoundedRegion();
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            UiDrawing.BeginLogicalPaint(this, e.Graphics);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (GraphicsPath path = RoundedRectangle(
-                new Rectangle(0, 0, Width - 1, Height - 1),
-                ScaleLogical(18)))
-            using (Pen border = new Pen(UiColors.Border,
-                Math.Max(1f, DpiScaleFactor)))
+            int logicalWidth = UiDrawing.LogicalWidth(this);
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            using (GraphicsPath path = UiDrawing.RoundedRectangle(
+                new Rectangle(0, 0, logicalWidth - 1, logicalHeight - 1),
+                systemRoundedCorners ? 8 : 18))
+            using (Pen border = new Pen(UiColors.Border))
             {
                 e.Graphics.DrawPath(border, path);
             }
@@ -240,7 +254,10 @@ namespace UsagePeek
 
         private static Panel CreateCreditCard(Point location)
         {
-            Panel panel = new SurfacePanel();
+            SurfacePanel panel = new SurfacePanel();
+            panel.ShowTopRule = false;
+            panel.ShowSoftCard = true;
+            panel.CardRadius = 14;
             panel.Location = location;
             panel.Size = new Size(350, 58);
             return panel;
@@ -308,6 +325,17 @@ namespace UsagePeek
         {
             if (Width <= 0 || Height <= 0)
             {
+                return;
+            }
+            if (systemRoundedCorners)
+            {
+                Region previousRegion = Region;
+                if (previousRegion != null)
+                {
+                    Region = null;
+                    previousRegion.Dispose();
+                }
+                Invalidate();
                 return;
             }
 

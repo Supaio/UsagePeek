@@ -111,6 +111,8 @@ namespace UsagePeek
             Invalidate();
         }
 
+        public bool DockMode { get; set; }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             UiDrawing.BeginLogicalPaint(this, e.Graphics);
@@ -119,16 +121,29 @@ namespace UsagePeek
             int height = UiDrawing.LogicalHeight(this);
             if (width < 2 || height < 2) return;
 
-            using (GraphicsPath tile = UiDrawing.RoundedRectangle(new Rectangle(1, 1, width - 2, height - 2), 12))
+            if (DockMode)
             {
-                if (hovered)
-                using (SolidBrush background = new SolidBrush(UiColors.Field))
-                    e.Graphics.FillPath(background, tile);
+                PaintDockPill(e.Graphics, width, height);
+                return;
+            }
 
+            using (GraphicsPath tile = UiDrawing.RoundedRectangle(new Rectangle(2, 1, width - 4, height - 2), 11))
+            {
                 if (selected)
-                using (GraphicsPath marker = UiDrawing.RoundedRectangle(new Rectangle(2, 13, 3, height - 26), 2))
-                using (SolidBrush tint = new SolidBrush(UiColors.Accent))
-                    e.Graphics.FillPath(tint, marker);
+                {
+                    using (SolidBrush background = new SolidBrush(UiColors.Selection))
+                        e.Graphics.FillPath(background, tile);
+                    using (Pen outline = new Pen(UiDrawing.WithAlpha(UiColors.Accent, UiTheme.IsDark ? 65 : 42)))
+                        e.Graphics.DrawPath(outline, tile);
+                    using (GraphicsPath marker = UiDrawing.RoundedRectangle(new Rectangle(2, 11, 3, height - 22), 2))
+                    using (SolidBrush tint = new SolidBrush(UiColors.Accent))
+                        e.Graphics.FillPath(tint, marker);
+                }
+                else if (hovered)
+                {
+                    using (SolidBrush background = new SolidBrush(UiColors.Field))
+                        e.Graphics.FillPath(background, tile);
+                }
 
                 if (Focused && ShowFocusCues)
                 using (Pen outline = new Pen(UiColors.Accent)) e.Graphics.DrawPath(outline, tile);
@@ -179,6 +194,70 @@ namespace UsagePeek
                 using (StringFormat centered = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
                     e.Graphics.DrawString(Text.Substring(0, 1), logicalFont, foreground,
                         new Rectangle(iconCenter - 12, 0, 24, height), centered);
+            }
+        }
+
+        private void PaintDockPill(Graphics graphics, int width, int height)
+        {
+            Rectangle pill = new Rectangle(1, 1, width - 2, height - 2);
+            using (GraphicsPath tile = UiDrawing.RoundedRectangle(pill, 9))
+            {
+                if (selected)
+                {
+                    if (!UiTheme.IsDark)
+                    {
+                        using (GraphicsPath shadow = UiDrawing.RoundedRectangle(
+                            new Rectangle(pill.X, pill.Y + 1, pill.Width, pill.Height), 9))
+                        using (SolidBrush shadowBrush = new SolidBrush(Color.FromArgb(18, 15, 23, 42)))
+                            graphics.FillPath(shadowBrush, shadow);
+                    }
+                    using (SolidBrush bg = new SolidBrush(UiColors.SegmentActive))
+                        graphics.FillPath(bg, tile);
+                    using (Pen outline = new Pen(UiTheme.IsDark
+                        ? Color.FromArgb(26, 255, 255, 255)
+                        : Color.FromArgb(20, 15, 23, 42)))
+                        graphics.DrawPath(outline, tile);
+                }
+                else if (hovered)
+                {
+                    using (SolidBrush bg = new SolidBrush(UiDrawing.WithAlpha(UiColors.Surface, UiTheme.IsDark ? 85 : 155)))
+                        graphics.FillPath(bg, tile);
+                }
+                if (Focused && ShowFocusCues)
+                using (Pen focus = new Pen(UiColors.Accent))
+                    graphics.DrawPath(focus, tile);
+            }
+
+            bool showText = selected && width >= 68;
+            float iconSize = circular ? 19f : 18f;
+            float iconCenter = showText ? 17f : width / 2f;
+            if (mark != null)
+            {
+                float scale = iconSize / Math.Max(artwork.Width, artwork.Height);
+                float iw = artwork.Width * scale;
+                float ih = artwork.Height * scale;
+                RectangleF target = new RectangleF(iconCenter - iw / 2f, (height - ih) / 2f, iw, ih);
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                if (circular)
+                {
+                    using (GraphicsPath circle = new GraphicsPath())
+                    {
+                        GraphicsState st = graphics.Save();
+                        circle.AddEllipse(target);
+                        graphics.SetClip(circle, CombineMode.Intersect);
+                        graphics.DrawImage(mark, target, artwork, GraphicsUnit.Pixel);
+                        graphics.Restore(st);
+                    }
+                }
+                else graphics.DrawImage(mark, target, artwork, GraphicsUnit.Pixel);
+            }
+
+            if (showText)
+            {
+                string shortTitle = Text == "中科大 DeepSeek" ? "DeepSeek" : Text == "Claude Code" ? "Claude" : Text;
+                UiDrawing.DrawCrispText(this, graphics, shortTitle, "Microsoft YaHei UI", 9.0f, FontStyle.Bold,
+                    UiColors.Text, new Rectangle(30, 0, Math.Max(1, width - 35), height),
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
             }
         }
 

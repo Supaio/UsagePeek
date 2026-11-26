@@ -294,21 +294,40 @@ internal static class RenderQa
             snapshot.LocalTokenUsage.Lifetime.EstimatedCostUsd = 1234567.89m;
         }
 
-        if (string.Equals(mode, "history", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(mode, "history", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(mode, "antigravity-history", StringComparison.OrdinalIgnoreCase))
         {
+            bool agHistory = string.Equals(mode, "antigravity-history", StringComparison.OrdinalIgnoreCase);
             Dictionary<DateTime, LocalUsageDay> days = new Dictionary<DateTime, LocalUsageDay>();
             for (int index = 0; index < sampleDays.Length; index++)
             {
                 if (sampleDays[index].GetValueOrDefault() <= 0) continue;
                 LocalUsageDay day = new LocalUsageDay();
-                day.Add("gpt-6-astra", LocalUsageCategory.Conversation, sampleDays[index].Value * 4 / 5);
-                day.Add("gpt-5.6-sol", LocalUsageCategory.Subagent, sampleDays[index].Value / 5);
+                if (agHistory)
+                {
+                    day.Add("gemini-3-pro", LocalUsageCategory.Unknown, sampleDays[index].Value * 3 / 5);
+                    day.Add("claude-sonnet-4-6", LocalUsageCategory.Unknown, sampleDays[index].Value * 2 / 5);
+                }
+                else
+                {
+                    day.Add("gpt-6-astra", LocalUsageCategory.Conversation, sampleDays[index].Value * 4 / 5);
+                    day.Add("gpt-5.6-sol", LocalUsageCategory.Subagent, sampleDays[index].Value / 5);
+                }
                 days[DateTime.Today.AddDays(index - 6)] = day;
             }
             using (UsageHistoryForm history = new UsageHistoryForm(null))
             {
-                history.SetHistory(days, new List<QuotaHistorySample>());
-                history.SetUsage(snapshot);
+                if (agHistory)
+                {
+                    history.SetSource(UsageSource.Antigravity, AntigravityQuotaGroup.Gemini);
+                    history.SetHistory(days, CreateMarketHistory(DateTime.UtcNow));
+                    history.SetUsage(new UsageSnapshot { ProviderId = "antigravity", LocalTokenUsage = snapshot.LocalTokenUsage });
+                }
+                else
+                {
+                    history.SetHistory(days, new List<QuotaHistorySample>());
+                    history.SetUsage(snapshot);
+                }
                 Render(history, output, dpi);
             }
             return;
@@ -367,7 +386,87 @@ internal static class RenderQa
                     RateDateUtc = DateTime.UtcNow.Date
                 });
             }
-            if (string.Equals(mode, "antigravity", StringComparison.OrdinalIgnoreCase)) form.ShowSource(UsageSource.Antigravity);
+            if (mode.StartsWith("antigravity", StringComparison.OrdinalIgnoreCase))
+            {
+                form.ShowSource(UsageSource.Antigravity);
+                DateTime nowUtc = DateTime.UtcNow;
+                bool missingMode = string.Equals(mode, "antigravity-missing", StringComparison.OrdinalIgnoreCase);
+                SourceQuotaSnapshot agQuota = new SourceQuotaSnapshot
+                {
+                    ObservedAtUtc = nowUtc.AddSeconds(-18),
+                    PlanType = missingMode ? null : "Pro",
+                    PlanObservedAtUtc = missingMode ? (DateTime?)null : nowUtc.AddMinutes(-2),
+                    Windows = new List<SourceQuotaWindow>
+                    {
+                        new SourceQuotaWindow
+                        {
+                            Name = AntigravityQuotaBuckets.GeminiFiveHours,
+                            RemainingPercent = 82m,
+                            ResetsAtUtc = nowUtc.AddHours(2).AddMinutes(13).AddSeconds(45)
+                        },
+                        new SourceQuotaWindow
+                        {
+                            Name = AntigravityQuotaBuckets.GeminiWeekly,
+                            RemainingPercent = 64m,
+                            ResetsAtUtc = nowUtc.AddDays(3).AddHours(8).AddMinutes(12).AddSeconds(4)
+                        },
+                        new SourceQuotaWindow
+                        {
+                            Name = AntigravityQuotaBuckets.ClaudeGptFiveHours,
+                            RemainingPercent = missingMode ? (decimal?)null : 18m,
+                            ResetsAtUtc = missingMode ? (DateTime?)null : nowUtc.AddMinutes(42).AddSeconds(19)
+                        },
+                        new SourceQuotaWindow
+                        {
+                            Name = AntigravityQuotaBuckets.ClaudeGptWeekly,
+                            RemainingPercent = 76m,
+                            ResetsAtUtc = missingMode ? nowUtc.AddSeconds(-10) : nowUtc.AddDays(5).AddHours(14).AddMinutes(5).AddSeconds(30)
+                        }
+                    }
+                };
+                AdditionalUsageTotals agTotals = new AdditionalUsageTotals();
+                DateTime today = DateTime.Today;
+                long[] agDays = { 8200000, 19400000, 6500000, 24100000, 11300000, 9300000, 14800000 };
+                Dictionary<DateTime, LocalUsageDay> agDaily = new Dictionary<DateTime, LocalUsageDay>();
+                for (int index = 0; index < agDays.Length; index++)
+                {
+                    LocalUsageDay day = new LocalUsageDay();
+                    day.Add("gemini-3-pro", LocalUsageCategory.Unknown, agDays[index] * 3 / 5);
+                    day.Add("claude-sonnet-4-6", LocalUsageCategory.Unknown, agDays[index] * 2 / 5);
+                    agDaily[today.AddDays(index - 6)] = day;
+                }
+                LocalTokenUsageSnapshot agLocal = new LocalTokenUsageSnapshot
+                {
+                    FirstSeenAtUtc = nowUtc.AddMonths(-2),
+                    Today = PartialPeriod(14800000, 12900000, 9.42m),
+                    Yesterday = Period(9300000, 6.18m),
+                    Last30Days = Period(186400000, 112.50m),
+                    Lifetime = PartialPeriod(428900000, 412300000, 264.85m),
+                    DailyHistory = agDaily,
+                    ModelUsage = new List<ModelTokenUsageSnapshot>
+                    {
+                        Model("gemini-3-pro", 257340000, 60.0d),
+                        Model("claude-sonnet-4-6", 154960000, 36.1d),
+                        Model("future-preview-model", 16600000, 3.9d, false)
+                    }
+                };
+                agTotals.SetLocalUsage(agLocal, today);
+                AntigravityCreditsSnapshot agCredits = new AntigravityCreditsSnapshot
+                {
+                    RemainingCredits = 2450m,
+                    ObservedAtUtc = nowUtc.AddMinutes(-1)
+                };
+                form.SetAntigravityPreviewForTesting(agQuota, agTotals, agCredits, CreateMarketHistory(nowUtc), nowUtc);
+                if (string.Equals(mode, "antigravity-ledger", StringComparison.OrdinalIgnoreCase))
+                {
+                    FindByType<GlyphButtonControl>(form, "累计与估值").PerformClick();
+                }
+                else if (string.Equals(mode, "antigravity-7d", StringComparison.OrdinalIgnoreCase))
+                {
+                    AdditionalUsagePanel panel = FindByType<AdditionalUsagePanel>(form, null);
+                    panel.SelectAgChartPeriod(UsageChartPeriod.WeeklyQuota);
+                }
+            }
             if (string.Equals(mode, "claude-code", StringComparison.OrdinalIgnoreCase)) form.ShowSource(UsageSource.ClaudeCode);
             if (string.Equals(mode, "ustc", StringComparison.OrdinalIgnoreCase)) form.ShowSource(UsageSource.UstcDeepSeek);
             if (!liveChart) FindByType<GlyphButtonControl>(form, "Token").PerformClick();

@@ -13,14 +13,20 @@ namespace UsagePeek
         private const int LedgerVersion = 1;
         private const string UnknownHistoricalModel = "历史记录（模型未知）";
         private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(false);
+        private static readonly object AntigravityLedgerSync = new object();
+        private static readonly Lazy<OpenAiModelPrices> OfficialPrices = new Lazy<OpenAiModelPrices>(
+            () => new OpenAiModelPrices(Path.Combine(Path.GetDirectoryName(ResolveLedgerPath()), "openai-pricing.md")));
+        private static readonly Lazy<AntigravityModelPrices> AntigravityPrices = new Lazy<AntigravityModelPrices>(
+            () => new AntigravityModelPrices(Path.GetDirectoryName(ResolveLedgerPath())));
         private readonly string codexHome;
         private readonly string ledgerPath;
         private readonly LocalTokenUsageSnapshot legacySnapshot;
         private readonly JavaScriptSerializer ledgerSerializer;
+        private readonly OpenAiModelPrices officialPrices;
 
         public LocalUsageScanner()
             : this(ResolveCodexHome(), ResolveLedgerPath(),
-                TryLoadLegacySnapshot())
+                TryLoadLegacySnapshot(), OfficialPrices.Value)
         {
         }
 
@@ -32,11 +38,13 @@ namespace UsagePeek
         internal LocalUsageScanner(
             string root,
             string persistentLedgerPath,
-            LocalTokenUsageSnapshot cachedSnapshot)
+            LocalTokenUsageSnapshot cachedSnapshot,
+            OpenAiModelPrices officialPrices = null)
         {
             codexHome = root;
             ledgerPath = persistentLedgerPath;
             legacySnapshot = cachedSnapshot;
+            this.officialPrices = officialPrices;
             ledgerSerializer = new JavaScriptSerializer();
             ledgerSerializer.MaxJsonLength = int.MaxValue;
             ledgerSerializer.RecursionLimit = 100;
@@ -44,6 +52,7 @@ namespace UsagePeek
 
         public LocalTokenUsageSnapshot Scan()
         {
+            PricingCatalog pricing = new PricingCatalog(officialPrices == null ? null : officialPrices.GetCached());
             UsageAccumulator today = new UsageAccumulator();
             UsageAccumulator yesterday = new UsageAccumulator();
             UsageAccumulator last30Days = new UsageAccumulator();
@@ -62,7 +71,7 @@ namespace UsagePeek
             {
                 if (ScanFile(path, localToday, last30Start,
                     today, yesterday, last30Days, lifetime, modelTokens,
-                    observedEvents, sessionParents, ref firstSeen))
+                    observedEvents, sessionParents, pricing, ref firstSeen))
                 {
                     filesScanned++;
                 }
@@ -73,10 +82,34 @@ namespace UsagePeek
             snapshot.Yesterday = yesterday.ToSnapshot();
             snapshot.Last30Days = last30Days.ToSnapshot();
             snapshot.Lifetime = lifetime.ToSnapshot();
-            snapshot.ModelUsage = BuildModelUsage(modelTokens);
+            snapshot.ModelUsage = BuildModelUsage(modelTokens, pricing);
             snapshot.FirstSeenAtUtc = firstSeen;
             snapshot.FilesScanned = filesScanned;
-            return MergeWithPersistentLedger(snapshot, observedEvents.Values, sessionParents);
+            return MergeWithPersistentLedger(snapshot, observedEvents.Values, sessionParents, pricing, localToday);
+        }
+
+        internal static LocalTokenUsageSnapshot ReconcileAntigravity(string path,
+            ICollection<UsageLedgerEvent> events, int filesScanned, DateTime localToday,
+            System.Threading.CancellationToken cancellation, bool fetchPublished)
+        {
+            OpenAiModelPrices published = fetchPublished ? OfficialPrices.Value : null;
+            LocalUsageScanner scanner = new LocalUsageScanner(null, path, null, published);
+            PricingCatalog pricing = new PricingCatalog(published == null ? null : published.GetCached(), true,
+                fetchPublished ? AntigravityPrices.Value.GetCached() : null);
+            foreach (UsageLedgerEvent item in events)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                decimal? estimate = pricing.Estimate(item.Model, item.ToTokenVector());
+                item.HasPriceEstimate = estimate.HasValue;
+                item.EstimatedCostUsd = estimate.GetValueOrDefault();
+            }
+
+            lock (AntigravityLedgerSync)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                return scanner.MergeWithPersistentLedger(new LocalTokenUsageSnapshot { FilesScanned = filesScanned },
+                    events, new Dictionary<string, string>(StringComparer.Ordinal), pricing, localToday.Date);
+            }
         }
 
         internal Dictionary<DateTime, LocalUsageDay> ReadDailyHistory(DateTime firstDay, DateTime lastDay)
@@ -135,6 +168,7 @@ namespace UsagePeek
             IDictionary<string, long> modelTokens,
             IDictionary<string, UsageLedgerEvent> observedEvents,
             IDictionary<string, string> sessionParents,
+            PricingCatalog pricing,
             ref DateTime? firstSeen)
         {
             try
@@ -255,12 +289,12 @@ namespace UsagePeek
                             firstSeen = eventUtc;
                         }
 
-                        decimal? cost = PricingCatalog.Estimate(model, delta);
+                        decimal? cost = pricing.Estimate(model, delta);
                         DateTime localDate = eventUtc.ToLocalTime().Date;
                         lifetime.Add(delta.TotalTokens, cost);
                         AddModelTokens(modelTokens, model, delta.TotalTokens);
                         observedEvents.Add(fingerprint, UsageLedgerEvent.From(
-                            fingerprint, eventUtc, NormalizeModelName(model), category, delta, attributedId));
+                            fingerprint, eventUtc, NormalizeModelName(model), category, delta, attributedId, cost));
                         if (localDate >= last30Start && localDate <= localToday)
                         {
                             last30Days.Add(delta.TotalTokens, cost);
@@ -291,7 +325,9 @@ namespace UsagePeek
         private LocalTokenUsageSnapshot MergeWithPersistentLedger(
             LocalTokenUsageSnapshot current,
             ICollection<UsageLedgerEvent> observedEvents,
-            Dictionary<string, string> sessionParents)
+            Dictionary<string, string> sessionParents,
+            PricingCatalog pricing,
+            DateTime localToday)
         {
             bool repairFromBackup;
             bool unreadableLedger;
@@ -304,7 +340,7 @@ namespace UsagePeek
                 // A larger startup cache can still preserve the last good total.
                 UsageLedgerState fallback = CreateLedgerState(
                     current, observedEvents, sessionParents);
-                return BuildLedgerSnapshot(fallback, current.FilesScanned, false);
+                return BuildLedgerSnapshot(fallback, current.FilesScanned, false, pricing, localToday);
             }
 
             bool changed = repairFromBackup;
@@ -321,7 +357,7 @@ namespace UsagePeek
                     state.EstimateTotals = new EstimateLedgerTotals { LedgerId = Guid.NewGuid().ToString("N") };
                     changed = true;
                 }
-                changed = UpgradeMissingPriceEstimates(state) || changed;
+                changed = UpgradeMissingPriceEstimates(state, pricing) || changed;
                 Dictionary<string, UsageLedgerEvent> known =
                     new Dictionary<string, UsageLedgerEvent>(StringComparer.Ordinal);
                 foreach (UsageLedgerEvent item in state.Events)
@@ -358,7 +394,7 @@ namespace UsagePeek
                 ledgerSaved = TrySaveLedger(state, repairFromBackup);
             }
 
-            return BuildLedgerSnapshot(state, current.FilesScanned, ledgerSaved);
+            return BuildLedgerSnapshot(state, current.FilesScanned, ledgerSaved, pricing, localToday);
         }
 
         private UsageLedgerState CreateLedgerState(
@@ -517,7 +553,9 @@ namespace UsagePeek
         private LocalTokenUsageSnapshot BuildLedgerSnapshot(
             UsageLedgerState state,
             int filesScanned,
-            bool includeDailyHistory)
+            bool includeDailyHistory,
+            PricingCatalog pricing,
+            DateTime localToday)
         {
             UsageAccumulator today = new UsageAccumulator();
             UsageAccumulator yesterday = new UsageAccumulator();
@@ -529,7 +567,6 @@ namespace UsagePeek
                 ? new Dictionary<DateTime, LocalUsageDay>() : null;
             ConversationIndex conversations = includeDailyHistory
                 ? new ConversationIndex(state.SessionParents, ReadSessionTitles()) : null;
-            DateTime localToday = DateTime.Now.Date;
             DateTime last30Start = localToday.AddDays(-29);
             DateTime? firstSeen = state.BaselineFirstSeenAtUtc;
 
@@ -541,6 +578,9 @@ namespace UsagePeek
             }
 
             HashSet<string> verified = new HashSet<string>(StringComparer.Ordinal);
+            bool needsPriceRefresh = false;
+            bool missingGeminiPrice = false;
+            bool missingClaudePrice = false;
             foreach (UsageLedgerEvent item in state.Events)
             {
                 if (!IsValidLedgerEvent(item) ||
@@ -550,6 +590,15 @@ namespace UsagePeek
                 }
 
                 TokenVector usage = item.ToTokenVector();
+                if (!item.HasPriceEstimate)
+                {
+                    needsPriceRefresh |= OpenAiModelPrices.IsModelId(item.Model);
+                    if (pricing.IsAntigravity && item.Model != null)
+                    {
+                        missingGeminiPrice |= item.Model.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase);
+                        missingClaudePrice |= item.Model.StartsWith("claude-", StringComparison.OrdinalIgnoreCase);
+                    }
+                }
                 decimal? cost = item.HasPriceEstimate
                     ? item.EstimatedCostUsd
                     : (decimal?)null;
@@ -581,13 +630,17 @@ namespace UsagePeek
                 }
             }
 
+            if (needsPriceRefresh && officialPrices != null) officialPrices.RefreshIfDueAsync();
+            if ((missingGeminiPrice || missingClaudePrice) && officialPrices != null)
+                AntigravityPrices.Value.RefreshIfDue(missingGeminiPrice, missingClaudePrice);
+
             return new LocalTokenUsageSnapshot
             {
                 Today = today.ToSnapshot(),
                 Yesterday = yesterday.ToSnapshot(),
                 Last30Days = last30Days.ToSnapshot(),
                 Lifetime = lifetime.ToSnapshot(),
-                ModelUsage = BuildModelUsage(modelTokens),
+                ModelUsage = BuildModelUsage(modelTokens, pricing),
                 FirstSeenAtUtc = firstSeen,
                 FilesScanned = filesScanned,
                 DailyHistory = dailyHistory,
@@ -813,7 +866,7 @@ namespace UsagePeek
         }
 
         private static bool UpgradeMissingPriceEstimates(
-            UsageLedgerState state)
+            UsageLedgerState state, PricingCatalog pricing)
         {
             bool changed = false;
             if (state == null || state.Events == null)
@@ -828,7 +881,7 @@ namespace UsagePeek
                     continue;
                 }
 
-                decimal? estimate = PricingCatalog.Estimate(
+                decimal? estimate = pricing.Estimate(
                     item.Model, item.ToTokenVector());
                 if (estimate.HasValue)
                 {
@@ -886,6 +939,7 @@ namespace UsagePeek
         private Dictionary<string, string> ReadSessionTitles()
         {
             Dictionary<string, string> titles = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (codexHome == null) return titles;
             string path = Path.Combine(codexHome, "session_index.jsonl");
             try
             {
@@ -1219,7 +1273,7 @@ namespace UsagePeek
         }
 
         private static List<ModelTokenUsageSnapshot> BuildModelUsage(
-            IDictionary<string, long> totals)
+            IDictionary<string, long> totals, PricingCatalog pricing)
         {
             List<KeyValuePair<string, long>> entries =
                 new List<KeyValuePair<string, long>>();
@@ -1260,7 +1314,7 @@ namespace UsagePeek
                     Percentage = allTokens > 0
                         ? entry.Value * 100d / allTokens
                         : 0d,
-                    HasPriceEstimate = PricingCatalog.HasPrice(entry.Key)
+                    HasPriceEstimate = pricing.HasPrice(entry.Key)
                 });
             }
             return result;
@@ -1357,7 +1411,7 @@ namespace UsagePeek
             public DateTime UpdatedAtUtc { get; set; }
         }
 
-        private sealed class UsageLedgerEvent
+        internal sealed class UsageLedgerEvent
         {
             public UsageLedgerEvent()
             {
@@ -1383,9 +1437,9 @@ namespace UsagePeek
                 string model,
                 LocalUsageCategory category,
                 TokenVector usage,
-                string sessionId)
+                string sessionId,
+                decimal? estimatedCost)
             {
-                decimal? estimatedCost = PricingCatalog.Estimate(model, usage);
                 return new UsageLedgerEvent
                 {
                     Fingerprint = fingerprint,
@@ -1533,28 +1587,41 @@ namespace UsagePeek
 
         }
 
-        private static class PricingCatalog
+        private sealed class PricingCatalog
         {
-            public static bool HasPrice(string model)
+            private readonly IReadOnlyDictionary<string, ModelTokenPrice> published;
+            private readonly IReadOnlyDictionary<string, ModelTokenPrice> antigravityPrices;
+
+            public PricingCatalog(IReadOnlyDictionary<string, ModelTokenPrice> published, bool antigravity = false,
+                IReadOnlyDictionary<string, ModelTokenPrice> antigravityPrices = null)
+            {
+                this.published = published;
+                IsAntigravity = antigravity;
+                this.antigravityPrices = antigravityPrices;
+            }
+
+            public bool IsAntigravity { get; private set; }
+
+            public bool HasPrice(string model)
             {
                 return Find(model) != null;
             }
 
-            public static decimal? Estimate(string model, TokenVector usage)
+            public decimal? Estimate(string model, TokenVector usage)
             {
-                Price price = Find(model);
+                ModelTokenPrice price = Find(model);
                 if (price == null)
                 {
                     return null;
                 }
 
                 bool longContext = usage.InputTokens > 272000;
-                decimal inputRate = longContext ? price.LongInput : price.Input;
-                decimal cachedRate = longContext ? price.LongCached : price.Cached;
-                decimal cacheWriteRate = longContext
+                decimal? inputRate = longContext ? price.LongInput : price.Input;
+                decimal? cachedRate = longContext ? price.LongCached : price.Cached;
+                decimal? cacheWriteRate = longContext
                     ? price.LongCacheWrite
                     : price.CacheWrite;
-                decimal outputRate = longContext ? price.LongOutput : price.Output;
+                decimal? outputRate = longContext ? price.LongOutput : price.Output;
 
                 long cached = Math.Min(usage.InputTokens, usage.CachedInputTokens);
                 long cacheWrite = Math.Min(
@@ -1563,15 +1630,26 @@ namespace UsagePeek
                 long regularInput = Math.Max(0L,
                     usage.InputTokens - cached - cacheWrite);
 
-                return (regularInput * inputRate +
-                    cached * cachedRate +
-                    cacheWrite * cacheWriteRate +
-                    usage.OutputTokens * outputRate) / 1000000m;
+                if ((regularInput > 0 && !inputRate.HasValue) || (cached > 0 && !cachedRate.HasValue) ||
+                    (cacheWrite > 0 && !cacheWriteRate.HasValue) || (usage.OutputTokens > 0 && !outputRate.HasValue))
+                    return null;
+
+                return (regularInput * inputRate.GetValueOrDefault() +
+                    cached * cachedRate.GetValueOrDefault() +
+                    cacheWrite * cacheWriteRate.GetValueOrDefault() +
+                    usage.OutputTokens * outputRate.GetValueOrDefault()) / 1000000m;
             }
 
-            private static Price Find(string model)
+            private ModelTokenPrice Find(string model)
             {
                 string normalized = (model ?? string.Empty).Trim().ToLowerInvariant();
+                if (IsAntigravity)
+                {
+                    ModelTokenPrice providerPrice = FindAntigravityPrice(normalized);
+                    if (providerPrice != null) return providerPrice;
+                    if (antigravityPrices != null && antigravityPrices.TryGetValue(normalized, out providerPrice))
+                        return providerPrice;
+                }
                 if (normalized.EndsWith("-fast", StringComparison.Ordinal))
                 {
                     normalized = normalized.Substring(0, normalized.Length - 5);
@@ -1592,81 +1670,79 @@ namespace UsagePeek
 
                 switch (normalized)
                 {
+                    case "gpt-6.2-astra":
+                        return new ModelTokenPrice(8m, 0.4m, 10m, 40m,
+                            16m, 0.8m, 20m, 60m);
+                    case "gpt-6.2-sol":
+                        return new ModelTokenPrice(2m, 0.1m, 2.5m, 10m,
+                            4m, 0.2m, 5m, 15m);
+                    case "gpt-6.1-terra":
+                        return new ModelTokenPrice(1m, 0.05m, 1.25m, 5m,
+                            2m, 0.1m, 2.5m, 7.5m);
                     case "gpt-6-astra":
-                        return new Price(10m, 1m, 12.5m, 50m,
+                        return new ModelTokenPrice(10m, 1m, 12.5m, 50m,
                             20m, 2m, 25m, 75m);
                     case "gpt-6-sol":
-                        return new Price(2m, 0.2m, 2.5m, 10m,
+                        return new ModelTokenPrice(2m, 0.2m, 2.5m, 10m,
                             4m, 0.4m, 5m, 15m);
                     case "gpt-6.1-sol":
-                        return new Price(2m, 0.1m, 2.5m, 10m,
+                        return new ModelTokenPrice(2m, 0.1m, 2.5m, 10m,
                             4m, 0.2m, 5m, 15m);
                     case "gpt-6-luna":
-                        return new Price(0.1m, 0.01m, 0.125m, 0.5m,
+                        return new ModelTokenPrice(0.1m, 0.01m, 0.125m, 0.5m,
                             0.2m, 0.02m, 0.25m, 0.75m);
                     case "gpt-5.6-sol":
-                        return new Price(4m, 0.4m, 5m, 20m,
+                        return new ModelTokenPrice(4m, 0.4m, 5m, 20m,
                             8m, 0.8m, 10m, 30m);
                     case "gpt-5.6-terra":
-                        return new Price(2m, 0.2m, 2.5m, 12m,
+                        return new ModelTokenPrice(2m, 0.2m, 2.5m, 12m,
                             4m, 0.4m, 5m, 18m);
                     case "gpt-5.6-luna":
-                        return new Price(0.2m, 0.02m, 0.25m, 1.2m,
+                        return new ModelTokenPrice(0.2m, 0.02m, 0.25m, 1.2m,
                             0.4m, 0.04m, 0.5m, 1.8m);
                     case "gpt-5.5":
                     case "gpt-5.5-2026-04-23":
-                        return new Price(5m, 0.5m, 5m, 30m,
+                        return new ModelTokenPrice(5m, 0.5m, 5m, 30m,
                             10m, 1m, 10m, 45m);
                     case "gpt-5.3-codex":
                     case "gpt-5.2-codex":
-                        return new Price(1.75m, 0.175m, 1.75m, 14m,
+                        return new ModelTokenPrice(1.75m, 0.175m, 1.75m, 14m,
                             1.75m, 0.175m, 1.75m, 14m);
                     case "gpt-5.1-codex":
                     case "gpt-5.1-codex-max":
                     case "gpt-5-codex":
-                        return new Price(1.25m, 0.125m, 1.25m, 10m,
+                        return new ModelTokenPrice(1.25m, 0.125m, 1.25m, 10m,
                             1.25m, 0.125m, 1.25m, 10m);
                     case "gpt-5.1-codex-mini":
-                        return new Price(0.25m, 0.025m, 0.25m, 2m,
+                        return new ModelTokenPrice(0.25m, 0.025m, 0.25m, 2m,
                             0.25m, 0.025m, 0.25m, 2m);
                     case "codex-mini-latest":
-                        return new Price(1.5m, 0.375m, 1.5m, 6m,
+                        return new ModelTokenPrice(1.5m, 0.375m, 1.5m, 6m,
                             1.5m, 0.375m, 1.5m, 6m);
                     default:
-                        return null;
+                        ModelTokenPrice price;
+                        return published != null && published.TryGetValue(normalized, out price) ? price : null;
                 }
             }
 
-            private sealed class Price
+            private static ModelTokenPrice FindAntigravityPrice(string model)
             {
-                public Price(
-                    decimal input,
-                    decimal cached,
-                    decimal cacheWrite,
-                    decimal output,
-                    decimal longInput,
-                    decimal longCached,
-                    decimal longCacheWrite,
-                    decimal longOutput)
+                // Standard public text-token rates. Gemini cache storage is billed separately.
+                switch (model)
                 {
-                    Input = input;
-                    Cached = cached;
-                    CacheWrite = cacheWrite;
-                    Output = output;
-                    LongInput = longInput;
-                    LongCached = longCached;
-                    LongCacheWrite = longCacheWrite;
-                    LongOutput = longOutput;
+                    case "gemini-4-neon":
+                        return new ModelTokenPrice(3m, 0.15m, null, 15m, 3m, 0.15m, null, 15m);
+                    case "claude-opus-5-5":
+                        return new ModelTokenPrice(4m, 0.2m, 5m, 20m, 4m, 0.2m, 5m, 20m);
+                    case "claude-sonnet-5-5":
+                        return new ModelTokenPrice(2m, 0.1m, 2.5m, 10m, 2m, 0.1m, 2.5m, 10m);
+                    case "claude-sonnet-4-6":
+                        return new ModelTokenPrice(3m, 0.3m, 3.75m, 15m, 3m, 0.3m, 3.75m, 15m);
+                    case "claude-opus-4-6":
+                        return new ModelTokenPrice(5m, 0.5m, 6.25m, 25m, 5m, 0.5m, 6.25m, 25m);
+                    default:
+                        return null;
                 }
-
-                public decimal Input { get; private set; }
-                public decimal Cached { get; private set; }
-                public decimal CacheWrite { get; private set; }
-                public decimal Output { get; private set; }
-                public decimal LongInput { get; private set; }
-                public decimal LongCached { get; private set; }
-                public decimal LongCacheWrite { get; private set; }
-                public decimal LongOutput { get; private set; }
             }
         }
     }

@@ -17,6 +17,7 @@ namespace UsagePeek
         private readonly FlowLayoutPanel rowsPanel;
         private readonly Label privacyLabel;
         private readonly GlyphButtonControl returnButton;
+        private bool systemRoundedCorners;
 
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
@@ -62,9 +63,12 @@ namespace UsagePeek
                 FontStyle.Regular);
             subtitleLabel.ForeColor = UiColors.Muted;
             subtitleLabel.Location = new Point(74, 47);
-            subtitleLabel.Text = "本机累计 · 按 Token 分组";
+            subtitleLabel.Text = snapshot != null && snapshot.ProviderId == "antigravity"
+                ? "Antigravity 本机累计 · 按 Token 分组"
+                : "本机累计 · 按 Token 分组";
 
             GlyphButtonControl closeButton = new GlyphButtonControl("×", false);
+            closeButton.VisualStyle = GlyphButtonStyle.Ghost;
             closeButton.Size = new Size(30, 30);
             closeButton.Location = new Point(380, 25);
             closeButton.Font = new Font("Segoe UI", 13f, FontStyle.Regular);
@@ -160,6 +164,13 @@ namespace UsagePeek
             }
         }
 
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            systemRoundedCorners = UiTheme.TryApplyRoundedCorners(this);
+            UpdateRoundedRegion();
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -170,7 +181,7 @@ namespace UsagePeek
             Rectangle borderBounds = new Rectangle(
                 0, 0, logicalWidth - 1, logicalHeight - 1);
             using (GraphicsPath borderPath = UiDrawing.RoundedRectangle(
-                borderBounds, 19))
+                borderBounds, systemRoundedCorners ? 8 : 19))
             using (Pen border = new Pen(UiColors.Border))
             {
                 e.Graphics.DrawPath(border, borderPath);
@@ -287,6 +298,16 @@ namespace UsagePeek
             {
                 return;
             }
+            if (systemRoundedCorners)
+            {
+                Region previousRegion = Region;
+                if (previousRegion != null)
+                {
+                    Region = null;
+                    previousRegion.Dispose();
+                }
+                return;
+            }
 
             using (GraphicsPath path = UiDrawing.RoundedRectangle(
                 new Rectangle(0, 0, Width, Height), ScaleLogical(20)))
@@ -330,29 +351,21 @@ namespace UsagePeek
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
             int logicalWidth = UiDrawing.LogicalWidth(this);
-            using (Pen border = new Pen(UiColors.Border))
+            int logicalHeight = UiDrawing.LogicalHeight(this);
+            UiDrawing.DrawAppleCard(e.Graphics, new Rectangle(0, 0, logicalWidth - 1, logicalHeight - 2), 13);
+
             using (Font modelFont = UiDrawing.LogicalFont(
-                this, "Segoe UI", 9.2f, FontStyle.Regular))
+                this, "Segoe UI", 9.2f, FontStyle.Bold))
             using (Font percentFont = UiDrawing.LogicalFont(
                 this, "Segoe UI", 9.4f, FontStyle.Bold))
             using (Font tokensFont = UiDrawing.LogicalFont(
                 this, "Microsoft YaHei UI", 7.4f, FontStyle.Regular))
-            using (SolidBrush modelBrush = new SolidBrush(
-                UiColors.Text))
-            using (SolidBrush percentBrush = new SolidBrush(
-                UiColors.Text))
-            using (SolidBrush mutedBrush = new SolidBrush(
-                UiColors.Muted))
-            using (SolidBrush warningBrush = new SolidBrush(
-                UiColors.Warning))
-            using (SolidBrush trackBrush = new SolidBrush(
-                UiColors.Track))
-            using (SolidBrush fillBrush = new SolidBrush(
-                UiColors.Accent))
+            using (SolidBrush modelBrush = new SolidBrush(UiColors.Text))
+            using (SolidBrush percentBrush = new SolidBrush(UiColors.Text))
+            using (SolidBrush mutedBrush = new SolidBrush(UiColors.Muted))
+            using (SolidBrush warningBrush = new SolidBrush(UiColors.Warning))
             using (StringFormat modelFormat = new StringFormat())
             {
-                e.Graphics.DrawLine(border, 0, 1, logicalWidth, 1);
-
                 modelFormat.Trimming = StringTrimming.EllipsisCharacter;
                 modelFormat.FormatFlags = StringFormatFlags.NoWrap;
                 string model = string.IsNullOrWhiteSpace(usage.Model)
@@ -368,24 +381,29 @@ namespace UsagePeek
                 SizeF percentSize = e.Graphics.MeasureString(
                     percentage, percentFont);
                 e.Graphics.DrawString(percentage, percentFont, percentBrush,
-                    logicalWidth - percentSize.Width - 14, 8);
+                    logicalWidth - percentSize.Width - 14, 9);
 
                 string tokens = DisplayFormatting.FormatTokens(
                     Math.Max(0L, usage.TotalTokens)) + " tokens" +
                     (usage.HasPriceEstimate == false ? " · 价格待补充" : string.Empty);
                 e.Graphics.DrawString(tokens, tokensFont,
                     usage.HasPriceEstimate == false ? warningBrush : mutedBrush,
-                    14, 31);
+                    14, 30);
 
-                Rectangle track = new Rectangle(14, 54,
-                    Math.Max(1, logicalWidth - 28), 4);
-                e.Graphics.FillRectangle(trackBrush, track);
-                int fillWidth = (int)Math.Round(track.Width *
-                    Math.Min(100d, Math.Max(0d, usage.Percentage)) / 100d);
-                if (fillWidth > 0)
+                const int barY = 51;
+                const int inset = 16;
+                int length = Math.Max(1, logicalWidth - inset * 2);
+                using (Pen trackPen = new Pen(UiColors.Track, 5.5f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                    e.Graphics.DrawLine(trackPen, inset, barY, inset + length, barY);
+                float ratio = (float)(Math.Min(100d, Math.Max(0d, usage.Percentage)) / 100d);
+                if (ratio > 0f)
                 {
-                    e.Graphics.FillRectangle(fillBrush,
-                        new Rectangle(track.X, track.Y, fillWidth, track.Height));
+                    float endX = inset + Math.Max(2f, length * ratio);
+                    using (LinearGradientBrush grad = new LinearGradientBrush(
+                        new RectangleF(inset, barY - 3, Math.Max(4f, length), 6),
+                        UiColors.AccentCyan, UiColors.Accent, LinearGradientMode.Horizontal))
+                    using (Pen fillPen = new Pen(grad, 5.5f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                        e.Graphics.DrawLine(fillPen, inset, barY, endX, barY);
                 }
             }
         }

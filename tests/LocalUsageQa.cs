@@ -24,6 +24,7 @@ internal static class LocalUsageQa
             VerifiesCategorizedHistory(Path.Combine(root, "categorized"));
             VerifiesConversationRanking(Path.Combine(root, "conversations"));
             VerifiesEstimateLedgerTotals(Path.Combine(root, "estimate-ledger"));
+            VerifiesAutomaticPriceBackfill(Path.Combine(root, "automatic-price"));
             VerifiesQuotaHistory(Path.Combine(root, "quota-history"));
             VerifiesLiveTps(Path.Combine(root, "tps"));
         }
@@ -333,6 +334,61 @@ internal static class LocalUsageQa
         Check(reloaded.EstimateTotals.AddedUsd == totals.AddedUsd && reloaded.EstimateTotals.BackfilledUsd == totals.BackfilledUsd &&
             reloaded.EstimateTotals.AddedTokens == totals.AddedTokens && reloaded.EstimateTotals.BackfilledTokens == totals.BackfilledTokens,
             "repeated and restarted scans do not count a cost change twice");
+    }
+
+    private static void VerifiesAutomaticPriceBackfill(string root)
+    {
+        const string official = "### Standard pricing data\n" +
+            "| Model | Short context input | Short context output | Short context cached input | Short context 30m write | Short context 12h write | Long context input | Long context output | Long context cached input | Long context 30m write | Long context 12h write |\n" +
+            "| gpt-priced-fixture | $3 | $12 | $0.30 | $3.75 | $7.50 | $6 | $18 | $0.60 | $7.50 | $15 |\n" +
+            "| Model | Input | Output | Cached input |\n" +
+            "| gpt-no-cache-fixture | $2 | $10 | - |\n\n" +
+            "### Batch pricing data\n| Model | Input | Output | Cached input |\n" +
+            "| gpt-batch-only-fixture | $1 | $3 | $0.10 |\n\n" +
+            "Specialized models\nStandard\n### Grouped Pricing Table data\n" +
+            "| Category | Model | Input | Output | Cached input |\n| Codex | gpt-codex-fixture | $2 | $6 | $0.20 |\n\n" +
+            "Fast\n### Grouped Pricing Table data\n" +
+            "| Category | Model | Input | Output | Cached input |\n| Codex | gpt-codex-fixture | $4 | $12 | $0.40 |\n";
+        Dictionary<string, ModelTokenPrice> parsed = OpenAiModelPrices.Parse(official);
+        Check(parsed.Count == 3 && parsed["gpt-codex-fixture"].Output == 6m &&
+            parsed["gpt-priced-fixture"].LongCacheWrite == 7.5m && !parsed["gpt-no-cache-fixture"].Cached.HasValue,
+            "auto-pricing uses Standard text-token rates, including long-context rates, with missing cells preserved");
+
+        string sessions = Path.Combine(root, "sessions");
+        Directory.CreateDirectory(sessions);
+        string rollout = Path.Combine(sessions, "old.jsonl");
+        string ledgerPath = Path.Combine(root, "usage-ledger.json");
+        string pricePath = Path.Combine(root, "openai-pricing.md");
+        DateTime at = DateTime.Today.AddHours(12);
+        File.WriteAllLines(rollout, new[]
+        {
+            Context("gpt-priced-fixture"), Token(Stamp(at), 300000, 10000, 50000, 350000)
+                .Replace("\"cache_write_input_tokens\":0", "\"cache_write_input_tokens\":1000")
+        });
+        int downloads = 0;
+        OpenAiModelPrices prices = new OpenAiModelPrices(pricePath, delegate { downloads++; return official; });
+        LocalUsageScanner scanner = new LocalUsageScanner(root, ledgerPath, null, prices);
+        LocalTokenUsageSnapshot before = scanner.Scan();
+        Check(before.Lifetime.TotalTokens == 350000 && before.Lifetime.PricedTokens == 0,
+            "unpriced events are recorded while the price request runs separately");
+        prices.RefreshIfDueAsync().GetAwaiter().GetResult();
+        File.Delete(rollout);
+        LocalTokenUsageSnapshot backfilled = scanner.Scan();
+        Check(backfilled.Lifetime.TotalTokens == 350000 && backfilled.Lifetime.PricedTokens == 350000 &&
+            backfilled.Lifetime.EstimatedCostUsd == 2.6475m && backfilled.ModelUsage[0].HasPriceEstimate == true &&
+            backfilled.EstimateTotals.BackfilledTokens == 350000 && backfilled.EstimateTotals.AddedTokens == 0 &&
+            backfilled.EstimateTotals.BackfilledUsd == 2.6475m && downloads == 1,
+            "published long-context price backfills an old event once even when its original log is gone");
+
+        File.SetLastWriteTimeUtc(pricePath, DateTime.UtcNow.AddDays(-2));
+        OpenAiModelPrices offline = new OpenAiModelPrices(pricePath, delegate { return "<html>unavailable</html>"; });
+        offline.RefreshIfDueAsync().GetAwaiter().GetResult();
+        Check(offline.GetCached().ContainsKey("gpt-priced-fixture"),
+            "an unrecognized pricing response leaves the last validated cache available");
+        LocalTokenUsageSnapshot restarted = new LocalUsageScanner(root, ledgerPath, null, offline).Scan();
+        Check(restarted.Lifetime.EstimatedCostUsd == 2.6475m && restarted.EstimateTotals.BackfilledUsd == 2.6475m &&
+            restarted.EstimateTotals.BackfilledTokens == 350000 && restarted.ModelUsage[0].HasPriceEstimate == true,
+            "repeated and offline scans preserve the posted cost and the reconciliation totals");
     }
 
     private static string SourceMeta(DateTime start, string source, long? boundary = null, string id = null)

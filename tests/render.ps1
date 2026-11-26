@@ -59,10 +59,13 @@ $dpi = if ($args.Count -gt 2) { $args[2] } else { '0' }
     (Join-Path $root 'AdditionalUsageReader.cs') `
     (Join-Path $root 'AntigravityUsageDatabase.cs') `
     (Join-Path $root 'SourceQuotaStatusLine.cs') `
+    (Join-Path $root 'AntigravityDesktopStatus.cs') `
     (Join-Path $root 'ModelUsageForm.cs') `
     (Join-Path $root 'UsageHistoryForm.cs') `
     (Join-Path $root 'UsageBreakdownForm.cs') `
     (Join-Path $root 'LocalUsageScanner.cs') `
+    (Join-Path $root 'OpenAiModelPrices.cs') `
+    (Join-Path $root 'AntigravityModelPrices.cs') `
     (Join-Path $root 'UsageCache.cs') `
     (Join-Path $root 'QuotaHistory.cs') `
     (Join-Path $root 'AboutForm.cs') `
